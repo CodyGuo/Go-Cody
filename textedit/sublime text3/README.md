@@ -5,7 +5,7 @@
 ## 1. 插件
 名称 | 说明
 ------------- | -------------
-`SublimeGit` |  用于git提交代码到github，Ctrl + Shift + P --> git quick add;git quick commit;git push current branch  
+`SublimeGit` |  用于git提交代码到github，Ctrl + Shift + P --> git quick add，git quick commit，git push current branch  
 `Anaconda` | 代码自动提示和补全
 `ConvertToUTF8` | 支持UTF8编码的代码
 `SublimeLinter` | 代码高亮显示
