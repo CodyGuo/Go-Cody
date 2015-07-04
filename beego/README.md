@@ -6,8 +6,8 @@
 * github地址: https://github.com/astaxie/beego
 * 文档教程地址: https://github.com/astaxie/build-web-application-with-golang  
   https://github.com/Unknwon/go-web-foundation  
-
 * 视频教程地址: http://www.tudou.com/home/golang/item  
+* 前端开发框架Bootstrap: http://www.bootcss.com/
 
 ## 2. sqlite3
 * 教程内容来自 http://my.oschina.net/Obahua/blog/129689  
