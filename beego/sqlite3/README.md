@@ -9,5 +9,5 @@ windows、linux在安装go-sqlite3时遇到的问题
   ![](https://github.com/CodyGuo/Go-Cody/blob/master/beego/sqlite3/image/go-sqlite3-err.png)  
 * 2> 经过无闻的帮助，找到了原因是cgo被禁用了。  
  ![](https://github.com/CodyGuo/Go-Cody/blob/master/beego/sqlite3/image/go%20env%20err.png)
-* 3> 正确的cgo配置如下，set CGO_ENABLED=1。
+* 3> 正确的cgo配置如下，set CGO_ENABLED=1，windows下修改环境变量即可。
  ![](https://github.com/CodyGuo/Go-Cody/blob/master/beego/sqlite3/image/go%20env%20ok.jpg)
