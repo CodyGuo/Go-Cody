@@ -5,4 +5,4 @@ windows、linux使用github时遇到的问题
 * 教程内容来自 https://github.com/guodongxiaren  
 
 ### Emoji表情
-* [Emoji表情](https://github.com/CodyGuo/Go-Cody/blob/master/github/README/emoji.md)
+* [Emoji表情](https://github.com/CodyGuo/Go-Cody/blob/master/github/README/emoji.md "Emoji表情")
