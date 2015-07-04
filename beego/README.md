@@ -10,8 +10,15 @@
 * 前端开发框架Bootstrap
 : http://www.bootcss.com/
 
-## 2. sqlite3
+## 2. beego需要安装的包
+* go get github.com/beego/bee
+* go get github.com/Unknwon/com
+* go get github.com/coocood/qbs
+* go get github.com/astaxie/beego
+* go get github.com/mattn/go-sqlite3
+
+## 3. sqlite3
 * 教程内容来自 http://my.oschina.net/Obahua/blog/129689  
 
-### 2.1. go-sqlite3的安装
+### 3.1. go-sqlite3的安装
 * [go-sqlite3的安装](https://github.com/CodyGuo/Go-Cody/blob/master/beego/sqlite3/README.md "go-sqlite3的安装")  
