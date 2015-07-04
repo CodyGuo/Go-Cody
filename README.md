@@ -12,5 +12,5 @@
 ## 2. github 
 * Git是一个分布式的版本控制系统。  
 
-### 1.1. README
+### 2.1. README
 * [README](https://github.com/CodyGuo/Go-Cody/blob/master/github/README/README.md "README")  
