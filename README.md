@@ -18,5 +18,5 @@
 ## 3. textedit 
 * 代码编辑器。  
 
-### 2.1. sublime text3
+### 3.1. sublime text3
 * [sublime text3](https://github.com/CodyGuo/Go-Cody/blob/master/textedit/sublime%20text3/README.md "sublime text3")   
