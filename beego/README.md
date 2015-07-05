@@ -7,8 +7,8 @@
 * 文档教程地址: https://github.com/astaxie/build-web-application-with-golang  
   https://github.com/Unknwon/go-web-foundation  
 * 视频教程地址: http://www.tudou.com/home/golang/item  
-* 前端开发框架Bootstrap
-: http://www.bootcss.com/
+* 前端开发框架Bootstrap: http://www.bootcss.com/
+* 静态文件CDN: http://www.staticfile.org/
 
 ## 2. beego需要安装的包
 * go get github.com/beego/bee
