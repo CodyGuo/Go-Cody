@@ -7,12 +7,12 @@
 http://www.cnsecer.com/3976.html  
 http://www.daqianduan.com/4820.html  
 http://www.cnblogs.com/Rising/p/3741116.html  
-http://www.cnblogs.com/dudumao/p/4054086.html  
+http://www.cnblogs.com/dudumao/p/4054086.html    
+
 ----------------------------------------------------------
 名称 | 说明 | 配置详解
 ------------- | ------------- | -------------
-`SublimeGit` |  用于git提交代码到github，Ctrl + Shift + P --> git quick add，git quick commit，git push current branch | 
-`Anaconda` | 代码自动提示和补全 | 
+`SublimeGit` |  用于git提交代码到github | Ctrl + Shift + P --> git quick add，git quick commit，git push current branch`Anaconda` | 代码自动提示和补全 | 
 `ConvertToUTF8` | 支持UTF8编码的代码 | 
 `SublimeLinter` | 代码高亮显示 | 
 `CSS Format` | 修改user配置后，可以保存CSS时自动格式化 | 
