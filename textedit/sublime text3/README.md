@@ -4,10 +4,10 @@
 # 目录
 ## 1. 插件
     常用插件安装：
-    http://www.cnsecer.com/3976.html
-    http://www.daqianduan.com/4820.html
-    http://www.cnblogs.com/Rising/p/3741116.html
-    http://www.cnblogs.com/dudumao/p/4054086.html
+    [http://www.cnsecer.com/3976.html](http://www.cnsecer.com/3976.html)
+    [http://www.daqianduan.com/4820.html](http://www.daqianduan.com/4820.html)
+    [http://www.cnblogs.com/Rising/p/3741116.html](http://www.cnblogs.com/Rising/p/3741116.html)
+    [http://www.cnblogs.com/dudumao/p/4054086.html](http://www.cnblogs.com/dudumao/p/4054086.html)
 
 ----------------------------------------------------------
 名称 | 说明 | 配置详解
@@ -30,9 +30,8 @@
 
 ## 2. 常见问题
 ### 2.1 Tag安装后不能使用Ctrl + Alt + F 进行格式化
-    解决方法来自: http://www.java123.net/v/934921.html
-    解决方法：在Github上下载压缩包版手动安装https://github.com/SublimeText/Tag 将解压的Tag-st3放在sublime
-    text目录\Data\Packages下，重启快捷键能用。
+    解决方法来自: [http://www.java123.net/v/934921.html](http://www.java123.net/v/934921.html)
+    解决方法：在Github上下载压缩包版手动安装[https://github.com/SublimeText/Tag](https://github.com/SublimeText/Tag) 将解压的Tag-st3放在sublime text目录\Data\Packages下，重启快捷键能用。
 
 ### 2.2 Sublime text3 插件ColorPicker(调色板)不能使用快捷键
     http://www.java123.net/v/946446.html
