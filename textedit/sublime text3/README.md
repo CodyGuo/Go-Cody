@@ -3,7 +3,7 @@
 
 # 目录
 ## 1. 插件
-* 常用插件安装：
+  常用插件安装：
 * http://www.cnsecer.com/3976.html
 * http://www.daqianduan.com/4820.html
 * http://www.cnblogs.com/Rising/p/3741116.html
@@ -180,7 +180,7 @@
         "format_on_save": true,
     }
 
-### 2.7 Preferences-->Package Settings-->CTags-->Settings-User:
+### 2.8 Preferences-->Package Settings-->CTags-->Settings-User:
     {
         // Enable debugging
         "debug": false,
