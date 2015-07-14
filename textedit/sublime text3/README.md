@@ -79,9 +79,89 @@
 
 ### 2.6 Preferences--> Key Binbdings-User:
     [
-        { "keys": ["ctrl+f"], "command": "show_panel", "args": {"panel": "find", "reverse": false} },
+        //=======================我的快捷键=======================//
+        {"keys": ["f8"], "command": "run_existing_window_command", "caption": "SublimeREPL: Python - RUN current file", "args": {"id": "repl_python_run", "file": "config/Python/Main.sublime-menu"}},
         // 删除当前行
-        *{ "keys": ["ctrl+d"], "command":"run_macro_file", "args": {"file":"Packages/Default/Delete Line.sublime-macro"} },
+        { "keys": ["ctrl+d"], "command":"run_macro_file", "args": {"file":"Packages/Default/Delete Line.sublime-macro"} },
+        // 自动对齐
+        { "keys": ["ctrl+shift+a"], "command": "alignment" },
+        // 复制选中行到行后
+        { "keys": ["ctrl+alt+down"], "command":"duplicate_line" },
+        // 选词(按住-继续选择下个相同的字符串)
+        { "keys": ["ctrl+g"], "command":"find_under_expand" },
+        // gb一次选中所有的
+        { "keys": ["ctrl+g", "ctrl+b"],"command": "find_all_under" },
+        // 自动提示、补全
+        { "keys": ["alt+/"], "command":"auto_complete" },
+        { "keys": ["alt+/"], "command":"replace_completion_with_auto_complete", "context":
+        [
+        { "key": "last_command", "operator":"equal", "operand": "insert_best_completion" },
+        { "key": "auto_complete_visible", "operator":"equal", "operand": false },
+        { "key": "setting.tab_completion", "operator":"equal", "operand": true }
+        ]
+        },
+        // 与上行互换
+        { "keys": ["alt+up"], "command":"swap_line_up" },
+        // 与下行互换
+        { "keys": ["alt+down"], "command":"swap_line_down" },
+        { "keys": ["alt+/","alt+/"], "command":"insert_best_completion" },
+        //与tab键冲突，秒之
+        { "keys": ["shift+tab"], "command":"insert_best_completion", "args": {"default":"\t", "exact": true} },
+        { "keys": ["shift+tab"], "command":"insert_best_completion", "args": {"default":"\t", "exact": false},
+        "context":
+        [
+        { "key": "setting.tab_completion", "operator":"equal", "operand": true }
+        ]
+        },
+        { "keys": ["shift+tab"], "command":"replace_completion_with_next_completion", "context":
+        [
+        { "key": "last_command", "operator":"equal", "operand": "insert_best_completion" },
+        { "key": "setting.tab_completion", "operator":"equal", "operand": true }
+        ]
+        },
+        { "keys": ["shift+tab"], "command":"reindent", "context":
+        [
+        { "key": "setting.auto_indent", "operator":"equal", "operand": true },
+        { "key": "selection_empty", "operator":"equal", "operand": true, "match_all": true },
+        { "key": "preceding_text", "operator":"regex_match", "operand": "^$","match_all": true },
+        { "key": "following_text", "operator":"regex_match", "operand": "^$","match_all": true }
+        ]
+        },
+        { "keys": ["shift+tab"], "command":"indent", "context":
+        [
+        { "key": "text", "operator":"regex_contains", "operand": "\n" }
+        ]
+        },
+        { "keys": ["shift+tab"], "command":"next_field", "context":
+        [
+        { "key": "has_next_field", "operator":"equal", "operand": true }
+        ]
+        },
+        { "keys": ["shift+tab"], "command":"commit_completion", "context":
+        [
+        { "key": "auto_complete_visible" },
+        { "key": "setting.auto_complete_commit_on_tab" }
+        ]
+        },
+        //移动光标
+        { "keys": ["alt+l"], "command": "move","args": {"by": "characters", "forward":false} },
+        { "keys": ["alt+r"], "command": "move","args": {"by": "characters", "forward":true} },
+        { "keys": ["alt+u"], "command": "move","args": {"by": "lines", "forward":false} },
+        { "keys": ["alt+d"], "command": "move","args": {"by": "lines", "forward":true} },
+        { "keys": ["shift+alt+l" ], "command":"move", "args": {"by": "characters","forward": false, "extend": true} },
+        { "keys": ["shift+alt+r"], "command":"move", "args": {"by": "characters","forward": true, "extend": true} },
+        { "keys": ["shift+alt+u" ], "command":"move", "args": {"by": "lines","forward": false, "extend": true} },
+        { "keys": ["shift+alt+d" ], "command":"move", "args": {"by": "lines","forward": true, "extend": true} },
+        //移动光标到行首或行末
+        { "keys": ["alt+b"], "command":"move_to", "args": {"to": "bol","extend": false} },
+        { "keys": ["alt+e"], "command":"move_to", "args": {"to": "eol","extend": false} },
+        { "keys": ["shift+alt+b"], "command":"move_to", "args": {"to": "bol","extend": true} },
+        { "keys": ["shift+alt+e"], "command":"move_to", "args": {"to": "eol","extend": true} },
+        //滚屏
+        { "keys": ["alt+g"], "command":"scroll_lines", "args": {"amount": 1.0 } },
+        { "keys": ["alt+h"], "command":"scroll_lines", "args": {"amount": -1.0 } },
+        //缩进
+        { "keys": ["shift+tab"], "command":"unindent" },
     ]
 
     //=======================系统自带快捷键=======================//
