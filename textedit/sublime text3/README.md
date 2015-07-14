@@ -37,7 +37,7 @@
 * http://www.java123.net/v/946446.html
 
 ### 2.3 保存Go文件时格式化tab为spaces
-    打开Preferences-->Package Settings-->GoSublime-->Settings Default-->修改"fmt_tab_indent": false，为false。
+    打开Preferences-->Package Settings-->GoSublime-->Settings Default-->修改"fmt_tab_indent": false，为false,"tab_size": 4,。
 
 ### 2.4 GoSublime --> User Settings -->:
     {
@@ -74,7 +74,7 @@
         "atomic_save": true,
         "auto_find_in_selection": true,
         "highlight_modified_tabs": true,
-        "always_prompt_for_file_reload": tr*ue,
+        "always_prompt_for_file_reload": true,
     }
 
 ### 2.6 Preferences--> Key Binbdings-User:
