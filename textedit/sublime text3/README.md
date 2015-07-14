@@ -26,6 +26,7 @@
 `Side Bar` | 美化左侧导航栏 | http://blog.csdn.net/zm2714/article/details/8064259
 `GoSublime` | Go | http://my.oschina.net/mrcuix/blog/153249
 `ColorPicker` | 调色板 |
+`TortoiseSVN` | SVN插件 |
 
 
 ## 2. 常见问题
