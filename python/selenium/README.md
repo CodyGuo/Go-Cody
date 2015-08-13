@@ -7,3 +7,4 @@
     %USERPROFILE%\AppData\Roaming\Mozilla\Firefox\profiles.ini
     修改profiles.ini
     修改IsRelative=1->IsRelative=0
+    修改[Profile0]->[Profile]
