@@ -23,7 +23,7 @@
 `DocBlockr` | 代码自动注释生成 | http://blog.asdasd.cn/?p=740
 `Emmet` | (前身为 Zen Coding) 是一个能大幅度提高前端开发效率的一个工具 | http://www.w3cplus.com/tools/emmet-cheat-sheet.html
 `SublimeGDB` | Go使用GDB断点调试 | http://www.cnblogs.com/yourihua/archive/2012/11/12/2766763.html
-`Side Bar` | 美化左侧导航栏 | http://blog.csdn.net/zm2714/article/details/8064259
+`Side Bar` | 美化左侧导航栏 | http://blog.csdn.net/zm2714/article/details/8064259 | SideBarEnhancements
 `GoSublime` | Go | http://my.oschina.net/mrcuix/blog/153249
 `ColorPicker` | 调色板 |
 `TortoiseSVN` | SVN插件 |
