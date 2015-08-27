@@ -304,3 +304,20 @@
         // Set to false so as not to select searched symbol (in Vintage mode)
         "select_searched_symbol": true
     }
+
+### 2.9 Tools-->Build System-->python34:
+        {
+         "shell_cmd": "D:\\Python34\\python.exe \"-u\" \"${file}\"",
+         "file_regex": "^[ ]*File \"(...*?)\", line ([0-9]*)",
+         "env": {"PYTHONIOENCODING": "utf8"},
+         "selector": "source.python",
+        }
+
+### 3.1 Tools-->Build System-->go:
+        {
+         "shell_cmd": "D:\\go\\bin\\go.exe \"run\" \"${file}\"",
+         "file_regex": "^[ ]*File \"(...*?)\", line ([0-9]*)",
+         "working_dir": "${file_path}",
+         "selector": "source.go",
+        }
+
