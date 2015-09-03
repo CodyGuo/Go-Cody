@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\Directory\Background\shell\Build]
+@="Go Build"
+[HKEY_CLASSES_ROOT\Directory\Background\shell\Build\Command]
+@="cmd.exe /k go build"
+
+
