@@ -4,7 +4,8 @@ import (
     "fmt"
     "log"
     // "strconv"
-    "skinh"
+    "github.com/codyguo/skinh"
+    "strings"
     "time"
 
     "github.com/lxn/walk"
@@ -127,27 +128,26 @@ func main() {
 
                         ToolTipText: "提示信息，请填写数字",
                         OnClicked: func() {
-                            if err := db.Submit(); err != nil {
-                                // outTE.SetText("请选择一个模式...")
-                                mw.openAddd_Triggered("请选择一个模式...")
-                                // return
-                            }
-                            fmt.Println("-----ok----------")
-                            if Input.Int == 1 {
-                                // outTE.SetText("注册为控制器.")
 
-                                // lineE1.SetText(strconv.FormatFloat(numB1.Value(), 'f', 2, 32))
-                                mw.openAddd_Triggered("控制器注册成功.")
-                                fmt.Println("注册为控制器.")
-                            } else if Input.Int == 2 {
-                                // outTE.SetText("注册为服务器.")
-                                mw.openAddd_Triggered("服务器注册成功.")
-                                fmt.Println("注册为服务器")
-                                // fmt.Println(numB1.Font())
-                            } else if Input.Int == 3 {
-                                // inTE.SetText("注册为控制器+服务器.")
-                                fmt.Println("注册为控制器+服务器")
-                                mw.openAddd_Triggered("控制器+服务器注册成功.")
+                            fmt.Println("-----ok----------")
+                            InputIp.ServerLists = model.GetChecked()
+                            var tmpListIp []string
+                            if len(InputIp.ServerLists) > 0 {
+                                fmt.Println("--------------------选中了哪个-----------")
+                                // fmt.Print(InputIp.ServerLists[0].Ip)
+                                for index, _ := range InputIp.ServerLists {
+                                    tmpListIp = append(tmpListIp, InputIp.ServerLists[index].Ip)
+                                    // if len(InputIp.ServerLists) == 1 {
+                                    //     tmpListIp = InputIp.ServerLists[index].Ip
+                                    // } else if len(InputIp.ServerLists) == 2 {
+                                    //     tmpListIp = tmpListIp + " , " + InputIp.ServerLists[index].Ip
+                                    // } else {
+                                    //     tmpListIp = tmpListIp + " , " + InputIp.ServerLists[index].Ip
+                                    // }
+
+                                }
+                                fmt.Println(tmpListIp)
+                                mw.openAddd_Triggered(strings.Join(tmpListIp, ", "))
                             }
                         },
                     },
@@ -192,3 +192,51 @@ func (mw *MyMainWindow) addAction_ServerIp() int {
     return 0
 
 }
+
+// func (mw *MyMainWindow) addServerStart() {
+//     if err := db.Submit(); err != nil {
+//         // outTE.SetText("请选择一个模式...")
+//         mw.openAddd_Triggered("请选择一个模式...")
+//         // return
+//     }
+//     fmt.Println("-----ok----------")
+
+//     Input.ServerLists = model.GetChecked()
+
+//     if len(Input.ServerLists) > 0 {
+//         fmt.Println("--------------------选中了哪个-----------")
+//         // fmt.Print(Input.ServerLists[0].Ip)
+//         // for index, _ := range Input.ServerLists {
+//         //     tmpListIp = strings.Join(string(Input.ServerLists[index].Ip), ",")
+//         // }
+//     }
+//     // mw.openAddd_Triggered(tmpListIp)
+//     // if Input.Int == 1 {
+//     //     // outTE.SetText("注册为控制器.")
+
+//     //     // lineE1.SetText(strconv.FormatFloat(numB1.Value(), 'f', 2, 32))
+//     //     mw.openAddd_Triggered("控制器注册成功.")
+//     //     fmt.Println("注册为控制器.")
+//     // } else if Input.Int == 2 {
+//     //     // outTE.SetText("注册为服务器.")
+//     //     mw.openAddd_Triggered("服务器注册成功.")
+//     //     fmt.Println("注册为服务器")
+//     //     // fmt.Println(numB1.Font())
+//     // } else if Input.Int == 3 {
+//     //     // inTE.SetText("注册为控制器+服务器.")
+//     //     fmt.Println("注册为控制器+服务器")
+//     //     mw.openAddd_Triggered("控制器+服务器注册成功.")
+//     // }
+
+//     // 读取任务
+//     // Input.ServerLists = model.GetChecked()
+
+//     // if len(Input.ServerLists) == 0 {
+//     //     log.Println(" *     —— 亲，任务列表不能为空哦~")
+//     //     return
+//     // }
+
+//     // fmt.Print(&Input.ServerLists)
+//     // mw.openAddd_Triggered(Input.ServerLists)
+
+// }

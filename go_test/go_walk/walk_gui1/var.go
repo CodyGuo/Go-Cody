@@ -31,6 +31,7 @@ var (
     iplistNum int
 
     model ServerListModel
+    m     *walk.MainWindow
 )
 
 const (
@@ -80,3 +81,9 @@ type ServerListModel struct {
     sortColumn int
     items      []*ServerList
 }
+
+type Inputor struct {
+    ServerLists []*ServerList
+}
+
+var InputIp = &Inputor{}

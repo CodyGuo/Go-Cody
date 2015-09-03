@@ -47,6 +47,17 @@ func (m *ServerListModel) SetChecked(row int, checked bool) error {
     return nil
 }
 
+//获取被选中的结果
+func (m *ServerListModel) GetChecked() []*ServerList {
+    rc := []*ServerList{}
+    for idx, item := range m.items {
+        if m.Checked(idx) {
+            rc = append(rc, item)
+        }
+    }
+    return rc
+}
+
 // Called by the TableView to sort the model.
 func (m *ServerListModel) Sort(col int, order walk.SortOrder) error {
     m.sortColumn, m.sortOrder = col, order
@@ -118,6 +129,7 @@ func (m *ServerListModel) AddServerIp(ip, remark string) {
     m.PublishRowsReset()
 
     iplistNum += 1
+
 }
 
 func RunServerListDialog(owner walk.Form, iplist *IpList) (int, error) {
