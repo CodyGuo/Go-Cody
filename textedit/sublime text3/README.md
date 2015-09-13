@@ -321,3 +321,10 @@
          "selector": "source.go",
         }
 
+### 3.2 GoSublime --> Default Settings -->:
+        "use_gs_gopath": false,
+        "fmt_enabled": true,
+        "fmt_tab_indent": false,
+        "fmt_tab_width": 4,
+        "autocomplete_snippets": true,
+        "autocomplete_closures": true,
