@@ -65,9 +65,6 @@ func MuxShell(w io.Writer, r, e io.Reader) (chan<- string, <-chan string) {
             // } else {
             // }
             t += n
-            // out <- string(buf[:t])
-            // out <- string(buf[:t])
-            // t = 0
             if buf[t-2] == '$' { //assuming the $PS1 == 'sh-4.3$ '
                 out <- string(buf[:t])
                 t = 0
@@ -82,7 +79,7 @@ func main() {
     config := &ssh.ClientConfig{
         User: "test",
         Auth: []ssh.AuthMethod{
-            ssh.Password("aptech"),
+            ssh.Password("root"),
         },
     }
     client, err := ssh.Dial("tcp", "192.168.119.141:22", config)
