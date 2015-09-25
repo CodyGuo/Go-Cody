@@ -33,6 +33,11 @@ func main() {
     urlMap := strings.Split(*url, "/")
     fileName := urlMap[len(urlMap)-1]
 
+    if strings.Contains(fileName, "=") {
+        splitName := strings.Split(fileName, "=")
+        fileName = splitName[len(splitName)-1]
+    }
+
     resp, err := http.Get(*url)
     if err != nil {
         log.Fatal(err)
@@ -52,6 +57,8 @@ func main() {
 
         bar := pb.New(int(sourceSiz)).SetUnits(pb.U_BYTES).SetRefreshRate(time.Millisecond * 10)
         bar.Start()
+
+        bar.ShowSpeed = true
         bar.ShowFinalTime = true
         bar.SetMaxWidth(80)
 
