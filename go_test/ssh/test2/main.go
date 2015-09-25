@@ -16,7 +16,7 @@ func main() {
             ssh.Password("123456"),
         },
     }
-    client, err := ssh.Dial("tcp", "10.10.4.100:22", config)
+    client, err := ssh.Dial("tcp", "10.10.3.100:22", config)
     if err != nil {
         panic(err)
     }
@@ -45,16 +45,15 @@ func main() {
 
     var b bytes.Buffer
     session.Stdout = &b
-    err = session.Start(cmd)
+    err = session.Shell()
     if err != nil {
-        log.Println(err)
+        log.Println("show u", err)
     }
+    w.Write([]byte("admin\n"))
+    w.Write([]byte("admin2014\n"))
+    w.Write([]byte("echo 2233 >>1.txt\n"))
 
     log.Println(b.String())
 
-    // w.Write([]byte("admin\n"))
-    // w.Write([]byte("admin2014\n"))
-    // w.Write([]byte("echo 2233 >>1.txt\n"))
-
-    // session.Wait()
+    session.Wait()
 }
