@@ -13,10 +13,10 @@ func main() {
     config := &ssh.ClientConfig{
         User: "root",
         Auth: []ssh.AuthMethod{
-            ssh.Password("123456"),
+            ssh.Password("aptech"),
         },
     }
-    client, err := ssh.Dial("tcp", "10.10.3.100:22", config)
+    client, err := ssh.Dial("tcp", "192.168.119.141:22", config)
     if err != nil {
         panic(err)
     }

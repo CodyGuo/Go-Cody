@@ -18,12 +18,9 @@ func MuxShell(w io.Writer, r, e io.Reader) (chan<- string, <-chan string) {
         for cmd := range in {
             wg.Add(1)
             w.Write([]byte(cmd + "\n"))
-            // fmt.Println(cmd)
-            if cmd == "exit" {
-                wg.Done()
-            } else {
-                wg.Wait()
-            }
+            fmt.Println("cmd:", cmd)
+
+            wg.Wait()
 
         }
     }()
@@ -65,7 +62,9 @@ func MuxShell(w io.Writer, r, e io.Reader) (chan<- string, <-chan string) {
             // } else {
             // }
             t += n
-            if buf[t-2] == '$' { //assuming the $PS1 == 'sh-4.3$ '
+
+            fmt.Println("buf[t-2]", buf[t-2])
+            if buf[t-2] == '#' { //assuming the $PS1 == 'sh-4.3$ '
                 out <- string(buf[:t])
                 t = 0
                 wg.Done()
@@ -77,9 +76,9 @@ func MuxShell(w io.Writer, r, e io.Reader) (chan<- string, <-chan string) {
 }
 func main() {
     config := &ssh.ClientConfig{
-        User: "test",
+        User: "root",
         Auth: []ssh.AuthMethod{
-            ssh.Password("root"),
+            ssh.Password("aptech"),
         },
     }
     client, err := ssh.Dial("tcp", "192.168.119.141:22", config)
