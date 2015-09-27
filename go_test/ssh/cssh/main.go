@@ -1,3 +1,16 @@
+/*
+ssh 连接双层验证的linux shell
+
+Last login: Sat Sep 26 20:11:58 2015 from 192.168.119.1
+
+                Hello, this is test cli (version 2.0).
+                Copyright 2002-2013 test Tech. Co., Ltd. All rights reserved.
+
+Login> admin
+Password:
+[root@local ~]#
+
+*/
 package main
 
 import (
@@ -25,12 +38,12 @@ var (
 func init() {
     flag.StringVar(&hostIp, "h", "", "The remote host ip.")
     flag.StringVar(&port, "port", "22", "The remote host port.")
-    flag.StringVar(&userNmae, "u", "", "The host login user name.")
-    flag.StringVar(&passWord, "p", "", "The host login user password.")
-    flag.StringVar(&iManUser, "iManu", "", "The host login iman user name.")
-    flag.StringVar(&iManPassword, "iManp", "", "The host login iman user password.")
+    flag.StringVar(&userNmae, "u", "", "The user name login host.")
+    flag.StringVar(&passWord, "p", "", "Log on to the host password.")
+    flag.StringVar(&iManUser, "iManu", "", "The user name login iMan.")
+    flag.StringVar(&iManPassword, "iManp", "", "Login iMan's password.")
     flag.StringVar(&shellCmd, "c", "", "To perform a shell command.")
-    flag.BoolVar(&debugSwitch, "d", false, "The debug statu.")
+    flag.BoolVar(&debugSwitch, "d", false, "The debug switch.")
 }
 func main() {
     flag.Parse()
@@ -134,7 +147,6 @@ func main() {
     } else {
 
         if iManLogin() {
-            // _, _, _, _, _ = <-out, <-out, <-out, <-out, <-out
             _, _, _ = <-out, <-out, <-out
         } else {
             _ = <-out
@@ -180,9 +192,6 @@ func MuxShell(w io.Writer, r, e io.Reader) (chan<- string, <-chan string) {
         for cmd := range in {
             wg.Add(1)
             w.Write([]byte(cmd + "\n"))
-            // if debugSwitch {
-            //     fmt.Println("执行命令:", cmd)
-            // }
             wg.Wait()
         }
     }()
@@ -204,13 +213,8 @@ func MuxShell(w io.Writer, r, e io.Reader) (chan<- string, <-chan string) {
             t += n
             tmpLogIn := string(buf[:t])
 
-            // if len(tmpLogIn) > 1 {
-            //     fmt.Println("tmpLogIn:", tmpLogIn[:len(tmpLogIn)-1])
-            //     fmt.Println("-------------------------------------------------------")
-            // }
-
-            //assuming the $PS1 == 'NAC>'; $PS1 == 'Password:'; $PS1 == '[test@hupu ~]$ "; $PS1 == '[root@hupu ~]# '
-            if strings.Contains(tmpLogIn, "NAC>") || strings.Contains(tmpLogIn, "Password:") ||
+            //assuming the $PS1 == 'Login>'; $PS1 == 'Password:'; $PS1 == '[test@local ~]$ "; $PS1 == '[root@local ~]# '
+            if strings.Contains(tmpLogIn, "Login>") || strings.Contains(tmpLogIn, "Password:") ||
                 strings.Contains(tmpLogIn, "$") || strings.Contains(tmpLogIn, "]#") {
                 out <- string(buf[:t])
                 t = 0
