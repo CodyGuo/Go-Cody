@@ -154,7 +154,7 @@ func main() {
                 },
             },
         },
-    }).Create(); err != nil {
+    }.Create()); err != nil {
         // log.Fatal(err)
         fmt.Println("错误来了：", err)
         log.Println(err)

@@ -1,0 +1,320 @@
+package main
+
+import (
+    "encoding/gob"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/lxn/walk"
+    . "github.com/lxn/walk/declarative"
+)
+
+var (
+    UserConfig = &User{}
+)
+
+var (
+    configFile = "config.data"
+)
+var (
+    // let *walk.LineEdit
+    // lb         *walk.Label
+    addUserBtn *walk.PushButton
+    db         *walk.DataBinder
+    ep         walk.ErrorPresenter
+    setting    *walk.Composite
+)
+
+type MyMainWindow struct {
+    *walk.MainWindow
+}
+
+type User struct {
+    UserName  string
+    Password  string
+    JobNumber string
+    Name      string
+    Email     string
+    Phone     string
+}
+
+func (u *User) LoadConfig() {
+    file, err := os.Open(configFile)
+    if err != nil {
+        log.Println("打开配置文件失败." + err.Error())
+        UserConfig.UserName = "用户名"
+        UserConfig.Password = "密码"
+        UserConfig.JobNumber = "工号"
+        UserConfig.Name = "姓名"
+        UserConfig.Email = "邮箱"
+        UserConfig.Phone = "联系电话"
+        return
+    }
+    defer file.Close()
+
+    dec := gob.NewDecoder(file)
+    err = dec.Decode(UserConfig)
+    if err != nil {
+        UserConfig.UserName = "用户名"
+        UserConfig.Password = "密码"
+        UserConfig.JobNumber = "工号"
+        UserConfig.Name = "姓名"
+        UserConfig.Email = "邮箱"
+        UserConfig.Phone = "联系电话"
+    }
+}
+
+func (u *User) SaveConfig() {
+    file, err := os.Create(configFile)
+    if err != nil {
+        log.Fatal("创建配置文件失败." + err.Error())
+    }
+    defer file.Close()
+
+    enc := gob.NewEncoder(file)
+    err = enc.Encode(UserConfig)
+    if err != nil {
+        log.Fatal("保存配置文件失败." + err.Error())
+    }
+
+}
+
+func init() {
+    UserConfig.LoadConfig()
+}
+
+func main() {
+
+    mw := new(MyMainWindow)
+
+    if err := (MainWindow{
+        AssignTo: &mw.MainWindow,
+        DataBinder: DataBinder{
+            AssignTo:       &db,
+            DataSource:     UserConfig,
+            ErrorPresenter: ErrorPresenterRef{&ep},
+        },
+        Title:   "iMan - 测试程序",
+        MinSize: Size{800, 600},
+        Layout:  VBox{},
+
+        Children: []Widget{
+            Composite{
+                AssignTo: &setting,
+                MinSize:  Size{600, 400},
+                Layout:   VBox{},
+                Children: []Widget{
+                    HSplitter{
+                        Children: []Widget{
+                            Label{
+                                // AssignTo: &lb,
+                                Text: "用户名:",
+                            },
+                            LineEdit{
+                                // AssignTo:  &let,
+                                Text: Bind("UserName"),
+                            },
+                        },
+                    },
+
+                    HSplitter{
+                        Children: []Widget{
+                            Label{
+                                // AssignTo: &lb,
+                                Text: "密码:",
+                            },
+                            LineEdit{
+                                // AssignTo:  &let,
+                                Text: Bind("Password"),
+                            },
+                        },
+                    },
+
+                    HSplitter{
+                        Children: []Widget{
+                            Label{
+                                Text: "姓名:",
+                            },
+                            LineEdit{
+                                Text: Bind("Name"),
+                            },
+                        },
+                    },
+
+                    // VSplitter{
+                    //     Children: []Widget{
+                    //         Label{
+                    //             Text: "工号:",
+                    //         },
+                    //         LineEdit{
+                    //             MaxLength: 20,
+                    //             Text:      Bind("JobNumber"),
+                    //         },
+                    //     },
+                    // },
+
+                    // Label{
+                    //     Text: "邮箱:",
+                    // },
+                    // LineEdit{
+                    //     MaxLength: 30,
+                    //     Text:      Bind("Email"),
+                    // },
+                },
+            },
+
+            Composite{
+                AssignTo: &setting,
+                MinSize:  Size{245, 20},
+                Layout:   Grid{Columns: 2},
+                Children: []Widget{
+                    PushButton{
+                        AssignTo: &addUserBtn,
+                        Text:     "删除",
+                        OnClicked: func() {
+                            if err := db.Submit(); err != nil {
+                                log.Fatal(err)
+                            }
+                            UserConfig.SaveConfig()
+                            mw.ToMsgBox()
+                            fmt.Println(UserConfig.UserName, UserConfig.Password, UserConfig.Name)
+                        },
+                    },
+                    PushButton{
+                        AssignTo: &addUserBtn,
+                        Text:     "添加",
+                        OnClicked: func() {
+                            if err := db.Submit(); err != nil {
+                                log.Fatal(err)
+                            }
+                            UserConfig.SaveConfig()
+                            mw.ToMsgBox()
+                            fmt.Println(UserConfig.UserName, UserConfig.Password, UserConfig.Name)
+                        },
+                    },
+                },
+            },
+        },
+    }.Create()); err != nil {
+        // log.Fatal(err)
+        fmt.Println("错误来了：", err)
+        log.Println(err)
+    }
+
+    // addIpBtn.SetMinMaxSize(walk.Size{30, 50}, walk.Size{50, 60})
+    // mw.SetPersistent(true)
+    mw.Run()
+}
+
+func (mw *MyMainWindow) ToMsgBox() {
+    walk.MsgBox(mw, "提示信息", "hello, add user.", walk.MsgBoxIconInformation)
+}
+
+// func main() {
+
+//     mw := new(MyMainWindow)
+
+//     // date, _ := time.Parse("2006-02-03 03:04:05", "2016-01-01 08:08:08")
+
+//     if err := (MainWindow{
+//         AssignTo: &mw.MainWindow,
+//         Title:    "iMan - 测试程序",
+//         DataBinder: DataBinder{
+//             AssignTo:   &db,
+//             DataSource: UserConfig,
+//             // ErrorPresenter: ErrorPresenterRef{&ep},
+//         },
+//         MinSize: Size{1100, 800},
+//         // MaxSize: Size{310, 270},
+//         Layout: VBox{},
+//         Children: []Widget{
+//             Composite{
+//                 AssignTo: &setting,
+//                 Layout:   Grid{Columns: 2},
+//                 Children: []Widget{
+//                     Label{
+//                         // AssignTo: &lb,
+//                         Text: "用户名:",
+//                     },
+//                     LineEdit{
+//                         // AssignTo:  &let,
+//                         MaxLength: 30,
+//                         Text:      Bind("UserName"),
+//                     },
+
+//                     Label{
+//                         // AssignTo: &lb,
+//                         Text: "密码:",
+//                     },
+//                     LineEdit{
+//                         // AssignTo:  &let,
+//                         MaxLength: 30,
+//                         Text:      Bind("Password"),
+//                     },
+
+//                     Label{
+//                         Text: "姓名:",
+//                     },
+//                     LineEdit{
+//                         MaxLength: 20,
+//                         Text:      Bind("Name"),
+//                     },
+
+//                     Label{
+//                         Text: "工号:",
+//                     },
+//                     LineEdit{
+//                         MaxLength: 20,
+//                         Text:      Bind("JobNumber"),
+//                     },
+
+//                     Label{
+//                         Text: "邮箱:",
+//                     },
+//                     LineEdit{
+//                         MaxLength: 20,
+//                         Text:      Bind("Email"),
+//                     },
+
+//                     //     Label{
+//                     //         Text: "联系电话:",
+//                     //     },
+//                     //     PushButton{
+//                     //         Text: "go",
+//                     //     },
+//                 },
+//             },
+//             Composite{
+//                 Layout: HBox{},
+//                 Children: []Widget{
+//                     Label{
+//                         Text: "联系电话:",
+//                     },
+//                     PushButton{
+//                         Text: "go",
+//                     },
+//                 },
+//             },
+//         },
+//     }.Create()); err != nil {
+//         fmt.Println("错误来了：", err)
+//         log.Println(err)
+//     }
+
+//     mw.Run()
+// }
+
+// PushButton{
+//     // AssignTo: &addUserBtn,
+//     Text: "添加",
+//     // ColumnSpan: 2,
+//     // OnClicked: func() {
+//     // if err := db.Submit(); err != nil {
+//     //     log.Fatal(err)
+//     // }
+//     // UserConfig.SaveConfig()
+//     // mw.ToMsgBox()
+//     // fmt.Println(UserConfig.UserName, UserConfig.Password, UserConfig.Name)
+//     // },
+// },

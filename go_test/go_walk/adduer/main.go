@@ -6,26 +6,12 @@ import (
     "log"
     "os"
 
+    // "strconv"
+    "github.com/codyguo/skinh"
+
     "github.com/lxn/walk"
     . "github.com/lxn/walk/declarative"
 )
-
-var (
-    UserConfig User
-)
-
-var (
-    configFile = "config.data"
-)
-
-type User struct {
-    UserName  string
-    Password  string
-    JobNumber string
-    Name      string
-    Email     string
-    Phone     string
-}
 
 func (u *User) LoadConfig() {
     file, err := os.Open(configFile)
@@ -33,7 +19,7 @@ func (u *User) LoadConfig() {
         log.Println("打开配置文件失败." + err.Error())
         UserConfig.UserName = "用户名"
         UserConfig.Password = "密码"
-        UserConfig.JobNumber = "工号"
+        UserConfig.JobNumber = 1
         UserConfig.Name = "姓名"
         UserConfig.Email = "邮箱"
         UserConfig.Phone = "联系电话"
@@ -42,11 +28,11 @@ func (u *User) LoadConfig() {
     defer file.Close()
 
     dec := gob.NewDecoder(file)
-    err = dec.Decode(&UserConfig)
+    err = dec.Decode(UserConfig)
     if err != nil {
         UserConfig.UserName = "用户名"
         UserConfig.Password = "密码"
-        UserConfig.JobNumber = "工号"
+        UserConfig.JobNumber = 1
         UserConfig.Name = "姓名"
         UserConfig.Email = "邮箱"
         UserConfig.Phone = "联系电话"
@@ -68,15 +54,184 @@ func (u *User) SaveConfig() {
 
 }
 
-func main() {
+func init() {
     UserConfig.LoadConfig()
-    fmt.Println(UserConfig.UserName)
+}
 
-    UserConfig.UserName = "hp131@hupu.net"
+func main() {
+    skinh.Attach()
+
+    mw := new(MyMainWindow)
+
+    if err := (MainWindow{
+        AssignTo: &mw.MainWindow,
+        DataBinder: DataBinder{
+            AssignTo:       &db,
+            DataSource:     UserConfig,
+            ErrorPresenter: ErrorPresenterRef{&ep},
+        },
+
+        Title:   "iMan - 测试程序",
+        MinSize: Size{260, 245},
+        Layout:  VBox{Spacing: 2},
+        Children: []Widget{
+            Composite{
+                Layout: Grid{Columns: 2, Spacing: 10},
+                Children: []Widget{
+                    VSplitter{
+                        Children: []Widget{
+                            Label{
+                                MinSize: Size{18, 0},
+                                Text:    "用户名:",
+                            },
+                        },
+                    },
+                    VSplitter{
+                        Children: []Widget{
+
+                            LineEdit{
+                                AssignTo: &ltu,
+                                MinSize:  Size{160, 0},
+                                Text:     Bind("UserName", SelRequired{}),
+                            },
+                        },
+                    },
+
+                    VSplitter{
+                        Children: []Widget{
+                            Label{
+                                MinSize: Size{18, 0},
+                                Text:    "密码:",
+                            },
+                        },
+                    },
+                    VSplitter{
+                        Children: []Widget{
+
+                            LineEdit{
+                                AssignTo:     &ltu,
+                                PasswordMode: true,
+                                MinSize:      Size{160, 0},
+                                Text:         Bind("Password"),
+                            },
+                        },
+                    },
+
+                    VSplitter{
+                        Children: []Widget{
+                            Label{
+                                MinSize: Size{18, 0},
+                                Text:    "姓名:",
+                            },
+                        },
+                    },
+                    VSplitter{
+                        Children: []Widget{
+                            LineEdit{
+                                AssignTo: &ltu,
+                                MinSize:  Size{160, 0},
+                                Text:     Bind("Name"),
+                            },
+                        },
+                    },
+
+                    VSplitter{
+                        Children: []Widget{
+                            Label{
+                                MinSize: Size{18, 0},
+                                Text:    "工号:",
+                            },
+                        },
+                    },
+                    VSplitter{
+                        Children: []Widget{
+                            NumberEdit{
+                                AssignTo: &ltj,
+                                Value:    Bind("JobNumber", Range{1, 10}),
+                            },
+                        },
+                    },
+
+                    VSplitter{
+                        Children: []Widget{
+                            Label{
+                                MinSize: Size{18, 0},
+                                Text:    "邮箱:",
+                            },
+                        },
+                    },
+                    VSplitter{
+                        Children: []Widget{
+
+                            LineEdit{
+                                AssignTo: &ltu,
+                                MinSize:  Size{160, 0},
+                                Text:     Bind("Email"),
+                            },
+                        },
+                    },
+
+                    VSplitter{
+                        Children: []Widget{
+                            Label{
+                                MinSize: Size{18, 0},
+                                Text:    "手机:",
+                            },
+                        },
+                    },
+                    VSplitter{
+                        Children: []Widget{
+
+                            LineEdit{
+                                AssignTo: &ltu,
+                                MinSize:  Size{160, 0},
+                                Text:     Bind("Phone"),
+                            },
+                        },
+                    },
+
+                    // VSplitter{},
+                    VSplitter{
+                        ColumnSpan: 2,
+                        MinSize:    Size{100, 0},
+                        Children: []Widget{
+                            LineErrorPresenter{
+                                AssignTo:   &ep,
+                                ColumnSpan: 2,
+                            },
+
+                            PushButton{
+                                AssignTo:  &addUserBtn,
+                                MinSize:   Size{90, 0},
+                                Text:      "提交",
+                                OnClicked: mw.openAddd_Triggered,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }.Create()); err != nil {
+        // log.Fatal(err)
+        fmt.Println("错误来了：", err)
+        log.Println(err)
+    }
+
+    // addIpBtn.SetMinMaxSize(walk.Size{18, 18}, walk.Size{18, 18})
+
+    mw.Run()
+    mw.Dispose()
+}
+
+func (mw *MyMainWindow) openAddd_Triggered() {
+
+    if err := db.Submit(); err != nil {
+        log.Println(err)
+        walk.MsgBox(mw, "错误提示", err.Error(), walk.MsgBoxIconError)
+
+        return
+    }
     UserConfig.SaveConfig()
-
-    fmt.Println(UserConfig.UserName, UserConfig.Password, UserConfig.Name)
-
-    fmt.Print("加载完毕.\n")
+    walk.MsgBox(mw, "提示信息", "保存用户成功.", walk.MsgBoxIconInformation)
 
 }
