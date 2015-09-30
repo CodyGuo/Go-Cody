@@ -56,9 +56,11 @@ func (u *User) SaveConfig() {
 
 func init() {
     UserConfig.LoadConfig()
+
 }
 
 func main() {
+
     skinh.Attach()
 
     mw := new(MyMainWindow)
@@ -162,9 +164,8 @@ func main() {
                     },
                     VSplitter{
                         Children: []Widget{
-
                             LineEdit{
-                                AssignTo: &ltu,
+                                AssignTo: &lte,
                                 MinSize:  Size{160, 0},
                                 Text:     Bind("Email"),
                             },
@@ -183,7 +184,7 @@ func main() {
                         Children: []Widget{
 
                             LineEdit{
-                                AssignTo: &ltu,
+                                AssignTo: &ltphone,
                                 MinSize:  Size{160, 0},
                                 Text:     Bind("Phone"),
                             },
