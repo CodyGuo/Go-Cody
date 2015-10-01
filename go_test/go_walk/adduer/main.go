@@ -56,14 +56,20 @@ func (u *User) SaveConfig() {
 
 func init() {
     UserConfig.LoadConfig()
-
 }
 
 func main() {
-
     skinh.Attach()
-
     mw := new(MyMainWindow)
+
+    // 禁止最大化
+    mw.SetMaximizeBox(false)
+
+    // 禁止最小化
+    mw.SetMinimizeBox(false)
+
+    // 固定窗体大小
+    mw.SetFixedSize(true)
 
     if err := (MainWindow{
         AssignTo: &mw.MainWindow,
@@ -72,10 +78,10 @@ func main() {
             DataSource:     UserConfig,
             ErrorPresenter: ErrorPresenterRef{&ep},
         },
-
-        Title:   "iMan - 测试程序",
-        MinSize: Size{260, 245},
-        Layout:  VBox{Spacing: 2},
+        Title:        "Cody - 测试程序",
+        ScreenCenter: true, // 屏幕居中
+        MinSize:      Size{300, 262},
+        Layout:       VBox{Spacing: 2},
         Children: []Widget{
             Composite{
                 Layout: Grid{Columns: 2, Spacing: 10},
@@ -217,7 +223,6 @@ func main() {
         fmt.Println("错误来了：", err)
         log.Println(err)
     }
-
     // addIpBtn.SetMinMaxSize(walk.Size{18, 18}, walk.Size{18, 18})
 
     mw.Run()
@@ -225,7 +230,7 @@ func main() {
 }
 
 func (mw *MyMainWindow) openAddd_Triggered() {
-
+    fmt.Println(mw.Size())
     if err := db.Submit(); err != nil {
         log.Println(err)
         walk.MsgBox(mw, "错误提示", err.Error(), walk.MsgBoxIconError)
