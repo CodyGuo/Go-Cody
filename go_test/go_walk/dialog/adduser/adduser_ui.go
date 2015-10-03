@@ -10,6 +10,8 @@ type myDialogUI struct {
     uploadBtn *walk.PushButton
     fileLe    *walk.LineEdit
     uploadGb  *walk.GroupBox
+    logGb     *walk.GroupBox
+    browseBtn *walk.PushButton
 }
 
 func (w *MyDialog) init(owner walk.Form) (err error) {
@@ -34,7 +36,7 @@ func (w *MyDialog) init(owner walk.Form) (err error) {
     }
 
     w.SetName("windows")
-    if err := w.SetClientSize(walk.Size{407, 178}); err != nil {
+    if err := w.SetClientSize(walk.Size{376, 287}); err != nil {
         return err
     }
     if err := w.SetTitle(`iMan-测试程序`); err != nil {
@@ -45,7 +47,7 @@ func (w *MyDialog) init(owner walk.Form) (err error) {
         return err
     }
 
-    if err := w.ui.uploadGb.SetBounds(walk.Rectangle{20, 20, 371, 141}); err != nil {
+    if err := w.ui.uploadGb.SetBounds(walk.Rectangle{3, 7, 368, 138}); err != nil {
         return err
     }
 
@@ -56,7 +58,21 @@ func (w *MyDialog) init(owner walk.Form) (err error) {
         return err
     }
 
-    if err := w.ui.fileLe.SetBounds(walk.Rectangle{20, 40, 231, 31}); err != nil {
+    if err := w.ui.fileLe.SetBounds(walk.Rectangle{7, 33, 255, 27}); err != nil {
+        return err
+    }
+
+    // uploadFileBt
+    if w.ui.browseBtn, err = walk.NewPushButton(w.ui.uploadGb); err != nil {
+        return err
+    }
+
+    w.ui.browseBtn.SetName("uploadFileBt")
+    if err := w.ui.browseBtn.SetBounds(walk.Rectangle{285, 34, 57, 27}); err != nil {
+        return err
+    }
+
+    if err := w.ui.browseBtn.SetText(`浏览`); err != nil {
         return err
     }
 
@@ -66,13 +82,23 @@ func (w *MyDialog) init(owner walk.Form) (err error) {
     }
 
     w.ui.uploadBtn.SetName("uploadFileBt")
-    if err := w.ui.uploadBtn.SetBounds(walk.Rectangle{270, 40, 75, 31}); err != nil {
+    if err := w.ui.uploadBtn.SetBounds(walk.Rectangle{151, 92, 57, 27}); err != nil {
         return err
     }
 
     if err := w.ui.uploadBtn.SetText(`上传`); err != nil {
         return err
     }
+
+    if w.ui.logGb, err = walk.NewGroupBox(w); err != nil {
+        return err
+    }
+
+    if err := w.ui.logGb.SetBounds(walk.Rectangle{3, 153, 368, 127}); err != nil {
+        return err
+    }
+
+    w.ui.logGb.SetTitle("日志")
 
     succeeded = true
 
