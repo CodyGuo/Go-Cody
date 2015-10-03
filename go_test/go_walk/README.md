@@ -140,7 +140,7 @@
         Layout:       VBox{Spacing: 2},
         Children: []Widget{
 
-# 4. walk 中dialog 增加限制窗口最大化、最小化、固定窗体大小.屏幕居中
+# 5. walk 中dialog 增加限制窗口最大化、最小化、固定窗体大小.屏幕居中
     1> 修改 lxn/walk/dialog.go,把 win.WS_CAPTION|win.WS_SYSMENU|win.WS_THICKFRAME, 修改为 winStyle,
         if err := InitWindow(
         dlg,
