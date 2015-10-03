@@ -97,7 +97,7 @@
     rect.top=(scrHeight-rect.bottom)/2;
 
 # 4. 增加屏幕居中属性
-    修改lxn\walk\declarative\mainwindow.go
+    修改 lxn\walk\declarative\mainwindow.go
     1> 结构体 MainWindow 增加属性
     type MainWindow struct {
         ... ...
@@ -139,3 +139,86 @@
         MinSize:      Size{300, 262},
         Layout:       VBox{Spacing: 2},
         Children: []Widget{
+
+# 4. walk 中dialog 增加限制窗口最大化、最小化、固定窗体大小.屏幕居中
+    1> 修改 lxn/walk/dialog.go,把 win.WS_CAPTION|win.WS_SYSMENU|win.WS_THICKFRAME, 修改为 winStyle,
+        if err := InitWindow(
+        dlg,
+        owner,
+        dialogWindowClass,
+        winStyle,
+        // win.WS_CAPTION|win.WS_SYSMENU|win.WS_THICKFRAME,
+    2> 在 DefaultButton 方法前加入三个方法：SetMinimizeBox SetMaximizeBox SetFixedSize
+        func (dlg *Dialog) SetMinimizeBox(minbox bool) {
+            if !minbox {
+                winStyle = winStyle - win.WS_MINIMIZEBOX
+            }
+        }
+
+        func (dlg *Dialog) SetMaximizeBox(maxbox bool) {
+            if !maxbox {
+                winStyle = winStyle - win.WS_MAXIMIZEBOX
+            }
+        }
+
+        func (dlg *Dialog) SetFixedSize(fixed bool) {
+            if fixed {
+                winStyle = winStyle - win.WS_SIZEBOX
+            }
+        }
+    3> 屏幕居中,修改 lxn\walk\declarative\dialog.go
+        1>> 结构体 Dialog 增加属性
+            type Dialog struct {
+                    ... ...
+                    ScreenCenter     bool
+            }
+        2>> 在 return builder.InitWidget(tlwi, w, func() error 下增加坐标初始化居中位置
+            return builder.InitWidget(tlwi, w, func() error {
+            // 主窗体是否居中
+            if d.ScreenCenter {
+                x, y := ScreenCenter(d.MinSize.Width, d.MinSize.Height)
+                // fmt.Println("dec main : w h", d.MinSize.Width, d.MinSize.Height, d.MaxSize.Width, d.MaxSize.Height, d.Size.toW().Width, d.Size.toW().Height)
+                if err := w.SetX(x); err != nil {
+                    return err
+                }
+                if err := w.SetY(y); err != nil {
+                    return err
+                }
+            }
+        3>> 使用方法
+            return Dialog{
+            AssignTo:      &dlg,
+            Title:         "Animal Details",
+            DefaultButton: &acceptPB,
+            CancelButton:  &cancelPB,
+            DataBinder: DataBinder{
+                AssignTo:       &db,
+                DataSource:     animal,
+                ErrorPresenter: ErrorPresenterRef{&ep},
+            },
+            MinSize:      Size{300, 300},
+            ScreenCenter: true,
+
+        4>> 修改 lxn\walk\dialog.go 增加函数 ScreenCenter
+            // 获取居中坐标
+            func ScreenCenter(w, h int) (x, y int) {
+                srcWidth := win.GetSystemMetrics(win.SM_CXSCREEN)
+                srcHeight := win.GetSystemMetrics(win.SM_CYSCREEN)
+                x = (int(srcWidth) - w) / 2
+                y = (int(srcHeight) - h) / 2
+                // fmt.Println("dec main:", srcWidth, srcHeight, w, h, x, y)
+                return
+            }
+        5>> 增加方法
+            func (dlg *Dialog) SetScreenCenter(center bool) {
+                if center {
+                    screenStyleX, screenStyleY := ScreenCenter(dlg.Width(), dlg.Height())
+                    dlg.SetX(screenStyleX)
+                    dlg.SetY(screenStyleY)
+                    // fmt.Println("walk dialog:", dlg.Width(), dlg.Height(), screenStyleX, screenStyleY)
+                }
+            }
+        6>> 使用方法 在dlg.Run() 前使用
+            dlg.SetScreenCenter(false)
+            return dlg.Run(), nil
+
