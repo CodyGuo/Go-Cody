@@ -39,6 +39,7 @@ func (f *fileInfo) checkError(err error) {
     }
 }
 
+// 获取exe dll版本
 func (f *fileInfo) GetExeVersion() (err error) {
     file, err := os.Open(f.FilePath)
     f.checkError(err)
@@ -146,6 +147,7 @@ func (f *fileInfo) unpack(b []byte) (num int64) {
     return
 }
 
+// 获取 apk 版本
 func (f *fileInfo) GetApkVersion() (err error) {
     listener := new(axmlParser.AppNameListener)
     _, err = axmlParser.ParseApk(f.FilePath, listener)
@@ -159,6 +161,7 @@ func init() {
     flag.StringVar(&file.FilePath, "path", DEFAULT, "Get exe or dll or apk version information.")
     flag.BoolVar(&file.Debug, "d", false, "if true print exe or dll file name.")
 }
+
 func main() {
     flag.Parse()
 
