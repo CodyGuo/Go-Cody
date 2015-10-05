@@ -1,6 +1,4 @@
-// Copyright 2012 The Walk Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
+// iMan 升级程序界面版本
 
 package main
 
@@ -11,6 +9,7 @@ import (
 
 import (
     "github.com/lxn/walk"
+    "github.com/lxn/win"
 )
 
 const (

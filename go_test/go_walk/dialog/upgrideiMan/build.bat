@@ -1,8 +1,7 @@
 @if exist "rsrc.syso" (
     @del "rsrc.syso"
 )
-set GOARCH=386
-set GOGCCFLAGS=-m32 -mthreads -fmessage-length=0
+
 rsrc -manifest main.manifest -o rsrc.syso
 go build  -ldflags="-H windowsgui"
 pause
