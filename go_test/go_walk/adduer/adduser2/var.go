@@ -12,6 +12,7 @@ var (
     db                          *walk.DataBinder
     ep                          walk.ErrorPresenter
     ltj                         *walk.NumberEdit
+    logGb                       *walk.GroupBox
 )
 
 type MyMainWindow struct {

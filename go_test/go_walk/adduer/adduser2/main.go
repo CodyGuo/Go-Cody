@@ -80,7 +80,7 @@ func main() {
         },
         Title:        "Cody - 测试程序",
         ScreenCenter: true, // 屏幕居中
-        MinSize:      Size{300, 262},
+        MinSize:      Size{300, 500},
         Layout:       VBox{Spacing: 2},
         Children: []Widget{
             Composite{
@@ -224,6 +224,15 @@ func main() {
         log.Println(err)
     }
     // addIpBtn.SetMinMaxSize(walk.Size{18, 18}, walk.Size{18, 18})
+
+    lv, err := NewLogView(mw)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    lv.PostAppendText("Hello.\n")
+    log.SetOutput(lv)
+    log.Println("hi.")
 
     mw.Run()
     mw.Dispose()
