@@ -98,7 +98,7 @@ func (f *fileInfo) GetExeVersion() (err error) {
     infoSize := f.unpack([]byte{buffer[16], buffer[17], buffer[18], buffer[19]})
     infoOff := f.unpack([]byte{buffer[20], buffer[21], buffer[22], buffer[23]})
 
-    // 读取从文件开头位置移位到 infoOff，第三次读取 infoSize byte
+    // 读取从文件开头位置移位到 infoOff，第四次读取 infoSize byte
     file.Seek(int64(infoOff), 0)
     buffer = make([]byte, infoSize)
     _, err = file.Read(buffer)
