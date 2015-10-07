@@ -110,12 +110,12 @@ func main() {
     var ep walk.ErrorPresenter
     var startBtn *walk.PushButton
     mw := new(MyMainWindow)
-    mw.SetFixedSize(true)
+    mw.SetFixedSize(false)
     mw.SetMaximizeBox(false)
 
     MainWindow{
         Title:    "邮件群发器 By 一曲忧伤",
-        MinSize:  Size{800, 600},
+        MinSize:  Size{300, 200},
         AssignTo: &mw.MainWindow,
         DataBinder: DataBinder{
             AssignTo:       &db,

@@ -3,10 +3,10 @@
 package main
 
 import (
-    "image"
-    _ "image/png"
+    // "image"
+    // _ "image/png"
     "log"
-    "os"
+    // "os"
 )
 
 import (
@@ -159,15 +159,20 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     mw.ui.logLb.SetFont(fount)
     mw.ui.uploadGb.SetFont(fount)
 
-    reader, _ := os.Open("../../img/folder_add.png")
-    add, _, _ := image.Decode(reader)
-    var img walk.Image
-    img, _ = walk.NewBitmapFromImage(add)
+    // img, _ = walk.NewIconFromResourceId(7)
+    // mw.ui.browseBtn.SetImage(img)
+    // mw.ui.browseBtn.SetImageAboveText(false)
+    // mw.ui.browseBtn.SetBackground(bg)
 
-    mw.ui.browseBtn.SetImage(img)
+    // reader, _ := os.Open("../../img/folder_add.png")
+    // add, _, _ := image.Decode(reader)
+    // var img walk.Image
+    // img, _ = walk.NewBitmapFromImage(add)
 
-    img, _ = walk.NewImageFromFile("../../img/arrow_divide.png")
-    mw.ui.uploadBtn.SetImage(img)
+    // mw.ui.browseBtn.SetImage(img)
+
+    // img, _ = walk.NewImageFromFile("../../img/arrow_divide.png")
+    // mw.ui.uploadBtn.SetImage(img)
 
     succeeded = true
 
@@ -176,7 +181,8 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
 
 func (mw *MyDialog) setMyNotify() (err error) {
     // 托盘图标
-    icon, _ := walk.NewIconFromFile("../../img/main.ico")
+    // icon, _ := walk.NewIconFromFile("../../img/main.ico")
+    icon, _ := walk.NewIconFromResourceId(3)
     mw.ni, err = walk.NewNotifyIcon()
     mw.checkError(err)
 

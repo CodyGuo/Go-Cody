@@ -2,7 +2,7 @@
     @del "rsrc.syso"
 )
 
-rsrc -manifest main.manifest -o rsrc.syso
+rsrc -manifest main.manifest -o rsrc.syso -ico master.ico,main.ico
 go build  -ldflags="-H windowsgui"
 pause
 exit
