@@ -138,6 +138,7 @@ func RunMyDialog(owner walk.Form) (int, error) {
             go func() {
                 dlg.ui.uploadBtn.SetEnabled(false)
                 dlg.ui.browseBtn.SetEnabled(false)
+                dlg.ui.ipLe.SetReadOnly(true)
 
                 dlg.ui.lv.AppendText("-------------------------iMan 开始升级...-------------------------\n\n")
                 // 升级过程中退出时隐藏到托盘图标
@@ -154,6 +155,7 @@ func RunMyDialog(owner walk.Form) (int, error) {
 
                 dlg.ui.uploadBtn.SetEnabled(true)
                 dlg.ui.browseBtn.SetEnabled(true)
+                dlg.ui.ipLe.SetReadOnly(false)
 
                 // 升级完恢复关闭退出功能
                 err = dlg.setExitHide(false)
@@ -183,6 +185,8 @@ func upload(dlg *MyDialog, ok chan bool) {
     // 上传升级包
     err := Upload.UploadiManFile()
     if err != nil {
+        dlg.SwitchToThisWindow(true)
+        dlg.SetForegroundWindow()
         log.Println(err.Error())
         log.Println("[ERROR] 服务器【" + dlg.ui.ipLe.Text() + "】升级包上传失败.")
         dlg.myMsg("错误信息", "服务器【"+dlg.ui.ipLe.Text()+"】升级包上传失败.", walk.MsgBoxIconError)

@@ -245,7 +245,16 @@
     func (wb *WindowBase) SwitchToThisWindow(switchto bool) {
         win.ShowWindow(wb.hWnd, win.SW_RESTORE)
     }
-    3> 使用方法, 在主窗体初始化和屏幕居中后使用
+    3> 修改 lxn/walk/windows.go, 在 SetFocus下增加 SetForegroundWindow
+    // SetForegroundWindow sets the before any to the *WindowBase.
+    func (wb *WindowBase) SetForegroundWindow() error {
+        if !win.SetForegroundWindow(wb.hWnd) {
+            return lastError("SetForegroundWindow")
+        }
+
+        return nil
+    }
+    4> 使用方法, 在主窗体初始化和屏幕居中后使用
     // 设置主窗体在所有窗体之前
     dlg.SetForegroundWindow() // 设置在所有窗口之前
     dlg.SwitchToThisWindow(true) // 设置最小化恢复

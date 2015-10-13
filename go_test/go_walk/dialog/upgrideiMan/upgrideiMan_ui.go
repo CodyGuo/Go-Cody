@@ -124,9 +124,19 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     err = mw.ui.ipLe.SetBounds(walk.Rectangle{96, 92, 166, 25})
     mw.checkError(err)
 
+    // 控制IP输入长度为15
+    mw.ui.ipLe.SetMaxLength(15)
+
     // 上传按钮
     mw.ui.uploadBtn, err = walk.NewPushButton(mw.ui.uploadGb)
     mw.checkError(err)
+
+    // // // 设置背景
+    // color := walk.RGB(0, 255, 0)
+    // bg, _ := walk.NewSolidColorBrush(color)
+    // mw.SetBackground(bg)
+    // mw.ui.uploadBtn.SetBackground(bg)
+    // mw.ui.uploadBtn.ImageAboveText()
 
     err = mw.ui.uploadBtn.SetText("上传")
     mw.checkError(err)
@@ -154,11 +164,6 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     mw.checkError(err)
 
     log.SetOutput(mw.ui.lv)
-
-    // // 设置背景
-    // color := walk.RGB(255, 0, 0)
-    // bg, _ := walk.NewSolidColorBrush(color)
-    // mw.SetBackground(bg)
 
     // 设置字体和图标
     fount, _ := walk.NewFont("幼圆", 10, walk.FontBold)
