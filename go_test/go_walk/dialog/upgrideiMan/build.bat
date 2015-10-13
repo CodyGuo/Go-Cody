@@ -3,7 +3,9 @@
 )
 
 rsrc -manifest main.manifest -o rsrc.syso -ico master.ico,main.ico
-go build  -ldflags="-H windowsgui"
+set TAG=1.3
+
+go build  -ldflags="-H windowsgui -s -w -X main._VERSION_ '%TAG%'" 
 pause
 exit
 

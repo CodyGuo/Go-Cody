@@ -1,30 +1,18 @@
 package main
 
 import (
-    "bytes"
     "fmt"
-    "golang.org/x/text/encoding/simplifiedchinese"
-    "golang.org/x/text/transform"
-    "io/ioutil"
+    "net"
+    "strings"
 )
 
 func main() {
-    str := "缂栫▼缁冧範棰樼粷瀵圭粡鍏"
-    dst := Decode(str)
-    fmt.Println(dst)
-}
+    conn, err := net.Dial("udp", "10.10.3.100:21")
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    defer conn.Close()
 
-func Encode(src string) (dst string) {
-    data, err := ioutil.ReadAll(transform.NewReader(bytes.NewReader([]byte(src)), simplifiedchinese.GBK.NewEncoder()))
-    if err == nil {
-        dst = string(data)
-    }
-    return
-}
-func Decode(src string) (dst string) {
-    data, err := ioutil.ReadAll(transform.NewReader(bytes.NewReader([]byte(src)), simplifiedchinese.GBK.NewEncoder()))
-    if err == nil {
-        dst = string(data)
-    }
-    return
+    fmt.Println(strings.Split(conn.LocalAddr().String(), ":")[0])
 }

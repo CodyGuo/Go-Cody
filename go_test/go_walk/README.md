@@ -222,3 +222,30 @@
             dlg.SetScreenCenter(false)
             return dlg.Run(), nil
 
+# 6. walk 中增加 最小化时，点击托盘图标可以弹出主窗体
+    1> 修改 lxn/walk/windows.go, 在214行下增加 SwitchToThisWindow
+    // SetVisible sets if the Window is visible.
+    SetVisible(value bool)
+
+    // SwitchToThisWindows sets if window is minsized
+    SwitchToThisWindow(value bool)
+
+    2> 修改  lxn/walk/windows.go,在setWindowVisible下增加 SwitchToThisWindow
+
+    func setWindowVisible(hwnd win.HWND, visible bool) {
+        var cmd int32
+        if visible {
+            cmd = win.SW_SHOW
+        } else {
+            cmd = win.SW_HIDE
+        }
+        win.ShowWindow(hwnd, cmd)
+    }
+
+    func (wb *WindowBase) SwitchToThisWindow(switchto bool) {
+        win.ShowWindow(wb.hWnd, win.SW_RESTORE)
+    }
+    3> 使用方法, 在主窗体初始化和屏幕居中后使用
+    // 设置主窗体在所有窗体之前
+    dlg.SetForegroundWindow() // 设置在所有窗口之前
+    dlg.SwitchToThisWindow(true) // 设置最小化恢复

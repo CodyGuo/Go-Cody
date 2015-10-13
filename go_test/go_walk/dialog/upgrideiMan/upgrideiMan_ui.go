@@ -13,6 +13,8 @@ import (
     "github.com/lxn/walk"
 )
 
+var _VERSION_ = "cody.guo"
+
 type myDialogUI struct {
     uploadBtn           *walk.PushButton
     fileLe, ipLe        *walk.LineEdit
@@ -29,12 +31,10 @@ type MyDialog struct {
     ni          *walk.NotifyIcon
 }
 
-func (mw *MyDialog) checkError(err error) error {
+func (mw *MyDialog) checkError(err error) {
     if err != nil {
-        return err
-        log.Fatalln(err)
+        mw.myMsg("失败信息", "上传过程出错."+err.Error(), walk.MsgBoxIconError)
     }
-    return nil
 }
 
 func (mw *MyDialog) init(owner walk.Form) (err error) {
@@ -42,8 +42,10 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     mw.SetMinimizeBox(true)
     // 禁用最大化
     mw.SetMaximizeBox(false)
-    // 窗口屏幕居中
+    // 设置窗口固定
     mw.SetFixedSize(true)
+    // 设置窗口前置
+    // mw.SetWindowPos(true)
 
     mw.Dialog, err = walk.NewDialog(owner)
     mw.checkError(err)
@@ -60,7 +62,7 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     mw.checkError(err)
 
     // 设置主窗体标题
-    mw.SetTitle("iMan-测试程序")
+    mw.SetTitle("iMan-升级工具   V【" + _VERSION_ + "】")
     mw.checkError(err)
 
     // 设置上传组合窗体
@@ -103,6 +105,8 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     err = mw.ui.browseBtn.SetBounds(walk.Rectangle{288, 34, 55, 25})
     mw.checkError(err)
 
+    mw.ui.browseBtn.SetCursor(walk.CursorHand())
+
     // 服务器IP lb
     mw.ui.ipLb, err = walk.NewLabel(mw.ui.uploadGb)
     mw.checkError(err)
@@ -130,6 +134,8 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     err = mw.ui.uploadBtn.SetBounds(walk.Rectangle{288, 92, 55, 25})
     mw.checkError(err)
 
+    mw.ui.uploadBtn.SetCursor(walk.CursorHand())
+
     // 日志
     mw.ui.logLb, err = walk.NewLabel(mw)
     mw.checkError(err)
@@ -149,10 +155,10 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
 
     log.SetOutput(mw.ui.lv)
 
-    // 设置背景
-    color := walk.RGB(255, 0, 0)
-    bg, _ := walk.NewSolidColorBrush(color)
-    mw.SetBackground(bg)
+    // // 设置背景
+    // color := walk.RGB(255, 0, 0)
+    // bg, _ := walk.NewSolidColorBrush(color)
+    // mw.SetBackground(bg)
 
     // 设置字体和图标
     fount, _ := walk.NewFont("幼圆", 10, walk.FontBold)
@@ -191,11 +197,11 @@ func (mw *MyDialog) setMyNotify() (err error) {
     err = mw.ni.SetIcon(icon)
     mw.checkError(err)
 
-    mw.ni.SetToolTip("测试程序")
+    // mw.ni.SetToolTip("测试程序")
 
-    // The notify icon is hidden initially, so we have to make it visible.
-    err = mw.ni.SetVisible(false)
-    mw.checkError(err)
+    // // The notify icon is hidden initially, so we have to make it visible.
+    // err = mw.ni.SetVisible(false)
+    // mw.checkError(err)
 
     return nil
 }
@@ -203,7 +209,7 @@ func (mw *MyDialog) setMyNotify() (err error) {
 func (mw *MyDialog) addMyNotifyAction() (err error) {
     // We put an exit action into the context menu.
     exitAction := walk.NewAction()
-    err = exitAction.SetText("E&xit")
+    err = exitAction.SetText("退出程序")
     mw.checkError(err)
 
     exitAction.Triggered().Attach(func() {
@@ -222,18 +228,17 @@ func (mw *MyDialog) addMyNotifyAction() (err error) {
 }
 
 func (mw *MyDialog) setExitHide(exit bool) (err error) {
-    if exit {
-        mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-            reason = walk.CloseReasonUnknown
-            var closingPublisher walk.CloseEventPublisher
-            // 不关闭程序
-            *canceled = true
-            closingPublisher.Publish(canceled, reason)
-            // 隐藏程序,显示托盘
-            mw.Hide()
-            mw.ni.SetVisible(true)
-        })
-    }
+    mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+        reason = walk.CloseReasonUnknown
+        var closingPublisher walk.CloseEventPublisher
+        // 不关闭程序
+        *canceled = exit
+        closingPublisher.Publish(canceled, reason)
+        // 隐藏程序,显示托盘
+        mw.Hide()
+        // mw.ni.SetVisible(true)
+    })
+
     return nil
 }
 
@@ -247,7 +252,7 @@ func (mw *MyDialog) openFile() error {
     dlgFile := new(walk.FileDialog)
 
     dlgFile.FilePath = mw.upgrideFile
-    dlgFile.Filter = "iMan Files (*.war;*.sql;*.tar.gz;*.exe;*.apk)|*.war;*.sql;*.tar.gz;*.exe;*.apk"
+    dlgFile.Filter = "iMan Files 最大200MB|*"
     dlgFile.Title = "选择iMan升级包"
 
     if ok, err := dlgFile.ShowOpen(mw); err != nil {
@@ -261,13 +266,17 @@ func (mw *MyDialog) openFile() error {
     return nil
 }
 
-func (mw *MyDialog) myMsg(title, message string, style walk.MsgBoxStyle) {
+func (mw *MyDialog) myMsg(title, message string, style walk.MsgBoxStyle) (result int) {
     switch style {
-    case walk.MsgBoxIconInformation:
+    case walk.MsgBoxIconInformation, walk.MsgBoxOKCancel + walk.MsgBoxIconInformation:
         mw.ni.ShowInfo(title, message)
     case walk.MsgBoxIconWarning:
         mw.ni.ShowWarning(title, message)
+    case walk.MsgBoxIconError:
+        mw.ni.ShowError(title, message)
     }
-    log.Println(message)
-    walk.MsgBox(mw, title, message, style)
+    // log.Println(message)
+    result = walk.MsgBox(mw, title, message, style)
+
+    return
 }

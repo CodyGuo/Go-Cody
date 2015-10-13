@@ -183,5 +183,5 @@ func main() {
         fmt.Printf("%s 的版本号为: ", file.FilePath)
     }
 
-    fmt.Printf("%s", file.Version)
+    fmt.Printf("%s\n", file.Version)
 }
