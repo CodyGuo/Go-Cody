@@ -349,10 +349,10 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
 
     mw.ui.LinuxRuby.SetText("Linux Ruby")
 
-    mw.ui.LinuxRuby.SetBounds(walk.Rectangle{80, 170, 80, 25})
+    mw.ui.LinuxRuby.SetBounds(walk.Rectangle{80, 170, 90, 25})
 
     // 打包日志
-    mw.ui.PackLogLb, err = walk.NewLabel(mw.ui.PackGb)
+    mw.ui.PackLogLb, err = walk.NewLabel(mw)
     mw.checkError(err)
 
     mw.ui.PackLogLb.SetText("打包日志")
