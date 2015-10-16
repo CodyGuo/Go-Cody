@@ -27,14 +27,19 @@ func appMain(driver gxui.Driver) {
         fullscreen := !window.Fullscreen()
         window.SetFullscreen(fullscreen)
         if fullscreen {
-            button.SetText("Make windowed")
+            button.SetText("窗口化")
         } else {
-            button.SetText("Make fullscreen")
+            button.SetText("全屏")
         }
     }
-    button.SetText("Make fullscreen")
+
+    box := theme.CreateTextBox()
+    box.SetText("盒子")
+
+    button.SetText("全屏")
     button.OnClick(func(gxui.MouseEvent) { toggle() })
     window.AddChild(button)
+    window.AddChild(box)
 }
 
 func main() {

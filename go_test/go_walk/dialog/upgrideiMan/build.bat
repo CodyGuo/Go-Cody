@@ -1,9 +1,10 @@
+@echo off
 @if exist "rsrc.syso" (
     @del "rsrc.syso"
 )
 
 rsrc -manifest main.manifest -o rsrc.syso -ico master.ico,main.ico
-set TAG=1.3
+set TAG=1.6
 
 go build  -ldflags="-H windowsgui -s -w -X main._VERSION_ '%TAG%'" 
 pause
