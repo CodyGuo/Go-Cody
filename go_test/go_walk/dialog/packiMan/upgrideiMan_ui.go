@@ -475,7 +475,7 @@ func (mw *MyDialog) openFile(filetype string) (file string, err error) {
         dlgFile.Title = "选择PC助手"
     case "Android助手":
         dlgFile.Filter = "Android助手(*.apk)|*.apk"
-        dlgFile.Title = "Android助手"
+        dlgFile.Title = "选择Android助手"
     case "Web 数据库":
         dlgFile.Filter = "Web 数据库(*.sql)|*.sql"
         dlgFile.Title = "选择Web 数据库"
