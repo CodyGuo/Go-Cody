@@ -43,7 +43,7 @@ func init() {
     tmpDir := os.TempDir()
 
     if err := ProcEsxit(tmpDir); err == nil {
-        pidFile, _ := os.Create(tmpDir + "\\iman.pid")
+        pidFile, _ := os.Create(tmpDir + "\\imanPack.pid")
         defer pidFile.Close()
 
         pidFile.WriteString(iManPid)
@@ -71,6 +71,86 @@ func RunMyDialog(owner walk.Form) (int, error) {
     // 设置主窗体在所有窗体之前
     dlg.SetForegroundWindow()
     dlg.SwitchToThisWindow(true)
+
+    // 增加托盘图标
+    err = dlg.SetMyNotify()
+    dlg.checkError(err)
+    defer dlg.ni.Dispose()
+
+    // 托盘图标默认隐藏.
+    err = dlg.ni.SetVisible(true)
+    dlg.checkError(err)
+
+    // 增加托盘图标退出菜单
+    err = dlg.AddMyNotifyAction()
+    dlg.checkError(err)
+
+    // 退出时隐藏到托盘图标
+    err = dlg.SetExitHide(false)
+    dlg.checkError(err)
+
+    // 最小化时隐藏窗体到托盘图标
+    dlg.SizeChanged().Attach(func() {
+        if dlg.X() == -32000 && dlg.Y() == -32000 {
+            dlg.Hide()
+        }
+    })
+
+    // 鼠标左键显示主窗体
+    dlg.ni.MouseDown().Attach(func(x, y int, button walk.MouseButton) {
+        if button == walk.LeftButton {
+            dlg.SwitchToThisWindow(true)
+            dlg.SetForegroundWindow()
+        }
+    })
+
+    // 开始打包
+    dlg.ui.StartPackingBtn.Clicked().Attach(func() {
+        dlg.MyMsg("打包程序", "即将实现打包...", walk.MsgBoxIconInformation)
+    })
+
+    // 测试版本控制
+    dlg.DisablePackGb(true)
+    dlg.ui.VersionTestRadio.CheckedChanged().Attach(func() {
+        if dlg.ui.VersionTestRadio.Checked() {
+            dlg.DisablePackGb(true)
+        }
+    })
+
+    // 正式版本控制
+    dlg.ui.VersionOffRadio.CheckedChanged().Attach(func() {
+        if dlg.ui.VersionOffRadio.Checked() {
+            dlg.DisablePackGb(false)
+        }
+    })
+
+    // 全选控制
+    dlg.ui.CheckAllCb.CheckedChanged().Attach(func() {
+        if dlg.ui.CheckAllCb.Checked() {
+            dlg.CheckAll(true)
+        } else {
+            dlg.CheckAll(false)
+        }
+
+    })
+
+    // PC上传按钮
+    dlg.ui.PcUploadBtn.Clicked().Attach(func() {
+        pcFile := dlg.UploadFile("PC助手")
+        dlg.ui.PcHelperLe.SetText(pcFile)
+    })
+
+    // Android 助手
+    dlg.ui.AndUploadBtn.Clicked().Attach(func() {
+        androidFile := dlg.UploadFile("Android助手")
+        dlg.ui.AndroidHelperLe.SetText(androidFile)
+    })
+
+    // Web 数据库
+    dlg.ui.WebSqlBtn.Clicked().Attach(func() {
+        webSqlFile := dlg.UploadFile("Web 数据库")
+        dlg.ui.WebSqlLe.SetText(webSqlFile)
+    })
 
     return dlg.Run(), nil
 }

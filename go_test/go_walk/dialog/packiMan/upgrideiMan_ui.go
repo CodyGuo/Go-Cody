@@ -18,7 +18,7 @@ var _VERSION_ = "cody.guo"
 type myDialogUI struct {
     // 开始打包
 
-    StartPacking *walk.PushButton
+    StartPackingBtn *walk.PushButton
 
     //  版本配置
     VersionGb *walk.GroupBox
@@ -57,7 +57,7 @@ type myDialogUI struct {
     AndroidHelperCb *walk.CheckBox
     LinuxKnlCb      *walk.CheckBox
     LinuxAppCb      *walk.CheckBox
-    LinuxRuby       *walk.CheckBox
+    LinuxRubyCb     *walk.CheckBox
 
     // 打包日志
     PackLogLb *walk.Label
@@ -67,13 +67,13 @@ type myDialogUI struct {
 type MyDialog struct {
     *walk.Dialog
 
-    ui          myDialogUI
-    upgrideFile string
-    ni          *walk.NotifyIcon
+    ui  myDialogUI
+    ni  *walk.NotifyIcon
 }
 
 func (mw *MyDialog) checkError(err error) {
     if err != nil {
+        mw.MyMsg("失败信息", "上传过程出错."+err.Error(), walk.MsgBoxIconError)
         log.Println(err.Error())
     }
 }
@@ -111,12 +111,12 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     otherFont, _ := walk.NewFont("幼圆", 10, 0)
 
     // 开始打包
-    mw.ui.StartPacking, err = walk.NewPushButton(mw)
+    mw.ui.StartPackingBtn, err = walk.NewPushButton(mw)
     mw.checkError(err)
 
-    mw.ui.StartPacking.SetText("开始打包")
+    mw.ui.StartPackingBtn.SetText("开始打包")
 
-    mw.ui.StartPacking.SetBounds(walk.Rectangle{310, 20, 75, 30})
+    mw.ui.StartPackingBtn.SetBounds(walk.Rectangle{310, 20, 75, 30})
 
     // 版本配置
     mw.ui.VersionGb, err = walk.NewGroupBox(mw)
@@ -259,7 +259,7 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     mw.ui.PackGb.SetTitle("打包内容配置")
     mw.ui.PackGb.SetFont(otherFont)
 
-    mw.ui.PackGb.SetBounds(walk.Rectangle{355, 60, 330, 260})
+    mw.ui.PackGb.SetBounds(walk.Rectangle{355, 60, 335, 260})
 
     // 全选
     mw.ui.CheckAllLb, err = walk.NewLabel(mw.ui.PackGb)
@@ -275,7 +275,7 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     mw.checkError(err)
     mw.ui.CheckAllCb.SetVisible(true)
 
-    mw.ui.CheckAllCb.SetBounds(walk.Rectangle{80, 20, 20, 25})
+    mw.ui.CheckAllCb.SetBounds(walk.Rectangle{80, 20, 70, 25})
 
     // 服务器
     mw.ui.ServerLb, err = walk.NewLabel(mw.ui.PackGb)
@@ -292,7 +292,7 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
 
     mw.ui.JavaWebCb.SetText("Java Web")
 
-    mw.ui.JavaWebCb.SetBounds(walk.Rectangle{80, 50, 70, 25})
+    mw.ui.JavaWebCb.SetBounds(walk.Rectangle{80, 50, 80, 25})
 
     // Web 数据库复选框
     mw.ui.WebSqlCb, err = walk.NewCheckBox(mw.ui.PackGb)
@@ -344,12 +344,12 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     mw.ui.LinuxAppCb.SetBounds(walk.Rectangle{170, 130, 80, 25})
 
     // Linux Ruby
-    mw.ui.LinuxRuby, err = walk.NewCheckBox(mw.ui.PackGb)
+    mw.ui.LinuxRubyCb, err = walk.NewCheckBox(mw.ui.PackGb)
     mw.checkError(err)
 
-    mw.ui.LinuxRuby.SetText("Linux Ruby")
+    mw.ui.LinuxRubyCb.SetText("Linux Ruby")
 
-    mw.ui.LinuxRuby.SetBounds(walk.Rectangle{80, 170, 90, 25})
+    mw.ui.LinuxRubyCb.SetBounds(walk.Rectangle{80, 170, 90, 25})
 
     // 打包日志
     mw.ui.PackLogLb, err = walk.NewLabel(mw)
@@ -387,4 +387,122 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     succeeded = true
 
     return nil
+}
+
+func (mw *MyDialog) CheckAll(check bool) {
+    mw.ui.JavaWebCb.SetChecked(check)
+    mw.ui.WebSqlCb.SetChecked(check)
+    mw.ui.PcHelperCb.SetChecked(check)
+    mw.ui.AndroidHelperCb.SetChecked(check)
+    mw.ui.LinuxKnlCb.SetChecked(check)
+    mw.ui.LinuxAppCb.SetChecked(check)
+    mw.ui.LinuxRubyCb.SetChecked(check)
+}
+
+func (mw *MyDialog) DisablePackGb(disable bool) {
+    if disable {
+        mw.ui.CheckAllCb.SetChecked(true)
+        mw.ui.PackGb.SetEnabled(false)
+    } else {
+        mw.ui.CheckAllCb.SetChecked(false)
+        mw.ui.PackGb.SetEnabled(true)
+    }
+
+}
+
+func (mw *MyDialog) SetMyNotify() (err error) {
+    // 托盘图标
+    icon, _ := walk.NewIconFromResourceId(3)
+    mw.ni, err = walk.NewNotifyIcon()
+    mw.checkError(err)
+
+    mw.SetIcon(icon)
+    // Set the icon and a tool tip text.
+    err = mw.ni.SetIcon(icon)
+    mw.checkError(err)
+
+    return nil
+}
+
+func (mw *MyDialog) AddMyNotifyAction() (err error) {
+    // We put an exit action into the context menu.
+    exitAction := walk.NewAction()
+    err = exitAction.SetText("退出程序")
+    mw.checkError(err)
+
+    exitAction.Triggered().Attach(func() {
+        mw.Dispose()    // 释放主程序
+        mw.ni.Dispose() // 右下角图标退出
+        walk.App().Exit(1)
+    })
+    // 增加快捷键
+    exitAction.SetShortcut(walk.Shortcut{walk.ModShift, walk.KeyB})
+    // 提示信息
+    exitAction.SetToolTip("退出程序.")
+    err = mw.ni.ContextMenu().Actions().Add(exitAction)
+    mw.checkError(err)
+
+    return nil
+}
+
+func (mw *MyDialog) SetExitHide(exit bool) (err error) {
+    mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+        reason = walk.CloseReasonUnknown
+        var closingPublisher walk.CloseEventPublisher
+        // 不关闭程序
+        *canceled = exit
+        closingPublisher.Publish(canceled, reason)
+        // 隐藏程序,显示托盘
+        mw.Hide()
+    })
+
+    return nil
+}
+
+func (mw *MyDialog) UploadFile(filetype string) (file string) {
+    file, err := mw.openFile(filetype)
+    mw.checkError(err)
+
+    return file
+}
+
+func (mw *MyDialog) openFile(filetype string) (file string, err error) {
+    dlgFile := new(walk.FileDialog)
+
+    switch filetype {
+    case "PC助手":
+        dlgFile.Filter = "PC助手(*.exe)|*.exe"
+        dlgFile.Title = "选择PC助手"
+    case "Android助手":
+        dlgFile.Filter = "Android助手(*.apk)|*.apk"
+        dlgFile.Title = "Android助手"
+    case "Web 数据库":
+        dlgFile.Filter = "Web 数据库(*.sql)|*.sql"
+        dlgFile.Title = "选择Web 数据库"
+    }
+
+    if ok, err := dlgFile.ShowOpen(mw); err != nil {
+        return dlgFile.FilePath, err
+    } else if !ok {
+        return dlgFile.FilePath, err
+    }
+
+    file = dlgFile.FilePath
+
+    return file, nil
+}
+
+func (mw *MyDialog) MyMsg(title, message string, style walk.MsgBoxStyle) (result int) {
+    switch style {
+    case walk.MsgBoxIconInformation, walk.MsgBoxOKCancel + walk.MsgBoxIconInformation:
+        mw.ni.ShowInfo(title, message)
+    case walk.MsgBoxIconWarning:
+        mw.ni.ShowWarning(title, message)
+    case walk.MsgBoxIconError:
+        mw.ni.ShowError(title, message)
+    }
+
+    result = walk.MsgBox(mw, title, message, style)
+
+    return
 }
