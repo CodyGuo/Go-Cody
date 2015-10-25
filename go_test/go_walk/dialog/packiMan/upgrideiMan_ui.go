@@ -16,8 +16,17 @@ import (
 var _VERSION_ = "cody.guo"
 
 type myDialogUI struct {
-    // 开始打包
+    // 设置
+    SettingMenu   *walk.Menu
+    SettingAction *walk.Action
+    ServerAction  *walk.Action
 
+    // 帮助
+    HelpMenu    *walk.Menu
+    HelpAction  *walk.Action
+    AboutAction *walk.Action
+
+    // 开始打包
     StartPackingBtn *walk.PushButton
 
     //  版本配置
@@ -99,12 +108,36 @@ func (mw *MyDialog) init(owner walk.Form) (err error) {
     }()
 
     // 设置主窗体大小
-    mw.SetClientSize(walk.Size{700, 560})
+    err = mw.SetClientSize(walk.Size{700, 560})
     mw.checkError(err)
 
     // 设置主窗体标题
-    mw.SetTitle("iMan-打包工具   V【" + _VERSION_ + "】")
+    err = mw.SetTitle("iMan-打包工具   V【" + _VERSION_ + "】")
     mw.checkError(err)
+
+    // 设置
+    mw.ui.SettingMenu, _ = walk.NewMenu()
+    mw.ui.SettingAction = walk.NewMenuAction(mw.ui.SettingMenu)
+    mw.ui.SettingAction.SetText("设置")
+
+    mw.ui.ServerAction = walk.NewAction()
+    mw.ui.ServerAction.SetText("服务器")
+
+    mw.ui.SettingMenu.Actions().Add(mw.ui.ServerAction)
+
+    // 帮助
+    mw.ui.HelpMenu, _ = walk.NewMenu()
+    mw.ui.HelpAction = walk.NewMenuAction(mw.ui.HelpMenu)
+    mw.ui.HelpAction.SetText("帮助")
+
+    mw.ui.AboutAction = walk.NewAction()
+    mw.ui.AboutAction.SetText("关于")
+
+    mw.ui.HelpMenu.Actions().Add(mw.ui.AboutAction)
+
+    // 菜单配置
+    mw.Menu().Actions().Add(mw.ui.SettingAction)
+    mw.Menu().Actions().Add(mw.ui.HelpAction)
 
     // 设置字体和图标
     fountTitle, _ := walk.NewFont("幼圆", 10, walk.FontBold)

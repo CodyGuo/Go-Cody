@@ -72,6 +72,29 @@ func RunMyDialog(owner walk.Form) (int, error) {
     dlg.SetForegroundWindow()
     dlg.SwitchToThisWindow(true)
 
+    // // 设置
+    // dlg.ui.SettingMenu, _ = walk.NewMenu()
+    // dlg.ui.SettingAction = walk.NewMenuAction(dlg.ui.SettingMenu)
+    // dlg.ui.SettingAction.SetText("设置")
+
+    // dlg.ui.ServerAction = walk.NewAction()
+    // dlg.ui.ServerAction.SetText("服务器")
+
+    // dlg.ui.SettingMenu.Actions().Add(dlg.ui.ServerAction)
+
+    // // 帮助
+    // dlg.ui.HelpMenu, _ = walk.NewMenu()
+    // dlg.ui.HelpAction = walk.NewMenuAction(dlg.ui.HelpMenu)
+    // dlg.ui.HelpAction.SetText("帮助")
+
+    // dlg.ui.AboutAction = walk.NewAction()
+    // dlg.ui.AboutAction.SetText("关于")
+
+    // dlg.ui.HelpMenu.Actions().Add(dlg.ui.AboutAction)
+
+    // // 菜单配置
+    // dlg.Menu().Actions().Add(dlg.ui.SettingMenu)
+
     // 增加托盘图标
     err = dlg.SetMyNotify()
     dlg.checkError(err)
