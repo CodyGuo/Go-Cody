@@ -5,11 +5,22 @@ import (
     "fmt"
     _ "github.com/mattn/go-sqlite3"
     "log"
-    "os"
+    // "os"
 )
 
+type Setting struct {
+    Ip     string
+    User   string
+    Passwd string
+}
+
 func main() {
-    os.Remove("./foo.db")
+
+    // os.Remove("./foo.db")
+    //
+    var settings Setting
+
+    // settings := new(Setting)
 
     db, err := sql.Open("sqlite3", "./foo.db")
     if err != nil {
@@ -17,76 +28,43 @@ func main() {
     }
     defer db.Close()
 
-    sqlStmt := `
-    create table foo (id integer not null primary key, name text);
-    delete from foo;
-    `
-    _, err = db.Exec(sqlStmt)
-    if err != nil {
-        log.Printf("%q: %s\n", err, sqlStmt)
-        return
-    }
+    // sqlStmt := `
+    // create table setting (ip text not null primary key, user text, passwd text);
+    // delete from setting;
+    // `
+    // _, err = db.Exec(sqlStmt)
+    // if err != nil {
+    //     log.Printf("%q: %s\n", err, sqlStmt)
+    //     return
+    // }
 
     tx, err := db.Begin()
     if err != nil {
         log.Fatal(err)
     }
-    stmt, err := tx.Prepare("insert into foo(id, name) values(?, ?)")
+    stmt, err := tx.Prepare("insert into setting(ip, user, passwd) values(?, ?, ?)")
     if err != nil {
         log.Fatal(err)
     }
     defer stmt.Close()
-    for i := 0; i < 100; i++ {
-        _, err = stmt.Exec(i, fmt.Sprintf("こんにちわ世界%03d", i))
+
+    for i := 150; i < 200; i++ {
+        _, err = stmt.Exec("10.10.2."+fmt.Sprint(i), "root", "passwd")
         if err != nil {
-            log.Fatal(err)
+            fmt.Println("10.10.2."+fmt.Sprint(i), err.Error())
         }
     }
+
     tx.Commit()
 
-    rows, err := db.Query("select id, name from foo")
+    rows, err := db.Query("select * from setting")
     if err != nil {
         log.Fatal(err)
     }
     defer rows.Close()
     for rows.Next() {
-        var id int
-        var name string
-        rows.Scan(&id, &name)
-        fmt.Println(id, name)
+        rows.Scan(&settings.Ip, &settings.User, &settings.Passwd)
+        fmt.Println(settings.Ip, settings.User, settings.Passwd)
     }
 
-    stmt, err = db.Prepare("select name from foo where id = ?")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer stmt.Close()
-    var name string
-    err = stmt.QueryRow("3").Scan(&name)
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println(name)
-
-    _, err = db.Exec("delete from foo")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    _, err = db.Exec("insert into foo(id, name) values(1, 'foo'), (2, 'bar'), (3, 'baz')")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    rows, err = db.Query("select id, name from foo")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer rows.Close()
-    for rows.Next() {
-        var id int
-        var name string
-        rows.Scan(&id, &name)
-        fmt.Println(id, name)
-    }
 }
