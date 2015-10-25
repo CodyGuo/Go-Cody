@@ -154,7 +154,7 @@ func (mw *MyWindow) init() (err error) {
     mw.ui.BuildServerLb.SetText("编译服务器IP:")
     mw.ui.BuildServerLb.SetFont(otherFont)
 
-    mw.ui.BuildServerLb.SetBounds(walk.Rectangle{500, 10, 190, 20})
+    mw.ui.BuildServerLb.SetBounds(walk.Rectangle{480, 10, 220, 20})
 
     // 开始打包
     mw.ui.StartPackingBtn, err = walk.NewPushButton(mw)
