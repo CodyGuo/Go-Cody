@@ -197,6 +197,7 @@ func RunSetServer(owner walk.Form, mw *MyWindow) (err error) {
                 "密码为【 " + dlg.ui.PasswdLe.Text() + " 】.")
             mw.ui.BuildServerLb.SetText("编译服务器IP: " + dlg.ui.IpLe.Text())
             walk.MsgBox(dlg, "提示信息", "您设置的服务器IP为【 "+dlg.ui.IpLe.Text()+" 】.", walk.MsgBoxIconInformation)
+            dlg.Close(0)
         }
     })
 

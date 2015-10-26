@@ -71,15 +71,38 @@ type myWindowUI struct {
     LinuxAppCb      *walk.CheckBox
     LinuxRubyCb     *walk.CheckBox
 
-    // 打包日志
+    // 日志框
     PackTabWidget *walk.TabWidget
-    PackTabPage   *walk.TabPage
+
+    // 打包日志
+    PackTabPage *walk.TabPage
 
     // 历史版本记录
-    VersionWidget *walk.TabWidget
-    VersionPage   *walk.TabPage
-    PackLogLb     *walk.Label
-    lv            *LogView
+    VersionPage *walk.TabPage
+
+    // 日志输出
+    lv  *LogView
+
+    // 历史版本记录 TableView
+    VersionTableView *walk.TableView
+
+    // 历史版本记录 - 序号
+    VersionTabVieConIndex *walk.TableViewColumn
+
+    // 历史版本记录 - 版本
+    VersionTabVieConVer *walk.TableViewColumn
+
+    // 历史版本记录 - 打包内容
+    VersionTabVieConPack *walk.TableViewColumn
+
+    // 历史版本记录 - 是否打Tag
+    VersionTabVieConTag *walk.TableViewColumn
+
+    // 历史版本记录 - Tag 路径
+    VersionTabVieConTagPath *walk.TableViewColumn
+
+    // 历史版本记录 - 打包时间
+    VersionTabVieConTime *walk.TableViewColumn
 }
 
 type MyWindow struct {
@@ -403,48 +426,74 @@ func (mw *MyWindow) init() (err error) {
 
     mw.ui.LinuxRubyCb.SetBounds(walk.Rectangle{80, 170, 90, 25})
 
-    // 打包日志
+    // 打包日志 TabWidget
     mw.ui.PackTabWidget, err = walk.NewTabWidget(mw)
     mw.checkError(err)
+    mw.ui.PackTabWidget.SetBounds(walk.Rectangle{10, 330, 680, 200})
 
-    mw.ui.PackTabWidget.SetBounds(walk.Rectangle{20, 330, 60, 20})
-
+    // 打包日志 TabPage
     mw.ui.PackTabPage, err = walk.NewTabPage()
     mw.ui.PackTabPage.SetTitle("打包日志")
-    mw.ui.PackTabPage.SetBounds(walk.Rectangle{20, 330, 60, 20})
 
-    // 打包日志
-    mw.ui.PackLogLb, err = walk.NewLabel(mw)
+    // 历史版本记录 TabPage
+    mw.ui.VersionPage, err = walk.NewTabPage()
+    mw.ui.VersionPage.SetTitle("历史版本记录")
+
+    // TabPage 添加到 TabWidget
+    mw.ui.PackTabWidget.Pages().Add(mw.ui.PackTabPage)
+    mw.ui.PackTabWidget.Pages().Add(mw.ui.VersionPage)
+
+    // 打包日志 输出记录
+    mw.ui.lv, err = NewLogView(mw.ui.PackTabPage)
     mw.checkError(err)
-
-    mw.ui.PackLogLb.SetText("打包日志")
-    mw.ui.PackLogLb.SetFont(fountTitle)
-
-    mw.ui.PackLogLb.SetBounds(walk.Rectangle{20, 330, 60, 20})
-
-    // 日志输出
-    mw.ui.lv, err = NewLogView(mw)
-    mw.checkError(err)
-
-    err = mw.ui.lv.SetBounds(walk.Rectangle{10, 360, 680, 190})
+    err = mw.ui.lv.SetBounds(walk.Rectangle{-1, -1, 680, 180})
     mw.checkError(err)
 
     log.SetOutput(mw.ui.lv)
 
-    // img, _ = walk.NewIconFromResourceId(7)
-    // mw.ui.browseBtn.SetImage(img)
-    // mw.ui.browseBtn.SetImageAboveText(false)
-    // mw.ui.browseBtn.SetBackground(bg)
+    // 历史版本记录 TableView
+    mw.ui.VersionTableView, err = walk.NewTableView(mw.ui.VersionPage)
+    mw.checkError(err)
 
-    // reader, _ := os.Open("../../img/folder_add.png")
-    // add, _, _ := image.Decode(reader)
-    // var img walk.Image
-    // img, _ = walk.NewBitmapFromImage(add)
+    mw.ui.VersionTableView.SetBounds(walk.Rectangle{-1, -1, 680, 180})
 
-    // mw.ui.browseBtn.SetImage(img)
+    // 历史版本记录 - 序号
+    mw.ui.VersionTabVieConIndex = walk.NewTableViewColumn()
+    mw.ui.VersionTabVieConIndex.SetTitle("序号")
+    mw.ui.VersionTabVieConIndex.SetWidth(50)
 
-    // img, _ = walk.NewImageFromFile("../../img/arrow_divide.png")
-    // mw.ui.uploadBtn.SetImage(img)
+    // 历史版本记录 - 版本
+    mw.ui.VersionTabVieConVer = walk.NewTableViewColumn()
+    mw.ui.VersionTabVieConVer.SetTitle("版本")
+    mw.ui.VersionTabVieConVer.SetWidth(100)
+
+    // 历史版本记录 - 打包内容
+    mw.ui.VersionTabVieConPack = walk.NewTableViewColumn()
+    mw.ui.VersionTabVieConPack.SetTitle("打包内容")
+    mw.ui.VersionTabVieConPack.SetWidth(120)
+
+    // 历史版本记录 - 是否打Tag
+    mw.ui.VersionTabVieConTag = walk.NewTableViewColumn()
+    mw.ui.VersionTabVieConTag.SetTitle("Tag")
+    mw.ui.VersionTabVieConTag.SetWidth(120)
+
+    // 历史版本记录 - Tag 路径
+    mw.ui.VersionTabVieConTagPath = walk.NewTableViewColumn()
+    mw.ui.VersionTabVieConTagPath.SetTitle("Tag路径")
+    mw.ui.VersionTabVieConTagPath.SetWidth(150)
+
+    // 历史版本记录 - 打包时间
+    mw.ui.VersionTabVieConTime = walk.NewTableViewColumn()
+    mw.ui.VersionTabVieConTime.SetTitle("打包时间")
+    mw.ui.VersionTabVieConTime.SetWidth(100)
+
+    // TableViewColumn 添加到 TableView
+    mw.ui.VersionTableView.Columns().Add(mw.ui.VersionTabVieConIndex)
+    mw.ui.VersionTableView.Columns().Add(mw.ui.VersionTabVieConVer)
+    mw.ui.VersionTableView.Columns().Add(mw.ui.VersionTabVieConPack)
+    mw.ui.VersionTableView.Columns().Add(mw.ui.VersionTabVieConTag)
+    mw.ui.VersionTableView.Columns().Add(mw.ui.VersionTabVieConTagPath)
+    mw.ui.VersionTableView.Columns().Add(mw.ui.VersionTabVieConTime)
 
     succeeded = true
 

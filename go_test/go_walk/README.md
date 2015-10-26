@@ -245,7 +245,7 @@
     func (wb *WindowBase) SwitchToThisWindow(switchto bool) {
         win.ShowWindow(wb.hWnd, win.SW_RESTORE)
     }
-    3> 修改 lxn/walk/windows.go, 在 SetFocus下增加 SetForegroundWindow
+    3> 修改 lxn/walk/windows.go, 在 SetFocus 下增加 SetForegroundWindow
     // SetForegroundWindow sets the before any to the *WindowBase.
     func (wb *WindowBase) SetForegroundWindow() error {
         if !win.SetForegroundWindow(wb.hWnd) {
