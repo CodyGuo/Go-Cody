@@ -5,7 +5,7 @@ import (
     "fmt"
     _ "github.com/mattn/go-sqlite3"
     "log"
-    // "os"
+    "os"
 )
 
 type Setting struct {
@@ -21,6 +21,10 @@ func main() {
     var settings Setting
 
     // settings := new(Setting)
+    _, err := os.Open("./foo.db")
+    if err == nil {
+        log.Fatalln("文件已存在.")
+    }
 
     db, err := sql.Open("sqlite3", "./foo.db")
     if err != nil {
@@ -28,15 +32,15 @@ func main() {
     }
     defer db.Close()
 
-    // sqlStmt := `
-    // create table setting (ip text not null primary key, user text, passwd text);
-    // delete from setting;
-    // `
-    // _, err = db.Exec(sqlStmt)
-    // if err != nil {
-    //     log.Printf("%q: %s\n", err, sqlStmt)
-    //     return
-    // }
+    sqlStmt := `
+    create table setting (ip text not null primary key, user text, passwd text);
+    delete from setting;
+    `
+    _, err = db.Exec(sqlStmt)
+    if err != nil {
+        log.Printf("%q: %s\n", err, sqlStmt)
+        return
+    }
 
     tx, err := db.Begin()
     if err != nil {

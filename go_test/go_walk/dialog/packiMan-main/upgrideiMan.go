@@ -16,29 +16,6 @@ import (
     "github.com/lxn/walk"
 )
 
-const (
-    ipRegxp = "^(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-4])$"
-)
-
-func ProcEsxit(tmpDir string) (err error) {
-    iManPidFile, err := os.Open(tmpDir + "\\imanPack.pid")
-    defer iManPidFile.Close()
-
-    if err == nil {
-        filePid, err := ioutil.ReadAll(iManPidFile)
-        if err == nil {
-            pidStr := fmt.Sprintf("%s", filePid)
-            pid, _ := strconv.Atoi(pidStr)
-            _, err := os.FindProcess(pid)
-            if err == nil {
-                return errors.New("[ERROR] iMan升级工具已启动.")
-            }
-        }
-    }
-
-    return nil
-}
-
 func init() {
     iManPid := fmt.Sprint(os.Getpid())
     tmpDir := os.TempDir()
@@ -60,6 +37,7 @@ func main() {
     }
 }
 
+// 主窗体
 func RunMyWindow() (err error) {
     mw := new(MyWindow)
     mw.init()
@@ -174,10 +152,28 @@ func RunMyWindow() (err error) {
     return nil
 }
 
+// 设置服务器窗体
 func RunSetServer(owner walk.Form, mw *MyWindow) (err error) {
     dlg := new(DlgServer)
 
     dlg.init(owner)
+    dlg.ui.IpLe.SetText(ConfSer.Ip)
+
+    mw.ui.BuildServerLb.SetText("编译服务器IP: " + dlg.ui.IpLe.Text())
+
+    // 历史记录
+    fmt.Println("实例记录", ConfVer.Index, ConfVer.Version, ConfVer.MasterVer, ConfVer.Tag)
+    mw.ui.VersionTabVieConIndex.SetDataMember(fmt.Sprintln(ConfVer.Index))
+    mw.ui.VersionTabVieConVer.SetDataMember(ConfVer.Version)
+    mw.ui.VersionTabVieConPack.SetDataMember(ConfVer.Pack)
+    mw.ui.VersionTabVieConTag.SetDataMember(ConfVer.Tag)
+    mw.ui.VersionTabVieConTagPath.SetDataMember(ConfVer.TagPath)
+    mw.ui.VersionTabVieConTime.SetDataMember(fmt.Sprintln(ConfVer.PackTime))
+
+    var test walk.TableModelBase
+
+    mw.ui.VersionTableView.SetModel(test)
+    test.PublishRowsReset()
 
     // 确定
     dlg.ui.AcceptPB.Clicked().Attach(func() {
@@ -185,7 +181,8 @@ func RunSetServer(owner walk.Form, mw *MyWindow) (err error) {
         switch {
         case dlg.ui.IpLe.Text() == "" || !ipInputTrue:
             log.Println("[WARN] 请输入正确的服务器IP【 " + dlg.ui.IpLe.Text() + " 】.")
-            walk.MsgBox(dlg, "警告信息", "请输入正确的服务器IP【 "+dlg.ui.IpLe.Text()+" 】.", walk.MsgBoxIconWarning)
+            walk.MsgBox(dlg, "警告信息", "请输入正确的服务器IP【 "+dlg.ui.IpLe.Text()+
+                " 】.", walk.MsgBoxIconWarning)
         case dlg.ui.UserLe.Text() == "":
             log.Println("[WARN] 请输入用户名!")
             walk.MsgBox(dlg, "警告信息", "请输入用户名!", walk.MsgBoxIconWarning)
@@ -193,10 +190,18 @@ func RunSetServer(owner walk.Form, mw *MyWindow) (err error) {
             log.Println("[WARN] 请输入密码!")
             walk.MsgBox(dlg, "警告信息", "请输入密码!", walk.MsgBoxIconWarning)
         default:
-            log.Println("[INFO] 您设置的服务器IP为【 " + dlg.ui.IpLe.Text() + " 】." + "用户名为 【 " + dlg.ui.UserLe.Text() + " 】." +
+            log.Println("[INFO] 您设置的服务器IP为【 " + dlg.ui.IpLe.Text() + " 】." +
+                "用户名为 【 " + dlg.ui.UserLe.Text() + " 】." +
                 "密码为【 " + dlg.ui.PasswdLe.Text() + " 】.")
+            walk.MsgBox(dlg, "提示信息", "您设置的服务器IP为【 "+dlg.ui.IpLe.Text()+
+                " 】.", walk.MsgBoxIconInformation)
+
+            ConfSer.Ip = dlg.ui.IpLe.Text()
+            ConfSer.User = dlg.ui.UserLe.Text()
+            ConfSer.Passwd = dlg.ui.PasswdLe.Text()
             mw.ui.BuildServerLb.SetText("编译服务器IP: " + dlg.ui.IpLe.Text())
-            walk.MsgBox(dlg, "提示信息", "您设置的服务器IP为【 "+dlg.ui.IpLe.Text()+" 】.", walk.MsgBoxIconInformation)
+            // fmt.Println("iman:", ConfSer.Ip, ConfSer.User, ConfSer.Passwd)
+            ConfSer.Write()
             dlg.Close(0)
         }
     })
@@ -204,6 +209,26 @@ func RunSetServer(owner walk.Form, mw *MyWindow) (err error) {
     ok := dlg.Run()
     if ok != 0 {
         return errors.New("[ERROR] 运行服务器设置窗体错误.")
+    }
+
+    return nil
+}
+
+// 判断进程是否启动
+func ProcEsxit(tmpDir string) (err error) {
+    iManPidFile, err := os.Open(tmpDir + "\\imanPack.pid")
+    defer iManPidFile.Close()
+
+    if err == nil {
+        filePid, err := ioutil.ReadAll(iManPidFile)
+        if err == nil {
+            pidStr := fmt.Sprintf("%s", filePid)
+            pid, _ := strconv.Atoi(pidStr)
+            _, err := os.FindProcess(pid)
+            if err == nil {
+                return errors.New("[ERROR] iMan升级工具已启动.")
+            }
+        }
     }
 
     return nil

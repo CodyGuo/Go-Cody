@@ -37,6 +37,9 @@ func (dlg *DlgServer) init(owner walk.Form) (err error) {
     dlg.Dialog, err = walk.NewDialogWithFixedSize(owner)
     dlg.checkError(err)
 
+    // 读取配置文件
+    ConfSer.Read()
+
     succeeded := false
     defer func() {
         if !succeeded {
@@ -66,6 +69,7 @@ func (dlg *DlgServer) init(owner walk.Form) (err error) {
     dlg.ui.IpLe, err = walk.NewLineEdit(dlg)
     dlg.ui.IpLe.SetBounds(walk.Rectangle{100, 20, 120, 20})
     dlg.ui.IpLe.SetFont(fountOther)
+    dlg.ui.IpLe.SetText(ConfSer.Ip)
     dlg.ui.IpLe.SetMaxLength(15)
 
     // 用户名标题
@@ -79,6 +83,7 @@ func (dlg *DlgServer) init(owner walk.Form) (err error) {
     dlg.ui.UserLe, err = walk.NewLineEdit(dlg)
     dlg.ui.UserLe.SetBounds(walk.Rectangle{100, 60, 120, 20})
     dlg.ui.UserLe.SetFont(fountOther)
+    dlg.ui.UserLe.SetText(ConfSer.User)
 
     // 密码标题
     dlg.ui.PasswdLb, err = walk.NewLabel(dlg)
@@ -91,6 +96,7 @@ func (dlg *DlgServer) init(owner walk.Form) (err error) {
     dlg.ui.PasswdLe, err = walk.NewLineEdit(dlg)
     dlg.ui.PasswdLe.SetBounds(walk.Rectangle{100, 100, 120, 20})
     dlg.ui.PasswdLe.SetPasswordMode(true)
+    dlg.ui.PasswdLe.SetText(ConfSer.Passwd)
 
     // 确定
     dlg.ui.AcceptPB, err = walk.NewPushButton(dlg)

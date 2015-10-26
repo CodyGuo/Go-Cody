@@ -3,17 +3,12 @@
 package main
 
 import (
-    // "image"
-    // _ "image/png"
     "log"
-    // "os"
 )
 
 import (
     "github.com/lxn/walk"
 )
-
-var _VERSION_ = "cody.guo"
 
 type myWindowUI struct {
     // 设置
@@ -180,7 +175,7 @@ func (mw *MyWindow) init() (err error) {
     mw.ui.BuildServerLb, err = walk.NewLabel(mw)
     mw.checkError(err)
 
-    mw.ui.BuildServerLb.SetText("编译服务器IP:")
+    mw.ui.BuildServerLb.SetText("编译服务器IP: " + ConfSer.Ip)
     mw.ui.BuildServerLb.SetFont(otherFont)
 
     mw.ui.BuildServerLb.SetBounds(walk.Rectangle{480, 10, 220, 20})
