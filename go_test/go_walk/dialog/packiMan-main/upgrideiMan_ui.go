@@ -72,8 +72,14 @@ type myWindowUI struct {
     LinuxRubyCb     *walk.CheckBox
 
     // 打包日志
-    PackLogLb *walk.Label
-    lv        *LogView
+    PackTabWidget *walk.TabWidget
+    PackTabPage   *walk.TabPage
+
+    // 历史版本记录
+    VersionWidget *walk.TabWidget
+    VersionPage   *walk.TabPage
+    PackLogLb     *walk.Label
+    lv            *LogView
 }
 
 type MyWindow struct {
@@ -397,8 +403,15 @@ func (mw *MyWindow) init() (err error) {
 
     mw.ui.LinuxRubyCb.SetBounds(walk.Rectangle{80, 170, 90, 25})
 
-    // 日志标签
-    test, err := walk.NewTabPage()
+    // 打包日志
+    mw.ui.PackTabWidget, err = walk.NewTabWidget(mw)
+    mw.checkError(err)
+
+    mw.ui.PackTabWidget.SetBounds(walk.Rectangle{20, 330, 60, 20})
+
+    mw.ui.PackTabPage, err = walk.NewTabPage()
+    mw.ui.PackTabPage.SetTitle("打包日志")
+    mw.ui.PackTabPage.SetBounds(walk.Rectangle{20, 330, 60, 20})
 
     // 打包日志
     mw.ui.PackLogLb, err = walk.NewLabel(mw)

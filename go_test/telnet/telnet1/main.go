@@ -1,11 +1,10 @@
 package main
 
 import (
-    "errors"
     "github.com/ziutek/telnet"
     "log"
     "os"
-    "strings"
+    // "strings"
     "time"
 )
 
@@ -13,7 +12,7 @@ const timeout = 1 * time.Second
 
 func checkErr(info string, err error) {
     if err != nil {
-        log.Fatalln("[ERROR] ", info, "失败.", err)
+        log.Println("[ERROR] ", info, "失败.", err)
     } else {
         log.Println("[INFO] ", info, "成功.")
     }
@@ -25,16 +24,6 @@ func expect(t *telnet.Conn, d ...string) (err error) {
     err = t.SkipUntil(d...)
     if err != nil {
         return err
-    } else {
-        for _, i := range d {
-            if strings.Contains(i, "#") {
-                str, _ := t.ReadString('#')
-                if strings.Contains(str, "Incomplete command.") {
-                    return errors.New("命令错误.")
-                }
-            }
-
-        }
     }
 
     return nil
@@ -64,9 +53,9 @@ func main() {
     t.SetUnixWriteMode(false)
 
     var data []byte
-    typ := "h3c"
+    typ := "cisco"
     switch typ {
-    case "h3c":
+    case "cisco":
         err := expect(t, "ssword: ")
         // checkErr("密码验证", err)
 
@@ -74,13 +63,15 @@ func main() {
         err = expect(t, "#")
         checkErr("进入特权模式", err)
 
-        err = sendln(t, "sh aa")
-        checkErr("show arp", err)
+        // terminal length 0
+        sendln(t, "terminal length 0")
 
         err = expect(t, "#")
+        sendln(t, "show arp")
         checkErr("show arp", err)
 
         data, err = t.ReadBytes('#')
+
     default:
         log.Fatalln("bad host type: " + typ)
     }
