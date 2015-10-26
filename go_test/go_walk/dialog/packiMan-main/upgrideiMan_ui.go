@@ -397,6 +397,9 @@ func (mw *MyWindow) init() (err error) {
 
     mw.ui.LinuxRubyCb.SetBounds(walk.Rectangle{80, 170, 90, 25})
 
+    // 日志标签
+    test, err := walk.NewTabPage()
+
     // 打包日志
     mw.ui.PackLogLb, err = walk.NewLabel(mw)
     mw.checkError(err)
