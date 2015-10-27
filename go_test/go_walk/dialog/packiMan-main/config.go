@@ -10,6 +10,7 @@ import (
 )
 
 import (
+    // "github.com/lxn/walk"
     _ "github.com/mattn/go-sqlite3"
 )
 
@@ -117,6 +118,105 @@ type ConfigVersion struct {
     PackTime  time.Duration
 }
 
+// type ConfigVersionModel struct {
+//     walk.TableModelBase
+//     walk.SorterBase
+//     sortColumn int
+//     sortOrder  walk.SortOrder
+//     items      []*ConfigVersion
+// }
+
+// func NewConfigVersionModel() *ConfigVersionModel {
+//     m := new(ConfigVersionModel)
+//     m.ResetRows()
+//     return m
+// }
+
+// func (m *ConfigVersionModel) RowCount() int {
+//     return len(m.items)
+// }
+
+// func (m *ConfigVersionModel) Value(row, col int) interface{} {
+//     item := m.items[row]
+
+//     switch col {
+//     case 0:
+//         return item.Index
+
+//     case 1:
+//         return item.Version
+
+//     case 2:
+//         return item.MasterVer
+
+//     case 3:
+//         return item.Pack
+//     case 4:
+//         return item.Tag
+//     case 5:
+//         return item.TagPath
+//     case 6:
+//         return item.PackTime
+//     }
+
+//     panic("unexpected col")
+// }
+
+// func (m *ConfigVersionModel) Checked(row int) bool {
+//     return m.items[row].checked
+// }
+
+// func (m *ConfigVersionModel) SetChecked(row int, checked bool) error {
+//     m.items[row].checked = checked
+
+//     return nil
+// }
+
+// func (m *ConfigVersionModel) Sort(col int, order walk.SortOrder) error {
+//     m.sortColumn, m.sortOrder = col, order
+
+//     sort.Stable(m)
+
+//     return m.SorterBase.Sort(col, order)
+// }
+
+// func (m *ConfigVersionModel) Len() int {
+//     return len(m.items)
+// }
+
+// func (m *ConfigVersionModel) Less(i, j int) bool {
+//     a, b := m.items[i], m.items[j]
+//     c := func(ls bool) bool {
+//         if m.sortOrder == walk.SortAscending {
+//             return ls
+//         }
+//         return !ls
+//     }
+
+//     switch m.sortColumn {
+//     case 0:
+//         return c(a.Index < b.Index)
+//     case 1:
+//         return c(a.Version < b.Version)
+//     case 2:
+//         return c(a.MasterVer < b.MasterVer)
+//     case 3:
+//         return c(a.Pack < b.Pack)
+//     case 4:
+//         return c(a.Tag < b.Tag)
+//     case 5:
+//         return c(a.TagPath < b.TagPath)
+//     case 6:
+//         return c(a.PackTime.Before(b.PackTime))
+//     }
+
+//     panic("unreachable")
+// }
+
+// func (m *ConfigVersionModel) Swap(i, j int) {
+//     m.items[i], m.items[j] = m.items[j], m.items[i]
+// }
+
 func NewConfgVersion() *ConfigVersion {
     return new(ConfigVersion)
 }
@@ -139,7 +239,9 @@ func (cv *ConfigVersion) Read() (err error) {
         fmt.Println("历史版本记录为空.")
         return errors.New("历史版本记录为空.")
     case true:
-        rows.Scan(&cv.Index, &cv.Version, &cv.MasterVer, &cv.Pack, &cv.Tag, &cv.TagPath, &cv.PackTime)
+        for rows.Next() {
+            rows.Scan(&cv.Index, &cv.Version, &cv.MasterVer, &cv.Pack, &cv.Tag, &cv.TagPath, &cv.PackTime)
+        }
     }
 
     fmt.Println("version - read:", cv.Index, cv.Version, cv.MasterVer, cv.Pack, cv.Tag, cv.TagPath, cv.PackTime)
