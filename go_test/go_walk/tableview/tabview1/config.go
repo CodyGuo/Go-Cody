@@ -18,8 +18,9 @@ import (
 )
 
 const (
-    dbFile  = "./iman.db"
-    ipRegxp = "^(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-4])$"
+    dbFile     = "./iman.db"
+    layoutTime = "2006-01-02 15:04:05"
+    ipRegxp    = "^(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-4])$"
 )
 
 var (
@@ -33,7 +34,6 @@ var (
 func init() {
 
     ConfVer = NewConfgVersion()
-    ConfVerModel = NewConfigVersionModel()
 
     ConfVer.Read()
 
@@ -139,35 +139,19 @@ func (m *ConfigVersionModel) Swap(i, j int) {
     m.items[i], m.items[j] = m.items[j], m.items[i]
 }
 
-func (m *ConfigVersionModel) ResetRows(n int, conf *ConfigVersion) {
+func (m *ConfigVersionModel) ResetRows(conf *ConfigVersion) {
     // Create some random data.
     // m.items = append(m.items, conf)
-    m.items = make([]*ConfigVersion, 10000)
 
-    m.items[n] = &ConfigVersion{
+    m.items = append(m.items, &ConfigVersion{
         Index:     conf.Index,
         MasterVer: conf.MasterVer,
         Version:   conf.Version,
         Pack:      conf.Pack,
         Tag:       conf.Tag,
         TagPath:   conf.TagPath,
-        // PackTime:  conf.PackTime,
-    }
-    fmt.Println("m.timets", m.items[0], len(m.items))
-
-    // now := time.Now()
-
-    // for i := range m.items {
-    //     m.items[i] = &ConfigVersion{
-    //         Index:     i,
-    //         MasterVer: "3",
-    //         Version:   "3.20",
-    //         Pack:      "pack",
-    //         Tag:       "tag",
-    //         TagPath:   "tagpath",
-    //         PackTime:  time.Unix(rand.Int63n(now.Unix()), 0),
-    //     }
-    // }
+        PackTime:  conf.PackTime,
+    })
 
     // Notify TableView and other interested parties about the reset.
     m.PublishRowsReset()
@@ -177,7 +161,7 @@ func (m *ConfigVersionModel) ResetRows(n int, conf *ConfigVersion) {
 
 func (cv *ConfigVersion) Read() (err error) {
     db, err := openDb()
-    defer db.Close()
+    // defer db.Close()
     if err != nil {
         return err
     }
@@ -188,20 +172,24 @@ func (cv *ConfigVersion) Read() (err error) {
         return err
     }
 
-    var n int
+    ConfVerModel = NewConfigVersionModel()
+    confDb := NewConfgVersion()
+    var packtime string
+
     for {
         switch rows.Next() {
         case false:
             fmt.Println("找到不到历史版本记录了.")
             return errors.New("找到不到历史版本记录了.")
         case true:
-            rows.Scan(&cv.Index, &cv.MasterVer, &cv.Version, &cv.Pack, &cv.Tag, &cv.TagPath, &cv.PackTime)
-            ConfVerModel.ResetRows(n, cv)
-            fmt.Println("n:", n)
-            n += 1
-            fmt.Println("version - read:", cv.Index, cv.MasterVer, cv.Version, cv.Pack, cv.Tag, cv.TagPath, cv.PackTime)
+            rows.Scan(&confDb.Index, &confDb.MasterVer, &confDb.Version, &confDb.Pack, &confDb.Tag, &confDb.TagPath, &packtime)
+            confDb.PackTime, _ = time.Parse(layoutTime, packtime)
+            ConfVerModel.ResetRows(confDb)
+            fmt.Println("version - read:", confDb.Index, confDb.MasterVer, confDb.Version, confDb.Pack, confDb.Tag, confDb.TagPath, confDb.PackTime)
         }
     }
+
+    db.Close()
 
     return nil
 }

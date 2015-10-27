@@ -149,7 +149,7 @@ func (mw *MyWindow) init() (err error) {
     mw.ui.VersionTabVieConTime = walk.NewTableViewColumn()
     mw.ui.VersionTabVieConTime.SetTitle("打包时间")
     mw.ui.VersionTabVieConTime.SetWidth(150)
-    mw.ui.VersionTabVieConTime.SetFormat("2006-01-02 15:04:05")
+    mw.ui.VersionTabVieConTime.SetFormat(layoutTime)
 
     // TableViewColumn 添加到 TableView
     mw.ui.VersionTableView.Columns().Add(mw.ui.VersionTabVieConIndex)
