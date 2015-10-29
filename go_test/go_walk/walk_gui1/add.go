@@ -47,7 +47,7 @@ func (m *ServerListModel) SetChecked(row int, checked bool) error {
     return nil
 }
 
-//获取被选中的结果
+//获取被选中的行
 func (m *ServerListModel) GetChecked() []*ServerList {
     rc := []*ServerList{}
     for idx, item := range m.items {

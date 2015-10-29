@@ -82,11 +82,24 @@ func RunMyWindow() (err error) {
 
     mw.ui.VersionTableView.SetModel(ConfVerModel)
 
+    // 刷新数据库数据到tableview
     mw.ui.PushButton1.Clicked().Attach(func() {
-        ConfVerModel = NewConfigVersionModel()
+        ConfVerModel.Read()
+        // 重置tableview
         mw.ui.VersionTableView.SetModel(ConfVerModel)
-        ConfVer := NewConfgVersion()
-        ConfVer.Read()
+    })
+
+    mw.ui.PushButton2.Clicked().Attach(func() {
+        // 获取选择的项
+        var getCv []*ConfigVersion
+        getCv = ConfVerModel.GetChecked()
+        fmt.Println("-----开始选择getcv-----")
+        if len(getCv) > 0 {
+            for i, _ := range getCv {
+                fmt.Println("我选中了:", getCv[i].TagPath)
+            }
+        }
+        fmt.Println("-----选择结束-----")
     })
 
     mw.Show()

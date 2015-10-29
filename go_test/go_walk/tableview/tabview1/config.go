@@ -26,18 +26,12 @@ const (
 var (
     _VERSION_ = "cody.guo"
 
-    // ConfVer *ConfigVersion
     SqlStmt      *sql.Stmt
     ConfVerModel *ConfigVersionModel
 )
 
 func init() {
-    ConfVerModel = NewConfigVersionModel()
-
-    ConfVer := NewConfgVersion()
-
-    ConfVer.Read()
-
+    ConfVerModel.Read()
 }
 
 type ConfigVersion struct {
@@ -48,6 +42,7 @@ type ConfigVersion struct {
     Tag       string
     TagPath   string
     PackTime  time.Time
+    checked   bool
 }
 
 type ConfigVersionModel struct {
@@ -59,13 +54,33 @@ type ConfigVersionModel struct {
 }
 
 func NewConfgVersion() *ConfigVersion {
-    return &ConfigVersion{}
+    return new(ConfigVersion)
 }
 
 func NewConfigVersionModel() *ConfigVersionModel {
-    m := new(ConfigVersionModel)
-    // m.ResetRows()
-    return m
+    return new(ConfigVersionModel)
+}
+
+// Called by the TableView to retrieve if a given row is checked.
+func (m *ConfigVersionModel) Checked(row int) bool {
+    return m.items[row].checked
+}
+
+// Called by the TableView when the user toggled the check box of a given row.
+func (m *ConfigVersionModel) SetChecked(row int, checked bool) error {
+    m.items[row].checked = checked
+
+    return nil
+}
+
+//获取被选中的结果
+func (m *ConfigVersionModel) GetChecked() (cv []*ConfigVersion) {
+    for idx, item := range m.items {
+        if m.Checked(idx) {
+            cv = append(cv, item)
+        }
+    }
+    return cv
 }
 
 func (m *ConfigVersionModel) RowCount() int {
@@ -95,6 +110,7 @@ func (m *ConfigVersionModel) Value(row, col int) interface{} {
     panic("unexpected col")
 }
 
+// 排序
 // func (m *ConfigVersionModel) Sort(col int, order walk.SortOrder) error {
 //     m.sortColumn, m.sortOrder = col, order
 
@@ -141,9 +157,6 @@ func (m *ConfigVersionModel) Swap(i, j int) {
 }
 
 func (m *ConfigVersionModel) ResetRows(conf *ConfigVersion) {
-    // Create some random data.
-    // m.items = append(m.items, conf)
-
     m.items = append(m.items, &ConfigVersion{
         Index:     conf.Index,
         MasterVer: conf.MasterVer,
@@ -153,10 +166,8 @@ func (m *ConfigVersionModel) ResetRows(conf *ConfigVersion) {
         TagPath:   conf.TagPath,
         PackTime:  conf.PackTime,
     })
-    fmt.Println("-------------------------start------------------------")
-    fmt.Println(m.items[:m.Len()])
-    fmt.Println("ResetRows:", conf.Index, conf.MasterVer, conf.Version, conf.Pack, conf.Tag, conf.TagPath, conf.PackTime)
-    fmt.Println("--------------------------end-----------------------")
+
+    // fmt.Println("ResetRows:", conf.Index, conf.MasterVer, conf.Version, conf.Pack, conf.Tag, conf.TagPath, conf.PackTime)
 
     // Notify TableView and other interested parties about the reset.
     m.PublishRowsReset()
@@ -164,7 +175,7 @@ func (m *ConfigVersionModel) ResetRows(conf *ConfigVersion) {
     m.Sort(m.sortColumn, m.sortOrder)
 }
 
-func (cv *ConfigVersion) Read() (err error) {
+func (m *ConfigVersionModel) Read() (err error) {
     db, err := openDb()
     // defer db.Close()
     if err != nil {
@@ -177,19 +188,21 @@ func (cv *ConfigVersion) Read() (err error) {
         return err
     }
 
-    confDb := NewConfgVersion()
-    var packtime string
+    ConfVerModel = NewConfigVersionModel()
 
     for {
+        ConfVer := NewConfgVersion()
+        var packtime string
+
         switch rows.Next() {
         case false:
             fmt.Println("找到不到历史版本记录了.")
             return errors.New("找到不到历史版本记录了.")
         case true:
-            rows.Scan(&confDb.Index, &confDb.MasterVer, &confDb.Version, &confDb.Pack, &confDb.Tag, &confDb.TagPath, &packtime)
-            confDb.PackTime, _ = time.Parse(layoutTime, packtime)
-            ConfVerModel.ResetRows(confDb)
-            fmt.Println("version - read:", confDb.Index, confDb.MasterVer, confDb.Version, confDb.Pack, confDb.Tag, confDb.TagPath, confDb.PackTime)
+            rows.Scan(&ConfVer.Index, &ConfVer.MasterVer, &ConfVer.Version, &ConfVer.Pack, &ConfVer.Tag, &ConfVer.TagPath, &packtime)
+            ConfVer.PackTime, _ = time.Parse(layoutTime, packtime)
+            ConfVerModel.ResetRows(ConfVer)
+            fmt.Println("version - read:", ConfVer.Index, ConfVer.MasterVer, ConfVer.Version, ConfVer.Pack, ConfVer.Tag, ConfVer.TagPath, ConfVer.PackTime)
         }
     }
 

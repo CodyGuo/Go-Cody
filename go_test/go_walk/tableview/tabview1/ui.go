@@ -15,6 +15,9 @@ type myWindowUI struct {
     // 刷新
     PushButton1 *walk.PushButton
 
+    // 获取
+    PushButton2 *walk.PushButton
+
     // 日志框
     PackTabWidget *walk.TabWidget
 
@@ -97,10 +100,16 @@ func (mw *MyWindow) init() (err error) {
     mw.ui.PushButton1.SetText("刷新")
     mw.ui.PushButton1.SetBounds(walk.Rectangle{300, 10, 50, 30})
 
+    // 获取
+    mw.ui.PushButton2, err = walk.NewPushButton(mw)
+    mw.checkError(err)
+    mw.ui.PushButton2.SetText("获取")
+    mw.ui.PushButton2.SetBounds(walk.Rectangle{400, 10, 50, 30})
+
     // 打包日志 TabWidget
     mw.ui.PackTabWidget, err = walk.NewTabWidget(mw)
     mw.checkError(err)
-    mw.ui.PackTabWidget.SetBounds(walk.Rectangle{0, 50, 800, 500})
+    mw.ui.PackTabWidget.SetBounds(walk.Rectangle{5, 50, 780, 500})
 
     // 历史版本记录 TabPage
     mw.ui.VersionPage, err = walk.NewTabPage()
@@ -111,9 +120,10 @@ func (mw *MyWindow) init() (err error) {
 
     // 历史版本记录 TableView
     mw.ui.VersionTableView, err = walk.NewTableView(mw.ui.VersionPage)
-    mw.checkError(err)
+    mw.ui.VersionTableView.SetCheckBoxes(true)
+    mw.ui.VersionTableView.SetBounds(walk.Rectangle{10, 10, 770, 460})
 
-    mw.ui.VersionTableView.SetBounds(walk.Rectangle{-1, -1, 795, 500})
+    mw.checkError(err)
 
     // 历史版本记录 - 序号
     mw.ui.VersionTabVieConIndex = walk.NewTableViewColumn()
