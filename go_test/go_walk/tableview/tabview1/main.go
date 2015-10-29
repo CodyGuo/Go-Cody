@@ -83,6 +83,9 @@ func RunMyWindow() (err error) {
     mw.ui.VersionTableView.SetModel(ConfVerModel)
 
     mw.ui.PushButton1.Clicked().Attach(func() {
+        ConfVerModel = NewConfigVersionModel()
+        mw.ui.VersionTableView.SetModel(ConfVerModel)
+        ConfVer := NewConfgVersion()
         ConfVer.Read()
     })
 

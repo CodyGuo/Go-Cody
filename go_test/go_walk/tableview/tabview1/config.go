@@ -26,14 +26,15 @@ const (
 var (
     _VERSION_ = "cody.guo"
 
-    ConfVer      *ConfigVersion
+    // ConfVer *ConfigVersion
     SqlStmt      *sql.Stmt
     ConfVerModel *ConfigVersionModel
 )
 
 func init() {
+    ConfVerModel = NewConfigVersionModel()
 
-    ConfVer = NewConfgVersion()
+    ConfVer := NewConfgVersion()
 
     ConfVer.Read()
 
@@ -58,7 +59,7 @@ type ConfigVersionModel struct {
 }
 
 func NewConfgVersion() *ConfigVersion {
-    return new(ConfigVersion)
+    return &ConfigVersion{}
 }
 
 func NewConfigVersionModel() *ConfigVersionModel {
@@ -152,6 +153,10 @@ func (m *ConfigVersionModel) ResetRows(conf *ConfigVersion) {
         TagPath:   conf.TagPath,
         PackTime:  conf.PackTime,
     })
+    fmt.Println("-------------------------start------------------------")
+    fmt.Println(m.items[:m.Len()])
+    fmt.Println("ResetRows:", conf.Index, conf.MasterVer, conf.Version, conf.Pack, conf.Tag, conf.TagPath, conf.PackTime)
+    fmt.Println("--------------------------end-----------------------")
 
     // Notify TableView and other interested parties about the reset.
     m.PublishRowsReset()
@@ -172,7 +177,6 @@ func (cv *ConfigVersion) Read() (err error) {
         return err
     }
 
-    ConfVerModel = NewConfigVersionModel()
     confDb := NewConfgVersion()
     var packtime string
 
