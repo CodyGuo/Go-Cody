@@ -490,6 +490,10 @@ func (mw *MyWindow) init() (err error) {
     mw.ui.VersionTableView.Columns().Add(mw.ui.VersionTabVieConTagPath)
     mw.ui.VersionTableView.Columns().Add(mw.ui.VersionTabVieConTime)
 
+    // 历史版本记录数据
+    mw.ui.VersionTableView.SetCheckBoxes(true)
+    mw.ui.VersionTableView.SetModel(ConfVerModel)
+
     succeeded = true
 
     return nil

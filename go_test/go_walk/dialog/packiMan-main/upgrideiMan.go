@@ -161,19 +161,8 @@ func RunSetServer(owner walk.Form, mw *MyWindow) (err error) {
 
     mw.ui.BuildServerLb.SetText("编译服务器IP: " + dlg.ui.IpLe.Text())
 
-    // 历史记录
-    fmt.Println("实例记录", ConfVer.Index, ConfVer.Version, ConfVer.MasterVer, ConfVer.Tag)
-    mw.ui.VersionTabVieConIndex.SetDataMember(fmt.Sprintln(ConfVer.Index))
-    mw.ui.VersionTabVieConVer.SetDataMember(ConfVer.Version)
-    mw.ui.VersionTabVieConPack.SetDataMember(ConfVer.Pack)
-    mw.ui.VersionTabVieConTag.SetDataMember(ConfVer.Tag)
-    mw.ui.VersionTabVieConTagPath.SetDataMember(ConfVer.TagPath)
-    mw.ui.VersionTabVieConTime.SetDataMember(fmt.Sprintln(ConfVer.PackTime))
-
-    var test walk.TableModelBase
-
-    mw.ui.VersionTableView.SetModel(test)
-    test.PublishRowsReset()
+    ConfVerModel.Read()
+    mw.ui.VersionTableView.SetModel(ConfVerModel)
 
     // 确定
     dlg.ui.AcceptPB.Clicked().Attach(func() {
@@ -201,6 +190,7 @@ func RunSetServer(owner walk.Form, mw *MyWindow) (err error) {
             ConfSer.Passwd = dlg.ui.PasswdLe.Text()
             mw.ui.BuildServerLb.SetText("编译服务器IP: " + dlg.ui.IpLe.Text())
             // fmt.Println("iman:", ConfSer.Ip, ConfSer.User, ConfSer.Passwd)
+            // 写入数据库
             ConfSer.Write()
             dlg.Close(0)
         }

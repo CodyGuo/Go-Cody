@@ -18,190 +18,200 @@ import (
     "github.com/pkg/sftp"
 )
 
-type UpgradeInfo struct {
+type SshConfig struct {
     Host   string
     User   string
     Passwd string
     Debug  bool
 }
 
-func (info *UpgradeInfo) MakeLogger(prefix string) gossh.Writer {
+
+func NewSshConfig() *SshConfig {
+    return new(SshConfig)
+}
+
+
+func (s *SshConfig) MakeLogger(prefix string) gossh.Writer {
     return func(args ...interface{}) {
         log.Println((append([]interface{}{prefix}, args...))...)
     }
 }
 
-type UploadFile struct {
-    UpgradeInfo
+func (s *SshConfig) () {
 
-    timeout time.Duration
-
-    LocalFilePath  string
-    UploadFilePath string
-
-    UpgradeFilePath string
-    UpgradeFileName string
 }
 
-func NewUploadFile() *UploadFile {
-    return &UploadFile{}
-}
+// type UploadFile struct {
+//     UpgradeInfo
 
-func NewConn() *gossh.Client {
-    // client := &gossh.Client{}
-    return &gossh.Client{}
-}
+//     timeout time.Duration
 
-func (file *UploadFile) UploadiManFile() (err error) {
-    client := NewConn()
-    client.Host = file.Host
-    client.User = file.User
-    client.SetPassword(file.Passwd)
-    if file.Debug {
-        client.DebugWriter = file.MakeLogger("[DEBUG]")
-    }
+//     LocalFilePath  string
+//     UploadFilePath string
 
-    client.InfoWriter = file.MakeLogger("[INFO]")
-    client.ErrorWriter = file.MakeLogger("[ERROR]")
+//     UpgradeFilePath string
+//     UpgradeFileName string
+// }
 
-    // 建立一个conn
-    conn, err := client.Connection()
-    if err != nil {
-        client.ErrorWriter("连接SSH失败," + err.Error())
-        return
-    }
-    defer conn.Close()
+// func NewUploadFile() *UploadFile {
+//     return &UploadFile{}
+// }
 
-    // 创建 sftp 连接
-    sftpConn, err := sftp.NewClient(conn, sftp.MaxPacket(1<<15))
-    if err != nil {
-        client.ErrorWriter("创建SFTP失败," + err.Error())
-        return
-    }
-    defer sftpConn.Close()
+// func NewConn() *gossh.Client {
+//     // client := &gossh.Client{}
+//     return &gossh.Client{}
+// }
 
-    // 本地文件路径
-    f, err := os.Open(file.LocalFilePath)
-    if err != nil {
-        client.ErrorWriter("打开上传文件【" + file.LocalFilePath + "】失败" + err.Error())
-        return
-    }
-    defer f.Close()
+// func (file *UploadFile) UploadiManFile() (err error) {
+//     client := NewConn()
+//     client.Host = file.Host
+//     client.User = file.User
+//     client.SetPassword(file.Passwd)
+//     if file.Debug {
+//         client.DebugWriter = file.MakeLogger("[DEBUG]")
+//     }
 
-    // 要上传的文件信息
-    _, file.UpgradeFileName = filepath.Split(file.LocalFilePath)
-    info, err := f.Stat()
-    if err != nil {
-        client.ErrorWriter("获取上传文件【" + file.UpgradeFileName + "】信息失败" + err.Error())
-        return
-    }
-    // 判断文件是否问解压脚本
-    if file.UpgradeFileName == "decompress_pack.sh" {
-        return errors.New("[ERROR] 升级文件【" + file.UpgradeFileName + "】是非法文件,禁止上传.")
-        client.Close()
-    }
+//     client.InfoWriter = file.MakeLogger("[INFO]")
+//     client.ErrorWriter = file.MakeLogger("[ERROR]")
 
-    // 上传计时
-    timeNow := time.Now()
+//     // 建立一个conn
+//     conn, err := client.Connection()
+//     if err != nil {
+//         client.ErrorWriter("连接SSH失败," + err.Error())
+//         return
+//     }
+//     defer conn.Close()
 
-    // 流的方式上传
-    client.InfoWriter("正在上传【" + file.UpgradeFileName + "】升级文件,请稍等...")
+//     // 创建 sftp 连接
+//     sftpConn, err := sftp.NewClient(conn, sftp.MaxPacket(1<<15))
+//     if err != nil {
+//         client.ErrorWriter("创建SFTP失败," + err.Error())
+//         return
+//     }
+//     defer sftpConn.Close()
 
-    size := info.Size()
-    unit := "byte"
-    switch {
-    case size < 1024:
-    case size >= 1024 && size < 1024*1024:
-        size = size / 1024
-        unit = "KB"
-    case size >= 1024*1024 && size < 1024*1024*200:
-        size = size / 1024 / 1024
-        unit = "MB"
-    case size >= 1024*1024*200:
-        if size < 1024*1024*1024 {
-            size = size / 1024 / 1024
-            unit = "MB"
-        } else {
-            size = size / 1024 / 1024 / 1024
-            unit = "GB"
+//     // 本地文件路径
+//     f, err := os.Open(file.LocalFilePath)
+//     if err != nil {
+//         client.ErrorWriter("打开上传文件【" + file.LocalFilePath + "】失败" + err.Error())
+//         return
+//     }
+//     defer f.Close()
 
-        }
+//     // 要上传的文件信息
+//     _, file.UpgradeFileName = filepath.Split(file.LocalFilePath)
+//     info, err := f.Stat()
+//     if err != nil {
+//         client.ErrorWriter("获取上传文件【" + file.UpgradeFileName + "】信息失败" + err.Error())
+//         return
+//     }
+//     // 判断文件是否问解压脚本
+//     if file.UpgradeFileName == "decompress_pack.sh" {
+//         return errors.New("[ERROR] 升级文件【" + file.UpgradeFileName + "】是非法文件,禁止上传.")
+//         client.Close()
+//     }
 
-        return errors.New("[ERROR] 升级文件【" + file.UpgradeFileName + "】总大小为 " + fmt.Sprint(size) + " " + unit +
-            ",超过上传文件的最大限制.")
-        client.Close()
-    }
+//     // 上传计时
+//     timeNow := time.Now()
 
-    // 服务器升级路径
-    destFile := file.UploadFilePath + "/" + file.UpgradeFileName
+//     // 流的方式上传
+//     client.InfoWriter("正在上传【" + file.UpgradeFileName + "】升级文件,请稍等...")
 
-    w, err := sftpConn.Create(destFile)
-    if err != nil {
-        client.ErrorWriter("创建上传文件【" + file.UpgradeFileName + "】失败" + err.Error())
-        return
-    }
-    defer w.Close()
+//     size := info.Size()
+//     unit := "byte"
+//     switch {
+//     case size < 1024:
+//     case size >= 1024 && size < 1024*1024:
+//         size = size / 1024
+//         unit = "KB"
+//     case size >= 1024*1024 && size < 1024*1024*200:
+//         size = size / 1024 / 1024
+//         unit = "MB"
+//     case size >= 1024*1024*200:
+//         if size < 1024*1024*1024 {
+//             size = size / 1024 / 1024
+//             unit = "MB"
+//         } else {
+//             size = size / 1024 / 1024 / 1024
+//             unit = "GB"
 
-    // 开始通过流的方式上传
-    n, err := io.Copy(w, io.LimitReader(f, info.Size()))
-    if err != nil {
-        client.ErrorWriter("获取上传文件【" + file.UpgradeFileName + "】信息失败" + err.Error())
-        return
-    }
-    if n != info.Size() {
-        return errors.New("[ERROR] 升级文件【" + file.UpgradeFileName + "】总大小为 " + fmt.Sprint(size) + " " + unit +
-            ",已上传 " + fmt.Sprint(n) + " bytes,上传失败.")
-    }
+//         }
 
-    file.timeout = time.Since(timeNow)
-    client.InfoWriter("升级文件【" + file.UpgradeFileName + "】上传成功, 总大小为 " + fmt.Sprint(size) + " " + unit +
-        ", 用时 " + fmt.Sprint(file.timeout) + ".")
+//         return errors.New("[ERROR] 升级文件【" + file.UpgradeFileName + "】总大小为 " + fmt.Sprint(size) + " " + unit +
+//             ",超过上传文件的最大限制.")
+//         client.Close()
+//     }
 
-    return nil
-}
+//     // 服务器升级路径
+//     destFile := file.UploadFilePath + "/" + file.UpgradeFileName
 
-func (cmd *UploadFile) except(sep string, r io.Reader, timeoutSec ...time.Duration) (result string, ok bool) {
-    var (
-        buf [65 * 1024]byte
-        t   int
-    )
+//     w, err := sftpConn.Create(destFile)
+//     if err != nil {
+//         client.ErrorWriter("创建上传文件【" + file.UpgradeFileName + "】失败" + err.Error())
+//         return
+//     }
+//     defer w.Close()
 
-    if len(timeoutSec) == 1 {
-        if timeoutSec[0] != time.Nanosecond {
-            cmd.timeout = timeoutSec[0]
-        }
-    }
+//     // 开始通过流的方式上传
+//     n, err := io.Copy(w, io.LimitReader(f, info.Size()))
+//     if err != nil {
+//         client.ErrorWriter("获取上传文件【" + file.UpgradeFileName + "】信息失败" + err.Error())
+//         return
+//     }
+//     if n != info.Size() {
+//         return errors.New("[ERROR] 升级文件【" + file.UpgradeFileName + "】总大小为 " + fmt.Sprint(size) + " " + unit +
+//             ",已上传 " + fmt.Sprint(n) + " bytes,上传失败.")
+//     }
 
-    timer := time.NewTimer(time.Second * cmd.timeout)
+//     file.timeout = time.Since(timeNow)
+//     client.InfoWriter("升级文件【" + file.UpgradeFileName + "】上传成功, 总大小为 " + fmt.Sprint(size) + " " + unit +
+//         ", 用时 " + fmt.Sprint(file.timeout) + ".")
 
-    for {
-        n, err := r.Read(buf[t:])
-        // log.Println("正在读取", n)
-        if err != nil {
-            // log.Println("退出读取", n)
-            log.Fatal(err)
-        }
+//     return nil
+// }
 
-        t += n
-        tmpLogIn := string(buf[:t])
-        if strings.Contains(tmpLogIn, sep) {
-            result = string(buf[:t])
-            timer.Stop()
-            ok = true
-            break
-        }
+// func (cmd *UploadFile) except(sep string, r io.Reader, timeoutSec ...time.Duration) (result string, ok bool) {
+//     var (
+//         buf [65 * 1024]byte
+//         t   int
+//     )
 
-        // 超时器
-        go func() {
-            <-timer.C
-            ok = false
-            result = "SSH超时: " + fmt.Sprint(cmd.timeout) + " 秒,返回值中不存在: " + sep + "."
-        }()
-    }
+//     if len(timeoutSec) == 1 {
+//         if timeoutSec[0] != time.Nanosecond {
+//             cmd.timeout = timeoutSec[0]
+//         }
+//     }
 
-    return
-}
+//     timer := time.NewTimer(time.Second * cmd.timeout)
 
-func (cmd *UploadFile) sendIn(w io.Writer, command string) {
-    w.Write([]byte(command + "\n"))
-}
+//     for {
+//         n, err := r.Read(buf[t:])
+//         // log.Println("正在读取", n)
+//         if err != nil {
+//             // log.Println("退出读取", n)
+//             log.Fatal(err)
+//         }
+
+//         t += n
+//         tmpLogIn := string(buf[:t])
+//         if strings.Contains(tmpLogIn, sep) {
+//             result = string(buf[:t])
+//             timer.Stop()
+//             ok = true
+//             break
+//         }
+
+//         // 超时器
+//         go func() {
+//             <-timer.C
+//             ok = false
+//             result = "SSH超时: " + fmt.Sprint(cmd.timeout) + " 秒,返回值中不存在: " + sep + "."
+//         }()
+//     }
+
+//     return
+// }
+
+// func (cmd *UploadFile) sendIn(w io.Writer, command string) {
+//     w.Write([]byte(command + "\n"))
+// }
