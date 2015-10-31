@@ -1,21 +1,21 @@
 package main
 
 import (
-    "errors"
-    "fmt"
-    "io"
+    // "errors"
+    // "fmt"
+    // "io"
     "log"
-    "os"
-    "path/filepath"
-    "strings"
-    "time"
+    // "os"
+    // "path/filepath"
+    // "strings"
+    // "time"
 )
 
 import (
     "github.com/dynport/gossh"
     // "golang.org/x/crypto/ssh"
 
-    "github.com/pkg/sftp"
+    // "github.com/pkg/sftp"
 )
 
 type SshConfig struct {
@@ -25,11 +25,9 @@ type SshConfig struct {
     Debug  bool
 }
 
-
 func NewSshConfig() *SshConfig {
     return new(SshConfig)
 }
-
 
 func (s *SshConfig) MakeLogger(prefix string) gossh.Writer {
     return func(args ...interface{}) {
@@ -37,8 +35,9 @@ func (s *SshConfig) MakeLogger(prefix string) gossh.Writer {
     }
 }
 
-func (s *SshConfig) () {
-
+func (s *SshConfig) NewSeesion() {
+    sshConf := NewSshConfig()
+    sshConf.Host = "192.168.1.1"
 }
 
 // type UploadFile struct {
