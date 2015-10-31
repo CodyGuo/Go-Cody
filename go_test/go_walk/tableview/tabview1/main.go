@@ -19,7 +19,7 @@ func init() {
     iManPid := fmt.Sprint(os.Getpid())
     tmpDir := os.TempDir()
 
-    if err := ProcEsxit(tmpDir); err == nil {
+    if err := ProcExsit(tmpDir); err == nil {
         pidFile, _ := os.Create(tmpDir + "\\imanPack.pid")
         defer pidFile.Close()
 
@@ -113,7 +113,7 @@ func RunMyWindow() (err error) {
 }
 
 // 判断进程是否启动
-func ProcEsxit(tmpDir string) (err error) {
+func ProcExsit(tmpDir string) (err error) {
     iManPidFile, err := os.Open(tmpDir + "\\imanPack.pid")
     defer iManPidFile.Close()
 

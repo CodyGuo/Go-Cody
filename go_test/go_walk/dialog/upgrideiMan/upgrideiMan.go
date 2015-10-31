@@ -20,7 +20,7 @@ const (
     ipRegxp = "^(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-5])\\.(\\d{1,2}|1\\d\\d|2[0-4]\\d|25[0-4])$"
 )
 
-func ProcEsxit(tmpDir string) (err error) {
+func ProcExsit(tmpDir string) (err error) {
     iManPidFile, err := os.Open(tmpDir + "\\iman.pid")
     defer iManPidFile.Close()
 
@@ -43,7 +43,7 @@ func init() {
     iManPid := fmt.Sprint(os.Getpid())
     tmpDir := os.TempDir()
 
-    if err := ProcEsxit(tmpDir); err == nil {
+    if err := ProcExsit(tmpDir); err == nil {
         pidFile, _ := os.Create(tmpDir + "\\iman.pid")
         defer pidFile.Close()
 
