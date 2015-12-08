@@ -1,16 +1,18 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
 	"log"
+	"os/exec"
 )
 
-func checkErr(err error) {
-	if err != nil {
-		log.Fatalln(err)
-	}
+import (
+	"database/sql"
+	_ "github.com/go-sql-driver/mysql"
+)
+
+func init() {
+	exec.Command("cmd", "/c", "title iMan登录限制查询工具").Run()
 }
 
 func main() {
@@ -28,6 +30,16 @@ func main() {
 	fmt.Println("=================================================")
 	fmt.Println("\n检查iMan登录限制结束.")
 
+	fmt.Println("\n请手动关闭工具窗口...")
+	var temp string
+	fmt.Scan(&temp)
+
+}
+
+func checkErr(err error) {
+	if err != nil {
+		log.Fatalln(err)
+	}
 }
 
 func selectTb(db *sql.DB, title, tb string) {
