@@ -19,7 +19,7 @@
 `Tag` | HTML格式化插件 |
 `Alignment` | 主要用于代码对齐，最新版据说已经集成了这个插件 | http://my.oschina.net/shede333/blog/170536
 `BracketHighlighter` | 插件高亮设置方法 | http://www.tuicool.com/articles/reQJBj
-`Ctags` | 函数跳转 | https://www.zybuluo.com/lanxinyuchs/note/33551，http://my.oschina.net/miaowang/blog/197060
+`Ctags` | 函数跳转 | https://www.zybuluo.com/lanxinyuchs/note/33551 | http://my.oschina.net/miaowang/blog/197060 | http://jingyan.baidu.com/article/63acb44afb532561fcc17ef4.html | http://ctags.sourceforge.net/
 `DocBlockr` | 代码自动注释生成 | http://blog.asdasd.cn/?p=740
 `Emmet` | (前身为 Zen Coding) 是一个能大幅度提高前端开发效率的一个工具 | http://www.w3cplus.com/tools/emmet-cheat-sheet.html
 `SublimeGDB` | Go使用GDB断点调试 | http://www.cnblogs.com/yourihua/archive/2012/11/12/2766763.html
