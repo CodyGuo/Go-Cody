@@ -1,28 +1,30 @@
+// 每一个Scanf的格式化字符串中都必须带有 \n
 package main
 
 import (
 	"fmt"
-	"os"
-	"syscall"
 )
 
 func main() {
-	var a int
-	var f float32
-	var str string
+	var str1 string
 
-	fmt.Print("Please input : ")
-	n, _ := fmt.Scanf("%d %f %s", &a, &f, &str)
-	fmt.Println("Output: ", a, f, str, n)
+	fmt.Print("Please input str1: ")
+	fmt.Scanf("%s\n", &str1)
+	fmt.Println("Output str1: ", str1)
 
 	fmt.Println("----------------------------")
 
-	// 初始化stdin
-	os.Stdin = os.NewFile(uintptr(syscall.Stdin), "/dev/stdin")
+	var str2, str3 string
+	fmt.Print("Please input str2-str3: ")
+	fmt.Scanf("%s %s\n", &str2, &str3)
 
-	var sIP, sMac string
-	fmt.Print("Please input: ")
-	fmt.Scanf("%s %s", &sIP, &sMac)
+	fmt.Println("Output str2-str3: ", str2, str3)
 
-	fmt.Println("Output: ", sIP, sMac)
+	fmt.Println("----------------------------")
+
+	var str4, str5 string
+	fmt.Print("Please input str4-str5: ")
+	fmt.Scanf("%s %s", &str4, &str5)
+
+	fmt.Println("Output str4-str5: ", str4, str5)
 }
