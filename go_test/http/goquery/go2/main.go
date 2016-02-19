@@ -38,22 +38,20 @@ func findProxy(url string) {
 		})
 
 		t.Find("tbody").Each(func(i int, s *goquery.Selection) {
-			if s.Find("tr").Is(".subtitle") || i == 0 {
-			}
-
 			s.Find("tr").Each(func(n int, s *goquery.Selection) {
-				coun, _ := s.Find("td > img").Attr("alt")
-				content = append(content, proxy{
-					coun,
-					s.Find("td").Eq(1).Text(),
-					s.Find("td").Eq(2).Text(),
-					s.Find("td").Eq(3).Text(),
-					s.Find("td").Eq(4).Text(),
-					s.Find("td").Eq(5).Text(),
-					s.Find("td").Eq(6).Text()})
+				if !s.Find("tr").Is(".subtitle") || i != 0 {
+					coun, _ := s.Find("td > img").Attr("alt")
+					content = append(content, proxy{
+						coun,
+						s.Find("td").Eq(1).Text(),
+						s.Find("td").Eq(2).Text(),
+						s.Find("td").Eq(3).Text(),
+						s.Find("td").Eq(4).Text(),
+						s.Find("td").Eq(5).Text(),
+						s.Find("td").Eq(6).Text()})
+				}
 			})
 		})
-
 	})
 
 	fmt.Printf("%-4s %-16s %-6s %-12s %-6s %-10s \n", title.country, title.ip, title.port,
