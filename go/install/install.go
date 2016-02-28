@@ -15,7 +15,7 @@ const (
 func main() {
 	var flag bool
 	// 验证go的安装
-	if out := doCmd("go", "version"); out != "cmdError" {
+	if out := doCmd("cmd", "/c", "go", "version"); out != "cmdError" {
 		v := strings.Split(out, "go")
 		fmt.Println("已安装的go版本为:", v[2])
 		flag = true
@@ -24,7 +24,7 @@ func main() {
 		// return
 	}
 	// 验证git的安装
-	if out := doCmd("git", "version"); out != "cmdError" {
+	if out := doCmd("cmd", "/c", "git", "version"); out != "cmdError" {
 		v := strings.Split(out, " ")
 		fmt.Println("已安装的git版本为:", v[2])
 		flag = true
@@ -46,7 +46,7 @@ func main() {
 	if flag {
 		for _, git := range gitList {
 			fmt.Println(INSTAG, "正在安装", git, INSTAG)
-			if out := doCmd("go", "get", "-u", git); out != "cmdError" {
+			if out := doCmd("cmd", "/c", "go", "get", "-u", git); out != "cmdError" {
 				fmt.Println(git, "安装成功.")
 			} else {
 				fmt.Println(git, "安装失败.")

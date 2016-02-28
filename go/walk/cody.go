@@ -6,6 +6,99 @@ import (
 
 var winStyle uint32 = win.WS_OVERLAPPEDWINDOW
 
+// 获取居中坐标
+func screenCenter(w, h int) (x, y int) {
+	srcWidth := win.GetSystemMetrics(win.SM_CXSCREEN)
+	srcHeight := win.GetSystemMetrics(win.SM_CYSCREEN)
+	x = (int(srcWidth) - w) / 2
+	y = (int(srcHeight) - h) / 2
+	// fmt.Println("dec main:", srcWidth, srcHeight, w, h, x, y)
+	return
+}
+
+// mainwindow
+func NewMainWindowCody() (*MainWindow, error) {
+	mw := new(MainWindow)
+
+	if err := InitWindow(
+		mw,
+		nil,
+		mainWindowWindowClass,
+		winStyle,
+		// win.WS_OVERLAPPEDWINDOW,
+		win.WS_EX_CONTROLPARENT); err != nil {
+
+		return nil, err
+	}
+
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			mw.Dispose()
+		}
+	}()
+
+	mw.SetPersistent(true)
+
+	var err error
+
+	if mw.menu, err = newMenuBar(mw.hWnd); err != nil {
+		return nil, err
+	}
+	if !win.SetMenu(mw.hWnd, mw.menu.hMenu) {
+		return nil, lastError("SetMenu")
+	}
+
+	tb, err := NewToolBar(mw)
+	if err != nil {
+		return nil, err
+	}
+	mw.SetToolBar(tb)
+
+	if mw.statusBar, err = NewStatusBar(mw); err != nil {
+		return nil, err
+	}
+	mw.statusBar.parent = nil
+	mw.Children().Remove(mw.statusBar)
+	mw.statusBar.parent = mw
+	win.SetParent(mw.statusBar.hWnd, mw.hWnd)
+
+	// This forces display of focus rectangles, as soon as the user starts to type.
+	mw.SendMessage(win.WM_CHANGEUISTATE, win.UIS_INITIALIZE, 0)
+
+	succeeded = true
+
+	return mw, nil
+}
+
+func (mw *MainWindow) SetMinimizeBox(minbox bool) {
+	if !minbox {
+		winStyle = winStyle - win.WS_MINIMIZEBOX
+	}
+}
+
+func (mw *MainWindow) SetMaximizeBox(maxbox bool) {
+	if !maxbox {
+		winStyle = winStyle - win.WS_MAXIMIZEBOX
+	}
+}
+
+func (mw *MainWindow) SetFixedSize(fixed bool) {
+	if fixed {
+		winStyle = winStyle - win.WS_SIZEBOX
+	}
+}
+
+func (mw *MainWindow) SetScreenCenter(center bool) {
+	if center {
+		screenStyleX, screenStyleY := screenCenter(mw.Width(), mw.Height())
+		mw.SetX(screenStyleX)
+		mw.SetY(screenStyleY)
+	}
+}
+
+// dialog
+
 func NewDialogCody(owner Form) (*Dialog, error) {
 	return newDialogWithStyleCody(owner, 0)
 }
@@ -82,20 +175,10 @@ func (wb *WindowBase) SetForegroundWindow() error {
 	return nil
 }
 
-// 获取居中坐标
-func ScreenCenter(w, h int) (x, y int) {
-	srcWidth := win.GetSystemMetrics(win.SM_CXSCREEN)
-	srcHeight := win.GetSystemMetrics(win.SM_CYSCREEN)
-	x = (int(srcWidth) - w) / 2
-	y = (int(srcHeight) - h) / 2
-	// fmt.Println("dec main:", srcWidth, srcHeight, w, h, x, y)
-	return
-}
-
 // 设置窗体居中
 func (dlg *Dialog) SetScreenCenter(center bool) {
 	if center {
-		screenStyleX, screenStyleY := ScreenCenter(dlg.Width(), dlg.Height())
+		screenStyleX, screenStyleY := screenCenter(dlg.Width(), dlg.Height())
 		dlg.SetX(screenStyleX)
 		dlg.SetY(screenStyleY)
 	}
