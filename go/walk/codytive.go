@@ -88,3 +88,18 @@ func (mw MainWindow) CreateCody() error {
 		return nil
 	})
 }
+
+func (mw MainWindow) RunCody() (int, error) {
+	var w *walk.MainWindow
+
+	if mw.AssignTo == nil {
+		mw.AssignTo = &w
+	}
+
+	if err := mw.CreateCody(); err != nil {
+		return 0, err
+	}
+	(*mw.AssignTo).SetScreenCenter(true)
+
+	return (*mw.AssignTo).Run(), nil
+}
