@@ -30,6 +30,26 @@ const (
 	commaZH     = 65292 // '，'
 	semicolonEN = 59    // ';'
 	semicolonZH = 65307 // '；'
+
+	maxSize       = 600
+	minSize       = 450
+	title         = "iMan设备故障清理工具 1.1"
+	sipTitle      = "服务器IP:"
+	ipTitle       = "服务器IP:"
+	macTitle      = "故障设备MAC:"
+	clearTitle    = "开始清理故障设备"
+	clearingTitle = "正在清理故障设备..."
+	sCheckTitle   = "服务器故障检查"
+	sipHelp       = "请输入iMan服务器IP地址，可输入多个，以分号、空格、逗号隔开。"
+	ipHelp        = "请输入故障设备IP地址，可输入多个，以分号、空格、逗号或换行隔开。"
+	macHelp       = "请输入故障设备MAC地址，可输入多个，以分号、空格、逗号或换行隔开。"
+)
+
+var (
+	ipChan  chan bool
+	macChan chan bool
+
+	numZero bool
 )
 
 func checkError(err error) {
@@ -40,17 +60,16 @@ func checkError(err error) {
 
 func main() {
 	mw := new(MyWindow)
-
 	mw.RunApp()
-
 }
 
 type MyWindow struct {
 	*walk.MainWindow
-	serverIP    *walk.LineEdit
-	ip          *walk.TextEdit
-	mac         *walk.TextEdit
-	clearButton *walk.PushButton
+	serverIP     *walk.LineEdit
+	ip           *walk.TextEdit
+	mac          *walk.TextEdit
+	clearButton  *walk.PushButton
+	sCheckButton *walk.PushButton
 }
 
 // 主界面
@@ -60,40 +79,47 @@ func (mw *MyWindow) RunApp() {
 
 	if err := (MainWindow{
 		AssignTo: &mw.MainWindow,
-		Title:    "iMan设备故障清理工具 1.0",
+		Title:    title,
 		Layout:   VBox{},
-		MinSize:  Size{600, 450},
+		MinSize:  Size{maxSize, minSize},
 		Children: []Widget{
 			Composite{
 				Layout: Grid{Columns: 2},
 				Children: []Widget{
-					Label{Text: "服务器IP:"},
+					Label{Text: sipTitle},
 					LineEdit{
 						AssignTo:    &mw.serverIP,
-						ToolTipText: "请输入iMan服务器IP地址，可输入多个，以分号、空格、逗号隔开。",
+						ToolTipText: sipHelp,
 					},
 
-					Label{Text: "故障设备IP:"},
+					Label{Text: ipTitle},
 					TextEdit{
 						AssignTo:    &mw.ip,
-						ToolTipText: "请输入故障设备IP地址，可输入多个，以分号、空格、逗号或换行隔开。",
+						ToolTipText: ipHelp,
 					},
 
-					Label{Text: "故障设备MAC:"},
+					Label{Text: macTitle},
 					TextEdit{
 						AssignTo:    &mw.mac,
-						ToolTipText: "请输入故障设备MAC地址，可输入多个，以分号、空格、逗号或换行隔开。",
+						ToolTipText: macHelp,
 					},
 				},
 			},
 			Composite{
-				Layout: VBox{},
+				Layout: HBox{},
 				Children: []Widget{
 					PushButton{
 						AssignTo: &mw.clearButton,
-						Text:     "开始清理故障设备",
+						Text:     clearTitle,
 						OnClicked: func() {
-							mw.DoClear()
+							go mw.DoClear()
+						},
+					},
+					PushButton{
+						AssignTo: &mw.sCheckButton,
+						Text:     sCheckTitle,
+						OnClicked: func() {
+							mw.msg("INFO", "hello 服务器故障检查.")
 						},
 					},
 				},
@@ -113,42 +139,30 @@ func (mw *MyWindow) RunApp() {
 
 // 执行清理动作
 func (mw *MyWindow) DoClear() {
-	mw.clearButton.SetText("正在清理故障设备...")
-	mw.clearButton.SetEnabled(false)
+	mw.clearButton.SetText(clearingTitle)
+	mw.disable()
+
+	log.Println("[INFO] 开始清理故障设备...")
 	ok, sipList := mw.checkSIP()
 	okIP, errIP := mw.checkIP()
 	okMAC, errMAC := mw.checkMAC()
-	log.Println("[INFO] 开始清理故障设备...")
 	switch ok {
 	case false:
+		numZero = true
 		mw.msg("ERROR", fmt.Sprintf("[ERROR] 服务器IP检查错误. %s", sipList))
 	case len(okIP) == 0 && len(okMAC) == 0:
+		numZero = true
 		mw.msg("ERROR", "[ERROR] 请填写正确的设备IP或者MAC.")
 	default:
 		if len(okIP) != 0 {
-			for _, sIP := range sipList {
-				for _, ip := range okIP {
-					err := doSQL(sIP, 0, ip)
-					if err != nil {
-						mw.msg("DEBUG", fmt.Sprintf("[DEBUG] 服务器[%s] 连接错误: %s", sIP, err))
-					} else {
-						log.Printf("[INFO] 服务器[%s] 正在清理的设备IP: [%s].\n", sIP, ip)
-					}
-				}
-			}
+			ipChan = make(chan bool)
+			go mw.clearIP(sipList, okIP)
+			<-ipChan
 		}
 		if len(okMAC) != 0 {
-			for _, sIP := range sipList {
-				for _, mac := range okMAC {
-					err := doSQL(sIP, 1, mac)
-					if err != nil {
-						mw.msg("DEBUG", fmt.Sprintf("[DEBUG] 服务器[%s] 连接错误: %s", sIP, err))
-					} else {
-						log.Printf("[INFO] 服务器[%s] 正在清理的设备MAC: [%s].\n", sIP, mac)
-					}
-
-				}
-			}
+			macChan = make(chan bool)
+			go mw.clearMAC(sipList, okMAC)
+			<-macChan
 		}
 
 		if len(errIP) != 0 || len(errMAC) != 0 {
@@ -156,12 +170,68 @@ func (mw *MyWindow) DoClear() {
 		}
 	}
 
+	if numZero {
+		okIP, okMAC = []string{}, []string{}
+	}
 	mw.msg("INFO", fmt.Sprintf("[INFO] 清理故障设备结束. 服务器%s 清理设备IP [%d] 个, MAC [%d] 个.", sipList, len(okIP), len(okMAC)))
 	tag := "====================================="
 	log.Printf("%s\n", tag)
-	mw.clearButton.SetText("开始清理故障设备")
-	mw.clearButton.SetEnabled(true)
+	mw.clearButton.SetText(clearTitle)
+	mw.enable()
 
+}
+
+// 启用
+func (mw *MyWindow) enable() {
+	enable := true
+	mw.serverIP.SetEnabled(enable)
+	mw.ip.SetEnabled(enable)
+	mw.mac.SetEnabled(enable)
+	mw.clearButton.SetEnabled(enable)
+	mw.sCheckButton.SetEnabled(enable)
+}
+
+// 禁用
+func (mw *MyWindow) disable() {
+	disable := false
+	mw.serverIP.SetEnabled(disable)
+	mw.ip.SetEnabled(disable)
+	mw.mac.SetEnabled(disable)
+	mw.clearButton.SetEnabled(disable)
+	mw.sCheckButton.SetEnabled(disable)
+}
+
+// 清理IP
+func (mw *MyWindow) clearIP(sipList, okIP []string) {
+	for _, sIP := range sipList {
+		for _, ip := range okIP {
+			err := doSQL(sIP, 0, ip)
+			if err != nil {
+				numZero = true
+				mw.msg("DEBUG", fmt.Sprintf("[DEBUG] 服务器[%s] 连接错误: %s", sIP, err))
+			} else {
+				log.Printf("[INFO] 服务器[%s] 正在清理的设备IP: [%s].\n", sIP, ip)
+			}
+		}
+	}
+	ipChan <- true
+}
+
+// 清理MAC
+func (mw *MyWindow) clearMAC(sipList, okMAC []string) {
+	for _, sIP := range sipList {
+		for _, mac := range okMAC {
+			err := doSQL(sIP, 1, mac)
+			if err != nil {
+				numZero = true
+				mw.msg("DEBUG", fmt.Sprintf("[DEBUG] 服务器[%s] 连接错误: %s", sIP, err))
+			} else {
+				log.Printf("[INFO] 服务器[%s] 正在清理的设备MAC: [%s].\n", sIP, mac)
+			}
+
+		}
+	}
+	macChan <- true
 }
 
 // 检查服务器IP正确性
@@ -177,13 +247,11 @@ func (mw *MyWindow) checkSIP() (bool, []string) {
 	if len(sipList) == 0 || len(errSIP) != 0 {
 		return false, errSIP
 	}
-
 	return true, sipList
 }
 
 // 检查设备IP正确性，并返回正确的IP和错误的IP地址。
 func (mw *MyWindow) checkIP() ([]string, []string) {
-
 	ip := mw.ip.Text()
 	ipList := mw.list(ip)
 	var okIP, errIP []string
@@ -195,7 +263,6 @@ func (mw *MyWindow) checkIP() ([]string, []string) {
 			errIP = append(errIP, ip)
 		}
 	}
-
 	return okIP, errIP
 }
 
@@ -212,7 +279,6 @@ func (mw *MyWindow) checkMAC() ([]string, []string) {
 			errMAC = append(errMAC, mac)
 		}
 	}
-
 	return okMAC, errMAC
 }
 
