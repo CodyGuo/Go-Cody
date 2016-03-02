@@ -49,7 +49,7 @@ func doSQL(serverIP string, flag int, str string) error {
 }
 
 func (s *SQL) doClearIP(ip string) error {
-	_, err := s.DB.Query("DELETE FROM tdevice WHERE sdeviceip = ?", ip)
+	_, err := s.DB.Query("DELETE FROM tdevice WHERE sdeviceip like ?", ip)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func (s *SQL) doClearIP(ip string) error {
 }
 
 func (s *SQL) doClearMAC(mac string) error {
-	_, err := s.DB.Query("DELETE FROM tdevice WHERE sdevicemac = ?", mac)
+	_, err := s.DB.Query("DELETE FROM tdevice WHERE sdevicemac like ?", mac)
 	if err != nil {
 		return err
 	}

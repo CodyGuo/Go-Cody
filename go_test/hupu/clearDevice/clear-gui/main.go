@@ -156,7 +156,7 @@ func (mw *MyWindow) DoClear() {
 		}
 	}
 
-	mw.msg("INFO", fmt.Sprintf("[INFO] 清理故障设备结束. 服务器[%s] 清理设备IP [%d] 个, MAC [%d] 个.", sipList, len(okIP), len(okMAC)))
+	mw.msg("INFO", fmt.Sprintf("[INFO] 清理故障设备结束. 服务器%s 清理设备IP [%d] 个, MAC [%d] 个.", sipList, len(okIP), len(okMAC)))
 	tag := "====================================="
 	log.Printf("%s\n", tag)
 	mw.clearButton.SetText("开始清理故障设备")
