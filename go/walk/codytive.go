@@ -64,6 +64,8 @@ func (mw MainWindow) CreateCody() error {
 		if err := w.SetSize(mw.Size.toW()); err != nil {
 			return err
 		}
+		// 设置屏幕居中
+		w.SetScreenCenter(true)
 
 		imageList, err := walk.NewImageList(walk.Size{16, 16}, 0)
 		if err != nil {

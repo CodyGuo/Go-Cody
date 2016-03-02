@@ -9,15 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
 	// "sync"
 )
 
 import (
 	"github.com/dynport/gossh"
-	"golang.org/x/crypto/ssh"
-
 	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
 type UpgradeInfo struct {

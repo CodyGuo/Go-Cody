@@ -133,7 +133,6 @@ func (mw *MyWindow) RunApp() {
 	checkError(err)
 	log.SetOutput(lv)
 
-	mw.SetScreenCenter(true)
 	mw.Run()
 }
 
