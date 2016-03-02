@@ -152,7 +152,7 @@ func (mw *MyWindow) DoClear() {
 		}
 
 		if len(errIP) != 0 || len(errMAC) != 0 {
-			mw.msg("ERROR", fmt.Sprintf("[ERROR] 检查并清理失败的设备IP: %s\n[ERROR] 检查清理失败的设备MAC: %s", errIP, errMAC))
+			mw.msg("ERROR", fmt.Sprintf("[ERROR] 检查并清理失败的设备IP: %s\n[ERROR] 检查并清理失败的设备MAC: %s", errIP, errMAC))
 		}
 	}
 
