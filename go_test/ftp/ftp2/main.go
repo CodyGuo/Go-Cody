@@ -1,22 +1,44 @@
+// FTP主动模式上传下载实例
 package main
 
 import (
-    "fmt"
-    "github.com/secsy/goftp"
+	"log"
+	"os"
+)
+
+import (
+	"github.com/secsy/goftp"
 )
 
 func main() {
+	config := goftp.Config{
+		User:            "nac_ftp",
+		Password:        "qaz!@#",
+		ActiveTransfers: true, // 如果服务器不是主动模式可以不设置
+	}
+	ftpConn, err := goftp.DialConfig(config, "10.10.3.100")
+	checkError(err)
+	defer ftpConn.Close()
 
-    config := goftp.Config{
-        User:             "nac_ftp",
-        Password:         "qaz!@#",
-        ActiveListenAddr: "10.10.2.140",
-        ActiveTransfers:  true,
-    }
-    ftpConn, err := goftp.DialConfig(config, "10.10.3.227")
-    fmt.Println(err)
-    getwd, _ := ftpConn.Getwd()
+	// 下载
+	readme, err := os.Create("readme")
+	checkError(err)
+	defer readme.Close()
 
-    ftpConn.Mkdir("codyguo")
-    fmt.Println(getwd)
+	err = ftpConn.Retrieve("test/README", readme)
+	checkError(err)
+
+	// 上传
+	uploadFile, err := os.Open("main.go")
+	checkError(err)
+	defer uploadFile.Close()
+
+	err = ftpConn.Store("codyguo/main.go", uploadFile)
+	checkError(err)
+}
+
+func checkError(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
 }
