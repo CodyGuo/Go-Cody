@@ -70,6 +70,8 @@ type MyWindow struct {
 	mac          *walk.TextEdit
 	clearButton  *walk.PushButton
 	sCheckButton *walk.PushButton
+
+	lv *LogView
 }
 
 // 主界面
@@ -112,6 +114,7 @@ func (mw *MyWindow) RunApp() {
 						AssignTo: &mw.clearButton,
 						Text:     clearTitle,
 						OnClicked: func() {
+							mw.lv.Clean()
 							go mw.DoClear()
 						},
 					},
@@ -129,9 +132,10 @@ func (mw *MyWindow) RunApp() {
 		log.Fatal(err)
 	}
 
-	lv, err := NewLogView(mw)
+	var err error
+	mw.lv, err = NewLogView(mw)
 	checkError(err)
-	log.SetOutput(lv)
+	log.SetOutput(mw.lv)
 
 	mw.Run()
 }
