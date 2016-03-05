@@ -21,8 +21,9 @@ const (
 	semicolonEN = 59    // ';'
 	semicolonZH = 65307 // '；'
 
-	width  = 450
-	height = 380
+	width      = 450
+	height     = 380
+	lineHeight = 25
 )
 
 const (
@@ -75,7 +76,7 @@ type MyWindow struct {
 
 func (mw *MyWindow) RunApp() {
 	mw.SetMaximizeBox(false)
-	mw.SetFixedSize(true)
+	// mw.SetFixedSize(true)
 	font := Font{Family: "幼圆", PointSize: 10, Bold: true}
 
 	if err := (MainWindow{
@@ -132,6 +133,7 @@ func (mw *MyWindow) RunApp() {
 	}
 
 	mw.setHeight(25)
+	mw.setWidth(200)
 
 	mw.lv, _ = NewLogView(mw)
 	log.SetOutput(mw.lv)
@@ -151,6 +153,12 @@ func (mw *MyWindow) setHeight(value int) {
 	mw.sipLb.SetHeight(value)
 	// mw.sipLe.SetHeight(value)
 	mw.uploadBtn.SetHeight(value)
+}
+
+// 设置宽度
+func (mw *MyWindow) setWidth(value int) {
+	mw.uploadFileLe.SetWidth(value)
+	mw.sipTe.SetWidth(value)
 }
 
 // 托盘图标
