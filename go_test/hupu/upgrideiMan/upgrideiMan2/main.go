@@ -122,9 +122,10 @@ func (mw *MyWindow) RunApp() {
 				},
 			},
 			Composite{
-				Layout: VBox{Margins: Margins{2, 2, width - 60, 2}},
+				Layout: HBox{MarginsZero: true},
 				Children: []Widget{
 					Label{AssignTo: &mw.logLb, Font: font, Text: logTitle},
+					HSpacer{MinSize: Size{80, 0}},
 				},
 			},
 		},
