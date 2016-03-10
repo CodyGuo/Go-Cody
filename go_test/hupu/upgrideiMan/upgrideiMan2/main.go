@@ -3,31 +3,11 @@ package main
 import (
 	"fmt"
 	"log"
-	"regexp"
-	"strings"
 )
 
 import (
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
-)
-
-const (
-	line        = 10    // '\n'
-	enter       = 13    //'\r'
-	space       = 32    // ' '
-	commaEN     = 44    // ','
-	commaZH     = 65292 // '，'
-	semicolonEN = 59    // ';'
-	semicolonZH = 65307 // '；'
-
-	width      = 450
-	height     = 380
-	lineHeight = 25
-)
-
-const (
-	ipRegxp = `^((25[0-5]|2[0-4]\d|1\d{2}|\d?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|\d?\d)$`
 )
 
 const (
@@ -39,18 +19,6 @@ const (
 	uploadTitle      = "上传"
 	logTitle         = "日志"
 )
-
-func checkError(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func regex(s string) bool {
-	re, err := regexp.Compile(ipRegxp)
-	checkError(err)
-	return re.MatchString(s)
-}
 
 func main() {
 	mw := new(MyWindow)
@@ -76,7 +44,7 @@ type MyWindow struct {
 
 func (mw *MyWindow) RunApp() {
 	mw.SetMaximizeBox(false)
-	// mw.SetFixedSize(true)
+	mw.SetFixedSize(true)
 	font := Font{Family: "幼圆", PointSize: 10, Bold: true}
 
 	if err := (MainWindow{
@@ -100,7 +68,7 @@ func (mw *MyWindow) RunApp() {
 								AssignTo: &mw.browserBtn,
 								Text:     browserTitle,
 								OnClicked: func() {
-									go mw.setUploadFile()
+									go mw.SetUploadFile()
 								},
 							},
 
@@ -114,7 +82,7 @@ func (mw *MyWindow) RunApp() {
 								AssignTo: &mw.uploadBtn,
 								Text:     uploadTitle,
 								OnClicked: func() {
-									go mw.upload()
+									go mw.Upload()
 								},
 							},
 						},
@@ -143,6 +111,28 @@ func (mw *MyWindow) RunApp() {
 	mw.setIcon(3)
 
 	mw.Run()
+}
+
+// 浏览
+func (mw *MyWindow) SetUploadFile() {
+	mw.browser()
+	mw.uploadFileLe.SetText(mw.file)
+	mw.uploadFileLe.SetTextSelection(len(mw.file), len(mw.file))
+}
+
+// 上传
+func (mw *MyWindow) Upload() {
+	mw.lv.Clean()
+	sip := mw.sipTe.Text()
+	okSIP, errSIP := checkSIP(stringToList(sip))
+	switch {
+	case mw.file == "":
+		mw.msg("DEBUG", "请选择升级包！")
+	case len(okSIP) == 0:
+		mw.msg("DEBUG", fmt.Sprintf("请输入正确的服务器IP: %s\n", errSIP))
+	default:
+		mw.msg("INFO", fmt.Sprintf("正确的服务器IP: %s\n错误的服务器IP：%s\n", okSIP, errSIP))
+	}
 }
 
 // 设置高度
@@ -198,64 +188,6 @@ func (mw *MyWindow) browser() {
 	}
 
 	mw.file = fd.FilePath
-}
-
-// 浏览
-func (mw *MyWindow) setUploadFile() {
-	mw.browser()
-	mw.uploadFileLe.SetText(mw.file)
-	mw.uploadFileLe.SetTextSelection(len(mw.file), len(mw.file))
-}
-
-// 上传
-func (mw *MyWindow) upload() {
-	mw.lv.Clean()
-	okSIP, errSIP := mw.checkSIP()
-	switch {
-	case mw.file == "":
-		mw.msg("DEBUG", "请选择升级包！")
-	case len(okSIP) == 0:
-		mw.msg("DEBUG", fmt.Sprintf("请输入正确的服务器IP: %s\n", errSIP))
-	default:
-		mw.msg("INFO", fmt.Sprintf("正确的服务器IP: %s\n错误的服务器IP：%s\n", okSIP, errSIP))
-	}
-}
-
-// 转换为list
-func (mw *MyWindow) stringToList() []string {
-	sip := mw.sipTe.Text()
-
-	m := func(c rune) rune {
-		switch c {
-		case line, enter:
-			return commaEN
-		}
-		return c
-	}
-	sip = strings.Map(m, sip)
-
-	f := func(c rune) bool {
-		return c == space || c == commaEN || c == commaZH || c == semicolonEN || c == semicolonZH
-	}
-	return strings.FieldsFunc(sip, f)
-}
-
-// IP地址验证
-func (mw *MyWindow) checkSIP() ([]string, []string) {
-	var okSIP, errSIP []string
-
-	sipList := mw.stringToList()
-	if len(sipList) != 0 {
-		for _, sip := range sipList {
-			if regex(sip) {
-				okSIP = append(okSIP, sip)
-			} else {
-				errSIP = append(errSIP, sip)
-			}
-		}
-		return okSIP, errSIP
-	}
-	return nil, nil
 }
 
 func (mw *MyWindow) msg(level string, message string) {
