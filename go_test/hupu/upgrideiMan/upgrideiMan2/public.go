@@ -18,6 +18,7 @@ const (
 	width      = 450
 	height     = 380
 	lineHeight = 25
+	maxWidth   = 180
 )
 
 const (

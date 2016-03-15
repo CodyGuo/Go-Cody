@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 )
 
 import (
@@ -11,7 +13,7 @@ import (
 )
 
 const (
-	title            = "iMan升级工具 1.0"
+	title            = "iMan升级工具 2.0"
 	uploadGroupTitle = "升级包上传"
 	uploadFileTitle  = "升级包:"
 	browserTitle     = "浏览"
@@ -20,10 +22,16 @@ const (
 	logTitle         = "日志"
 )
 
+const (
+	INFO  = "[INFO] "
+	DEBUG = "[DEBUG] "
+)
+
 func main() {
 	mw := new(MyWindow)
-
 	mw.RunApp()
+
+	defer mw.notifyIcon.Dispose()
 }
 
 type MyWindow struct {
@@ -55,7 +63,7 @@ func (mw *MyWindow) RunApp() {
 		Children: []Widget{
 			Composite{
 				Layout:  HBox{MarginsZero: true, Spacing: 5},
-				MaxSize: Size{0, 180},
+				MaxSize: Size{0, maxWidth},
 				Children: []Widget{
 					GroupBox{
 						Title:  uploadGroupTitle,
@@ -110,6 +118,21 @@ func (mw *MyWindow) RunApp() {
 	mw.addNotyfyAction()
 	mw.setIcon(3)
 
+	// 解决Ctrl + C之后托盘显示问题
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+		s := <-c
+		switch s.String() {
+		case "interrupt":
+			signal.Stop(c)
+			fmt.Println("Got sinal top:", s)
+			mw.exit()
+		default:
+			fmt.Println("Got sinal:", s)
+		}
+	}()
+
 	mw.Run()
 }
 
@@ -127,11 +150,11 @@ func (mw *MyWindow) Upload() {
 	okSIP, errSIP := checkSIP(stringToList(sip))
 	switch {
 	case mw.file == "":
-		mw.msg("DEBUG", "请选择升级包！")
+		mw.msg(DEBUG, "请选择升级包！")
 	case len(okSIP) == 0:
-		mw.msg("DEBUG", fmt.Sprintf("请输入正确的服务器IP: %s\n", errSIP))
+		mw.msg(DEBUG, fmt.Sprintf("请输入正确的服务器IP: %s\n", errSIP))
 	default:
-		mw.msg("INFO", fmt.Sprintf("正确的服务器IP: %s\n错误的服务器IP：%s\n", okSIP, errSIP))
+		mw.msg(INFO, fmt.Sprintf("正确的服务器IP: %s\n错误的服务器IP：%s\n", okSIP, errSIP))
 	}
 }
 
@@ -161,9 +184,7 @@ func (mw *MyWindow) addNotyfyAction() {
 	exitAction := walk.NewAction()
 	exitAction.SetText("退出程序")
 	exitAction.Triggered().Attach(func() {
-		mw.Dispose()
-		mw.notifyIcon.Dispose()
-		walk.App().Exit(0)
+		mw.exit()
 	})
 	mw.notifyIcon.ContextMenu().Actions().Add(exitAction)
 }
@@ -190,16 +211,23 @@ func (mw *MyWindow) browser() {
 	mw.file = fd.FilePath
 }
 
+// 退出程序
+func (mw *MyWindow) exit() {
+	mw.Dispose()
+	mw.notifyIcon.Dispose()
+	walk.App().Exit(0)
+}
+
 func (mw *MyWindow) msg(level string, message string) {
 	switch level {
-	case "INFO":
-		log.SetPrefix("[INFO] ")
+	case INFO:
+		log.SetPrefix(INFO)
 		title := "提示信息"
 		log.Printf("%s\n", message)
 		mw.notifyIcon.ShowInfo(title, message)
 		walk.MsgBox(mw, title, message, walk.MsgBoxIconInformation)
-	case "DEBUG":
-		log.SetPrefix("[DEBUG] ")
+	case DEBUG:
+		log.SetPrefix(DEBUG)
 		title := "警告信息"
 		log.Printf("%s\n", message)
 		mw.notifyIcon.ShowWarning(title, message)
