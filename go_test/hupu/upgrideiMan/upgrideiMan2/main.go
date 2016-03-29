@@ -147,6 +147,7 @@ func (mw *MyWindow) SetUploadFile() {
 func (mw *MyWindow) Upload() {
 	mw.lv.Clean()
 	sip := mw.sipTe.Text()
+
 	okSIP, errSIP := checkSIP(stringToList(sip))
 	switch {
 	case mw.file == "":
