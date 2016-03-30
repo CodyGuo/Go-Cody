@@ -49,8 +49,8 @@ func main() {
 	db := Mssql{
 		dataSource: "10.10.2.140\\SQLEXPRESS",
 		database:   "test",
-		// windwos: true 为windows身份验证，false 必须设置sa账号和密码
-		windows: true,
+		// windows: true 为windows身份验证，false 必须设置sa账号和密码
+		windows: false,
 		sa: SA{
 			user:   "sa",
 			passwd: "123456",
