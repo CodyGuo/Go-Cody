@@ -66,15 +66,18 @@ func main() {
 	defer db.Close()
 
 	// 执行SQL语句
-	rows, err := db.Query("select * from info")
+	rows, err := db.Query("select name from info")
 	if err != nil {
 		fmt.Println("query: ", err)
 		return
 	}
 	for rows.Next() {
+		//结果几个字段就要命名几个变量
 		var name string
-		var number int
-		rows.Scan(&name, &number)
-		fmt.Printf("Name: %s \t Number: %d\n", name, number)
+		rows.Scan(&name)
+		fmt.Printf("Name: %s\n", name)
+		// var number int
+		// rows.Scan(&name, &number)
+		// fmt.Printf("Name: %s \t Number: %d\n", name, number)
 	}
 }
