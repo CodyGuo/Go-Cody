@@ -29,7 +29,8 @@ func (m *Mssql) Open() (err error) {
 	conf = append(conf, "Provider=SQLOLEDB")
 	conf = append(conf, "Data Source="+m.dataSource)
 	if m.windows {
-		// Integrated Security=SSPI 这个表示以当前WINDOWS系统用户身去登录SQL SERVER服务器(需要在安装sqlserver时候设置)，
+		// Integrated Security=SSPI 这个表示以当前WINDOWS系统用户身去登录SQL SERVER服务器
+		// (需要在安装sqlserver时候设置)，
 		// 如果SQL SERVER服务器不支持这种方式登录时，就会出错。
 		conf = append(conf, "integrated security=SSPI")
 	}
