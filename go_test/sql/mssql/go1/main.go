@@ -21,6 +21,7 @@ type Mssql struct {
 type SA struct {
 	user   string
 	passwd string
+	port   int
 }
 
 func (m *Mssql) Open() (err error) {
@@ -35,6 +36,7 @@ func (m *Mssql) Open() (err error) {
 	conf = append(conf, "Initial Catalog="+m.database)
 	conf = append(conf, "user id="+m.sa.user)
 	conf = append(conf, "password="+m.sa.passwd)
+	conf = append(conf, "port="+fmt.Sprint(m.sa.port))
 
 	m.DB, err = sql.Open("adodb", strings.Join(conf, ";"))
 	if err != nil {
@@ -45,13 +47,14 @@ func (m *Mssql) Open() (err error) {
 
 func main() {
 	db := Mssql{
-		dataSource: "CODY\\SQLEXPRESS",
+		dataSource: "10.10.2.140\\SQLEXPRESS",
 		database:   "test",
 		// windwos: true 为windows身份验证，false 必须设置sa账号和密码
 		windows: true,
 		sa: SA{
 			user:   "sa",
 			passwd: "123456",
+			port:   1433,
 		},
 	}
 	// 连接数据库
