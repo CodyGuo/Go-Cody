@@ -5,6 +5,8 @@ import (
 )
 
 func main() {
-	str := '？'
-	fmt.Printf("%v : %s\n", str, string(str))
+	test := []string{"hello"}
+	fmt.Println(test)
+	test = append(test, "hi")
+	fmt.Println(test)
 }
