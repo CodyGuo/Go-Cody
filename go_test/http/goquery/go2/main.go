@@ -194,6 +194,7 @@ func (t TransportGet) GetByProxy() {
 		Transport: &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
 		},
+		Timeout: 3 * time.Second,
 	}
 
 	resp, err := client.Do(req)
