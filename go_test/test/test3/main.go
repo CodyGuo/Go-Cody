@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
-	"os"
 )
 
 func main() {
-	fmt.Print("iMan")
-	os.Exit(10)
+	str := []string{}
+
+	for i := 1; i < 10; i++ {
+		str = append(str, "h"+fmt.Sprint(i))
+	}
+	fmt.Println(str)
 }
