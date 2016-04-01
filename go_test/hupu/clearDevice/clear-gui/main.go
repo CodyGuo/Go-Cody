@@ -35,7 +35,7 @@ const (
 	minSize       = 450
 	title         = "iMan设备故障清理工具 1.1"
 	sipTitle      = "服务器IP:"
-	ipTitle       = "服务器IP:"
+	ipTitle       = "故障设备IP:"
 	macTitle      = "故障设备MAC:"
 	clearTitle    = "开始清理故障设备"
 	clearingTitle = "正在清理故障设备..."
@@ -118,13 +118,13 @@ func (mw *MyWindow) RunApp() {
 							go mw.DoClear()
 						},
 					},
-					PushButton{
-						AssignTo: &mw.sCheckButton,
-						Text:     sCheckTitle,
-						OnClicked: func() {
-							mw.msg("INFO", "hello 服务器故障检查.")
-						},
-					},
+					// PushButton{
+					// 	AssignTo: &mw.sCheckButton,
+					// 	Text:     sCheckTitle,
+					// 	OnClicked: func() {
+					// 		mw.msg("INFO", "hello 服务器故障检查.")
+					// 	},
+					// },
 				},
 			},
 		},
@@ -191,7 +191,7 @@ func (mw *MyWindow) enable() {
 	mw.ip.SetEnabled(enable)
 	mw.mac.SetEnabled(enable)
 	mw.clearButton.SetEnabled(enable)
-	mw.sCheckButton.SetEnabled(enable)
+	// mw.sCheckButton.SetEnabled(enable)
 }
 
 // 禁用
@@ -201,7 +201,7 @@ func (mw *MyWindow) disable() {
 	mw.ip.SetEnabled(disable)
 	mw.mac.SetEnabled(disable)
 	mw.clearButton.SetEnabled(disable)
-	mw.sCheckButton.SetEnabled(disable)
+	// mw.sCheckButton.SetEnabled(disable)
 }
 
 // 清理IP

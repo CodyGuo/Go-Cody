@@ -216,7 +216,7 @@ func (t TransportGet) GetByProxy() {
 func main() {
 	now := time.Now()
 	// url := "http://www.xicidaili.com/nn"
-	// proxy := GetProxy(url, 10)
+	proxy := GetProxy(url, 10)
 
 	conf := ProxyConf{
 		file: proxyFile,
