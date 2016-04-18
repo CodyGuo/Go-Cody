@@ -146,16 +146,16 @@ func (b *BoomDevce) getDeviceFromMysql() {
 func (b *BoomDevce) Request(index int, url string, ok chan bool) {
 	info := "Request："
 	writeLog(fmt.Sprintf("[%d] 正在并发[%s]次请求%s\n", index, b.c, url))
+
 	cmd := exec.Command("boom", "-n", b.c, "-c", b.c, url)
 	outPut, err := cmd.Output()
 	checkErr(info, err)
 	cmd.Wait()
 
 	if b.debug {
-		writeLog(fmt.Sprintf("[%d] 请求URL=%s，并发[%s]次结果为：\n%s\n", index, url, b.c, string(outPut)))
+		writeLog(fmt.Sprintf("[%d] 请求URL=%s，并发[%s]次结果为：\n%q\n", index, url, b.c, string(outPut)))
 	}
 	ok <- true
-
 }
 
 func main() {
