@@ -1,158 +1,32 @@
+-------------------[开始]-------------------
 [34] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.134&mac=D8-CB-8A-1F-96-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[21] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.121&mac=D8-CB-8A-1F-83-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[8] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.108&mac=D8-CB-8A-1F-70-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[0] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.100&mac=D8-CB-8A-1F-62-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[9] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.109&mac=D8-CB-8A-1F-71-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[11] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.111&mac=D8-CB-8A-1F-73-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[12] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.112&mac=D8-CB-8A-1F-74-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[10] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.110&mac=D8-CB-8A-1F-72-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[13] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.113&mac=D8-CB-8A-1F-75-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[14] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.114&mac=D8-CB-8A-1F-76-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[15] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.115&mac=D8-CB-8A-1F-77-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
 [16] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.116&mac=D8-CB-8A-1F-78-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[17] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.117&mac=D8-CB-8A-1F-79-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[18] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.118&mac=D8-CB-8A-1F-80-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[19] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.119&mac=D8-CB-8A-1F-81-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[20] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.120&mac=D8-CB-8A-1F-82-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[1] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.101&mac=D8-CB-8A-1F-63-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[5] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.105&mac=D8-CB-8A-1F-67-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[6] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.106&mac=D8-CB-8A-1F-68-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
 [7] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.107&mac=D8-CB-8A-1F-69-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[27] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.127&mac=D8-CB-8A-1F-89-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[22] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.122&mac=D8-CB-8A-1F-84-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[23] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.123&mac=D8-CB-8A-1F-85-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[4] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.104&mac=D8-CB-8A-1F-66-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[24] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.124&mac=D8-CB-8A-1F-86-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
+[0] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.100&mac=D8-CB-8A-1F-62-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
+[1] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.101&mac=D8-CB-8A-1F-63-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
 [2] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.102&mac=D8-CB-8A-1F-64-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
 [3] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.103&mac=D8-CB-8A-1F-65-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[25] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.125&mac=D8-CB-8A-1F-87-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[30] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.130&mac=D8-CB-8A-1F-92-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[28] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.128&mac=D8-CB-8A-1F-90-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[29] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.129&mac=D8-CB-8A-1F-91-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[26] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.126&mac=D8-CB-8A-1F-88-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[31] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.131&mac=D8-CB-8A-1F-93-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[32] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.132&mac=D8-CB-8A-1F-94-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[33] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.133&mac=D8-CB-8A-1F-95-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[结果]
+[4] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.104&mac=D8-CB-8A-1F-66-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
+[5] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.105&mac=D8-CB-8A-1F-67-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
+[6] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.106&mac=D8-CB-8A-1F-68-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
+-------------------[开始]-------------------
+-------------------[结果]-------------------
 -------------------并发设备数[35]个，并发请求次数[50]次。-------------------
--------------------本次并发测试结束，用时54.3732821s。-------------------
+-------------------本次并发测试结束，用时42.028ms。-------------------
+-------------------[开始]-------------------
 [34] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.134&mac=D8-CB-8A-1F-96-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[25] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.125&mac=D8-CB-8A-1F-87-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[16] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.116&mac=D8-CB-8A-1F-78-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[0] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.100&mac=D8-CB-8A-1F-62-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[1] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.101&mac=D8-CB-8A-1F-63-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[2] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.102&mac=D8-CB-8A-1F-64-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[3] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.103&mac=D8-CB-8A-1F-65-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[4] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.104&mac=D8-CB-8A-1F-66-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[5] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.105&mac=D8-CB-8A-1F-67-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[6] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.106&mac=D8-CB-8A-1F-68-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[7] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.107&mac=D8-CB-8A-1F-69-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[8] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.108&mac=D8-CB-8A-1F-70-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[9] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.109&mac=D8-CB-8A-1F-71-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[10] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.110&mac=D8-CB-8A-1F-72-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[11] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.111&mac=D8-CB-8A-1F-73-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[12] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.112&mac=D8-CB-8A-1F-74-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[13] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.113&mac=D8-CB-8A-1F-75-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[14] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.114&mac=D8-CB-8A-1F-76-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[15] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.115&mac=D8-CB-8A-1F-77-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[20] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.120&mac=D8-CB-8A-1F-82-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[17] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.117&mac=D8-CB-8A-1F-79-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[18] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.118&mac=D8-CB-8A-1F-80-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[19] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.119&mac=D8-CB-8A-1F-81-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[22] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.122&mac=D8-CB-8A-1F-84-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
 [21] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.121&mac=D8-CB-8A-1F-83-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[23] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.123&mac=D8-CB-8A-1F-85-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[24] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.124&mac=D8-CB-8A-1F-86-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[29] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.129&mac=D8-CB-8A-1F-91-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[26] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.126&mac=D8-CB-8A-1F-88-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[27] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.127&mac=D8-CB-8A-1F-89-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[28] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.128&mac=D8-CB-8A-1F-90-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[31] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.131&mac=D8-CB-8A-1F-93-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[30] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.130&mac=D8-CB-8A-1F-92-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[32] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.132&mac=D8-CB-8A-1F-94-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[33] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.133&mac=D8-CB-8A-1F-95-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[1] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.101&mac=D8-CB-8A-1F-63-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[34] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.134&mac=D8-CB-8A-1F-96-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[2] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.102&mac=D8-CB-8A-1F-64-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[3] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.103&mac=D8-CB-8A-1F-65-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[4] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.104&mac=D8-CB-8A-1F-66-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[5] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.105&mac=D8-CB-8A-1F-67-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[6] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.106&mac=D8-CB-8A-1F-68-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[7] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.107&mac=D8-CB-8A-1F-69-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[8] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.108&mac=D8-CB-8A-1F-70-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[9] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.109&mac=D8-CB-8A-1F-71-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[10] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.110&mac=D8-CB-8A-1F-72-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[11] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.111&mac=D8-CB-8A-1F-73-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[12] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.112&mac=D8-CB-8A-1F-74-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[13] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.113&mac=D8-CB-8A-1F-75-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[14] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.114&mac=D8-CB-8A-1F-76-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
 [15] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.115&mac=D8-CB-8A-1F-77-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
 [16] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.116&mac=D8-CB-8A-1F-78-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[17] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.117&mac=D8-CB-8A-1F-79-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[18] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.118&mac=D8-CB-8A-1F-80-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[19] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.119&mac=D8-CB-8A-1F-81-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[0] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.100&mac=D8-CB-8A-1F-62-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[27] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.127&mac=D8-CB-8A-1F-89-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[21] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.121&mac=D8-CB-8A-1F-83-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[20] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.120&mac=D8-CB-8A-1F-82-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[22] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.122&mac=D8-CB-8A-1F-84-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[23] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.123&mac=D8-CB-8A-1F-85-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[28] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.128&mac=D8-CB-8A-1F-90-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[24] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.124&mac=D8-CB-8A-1F-86-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[29] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.129&mac=D8-CB-8A-1F-91-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[25] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.125&mac=D8-CB-8A-1F-87-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[30] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.130&mac=D8-CB-8A-1F-92-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[31] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.131&mac=D8-CB-8A-1F-93-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[26] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.126&mac=D8-CB-8A-1F-88-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[32] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.132&mac=D8-CB-8A-1F-94-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[33] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.133&mac=D8-CB-8A-1F-95-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[34] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.134&mac=D8-CB-8A-1F-96-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[3] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.103&mac=D8-CB-8A-1F-65-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[0] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.100&mac=D8-CB-8A-1F-62-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[1] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.101&mac=D8-CB-8A-1F-63-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[2] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.102&mac=D8-CB-8A-1F-64-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[4] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.104&mac=D8-CB-8A-1F-66-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[34] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.134&mac=D8-CB-8A-1F-96-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[7] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.107&mac=D8-CB-8A-1F-69-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[16] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.116&mac=D8-CB-8A-1F-78-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[8] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.108&mac=D8-CB-8A-1F-70-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[9] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.109&mac=D8-CB-8A-1F-71-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
 [10] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.110&mac=D8-CB-8A-1F-72-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[1] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.101&mac=D8-CB-8A-1F-63-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[34] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.134&mac=D8-CB-8A-1F-96-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[2] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.102&mac=D8-CB-8A-1F-64-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[3] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.103&mac=D8-CB-8A-1F-65-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[4] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.104&mac=D8-CB-8A-1F-66-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[5] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.105&mac=D8-CB-8A-1F-67-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[6] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.106&mac=D8-CB-8A-1F-68-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[7] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.107&mac=D8-CB-8A-1F-69-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[8] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.108&mac=D8-CB-8A-1F-70-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[9] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.109&mac=D8-CB-8A-1F-71-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[10] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.110&mac=D8-CB-8A-1F-72-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[11] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.111&mac=D8-CB-8A-1F-73-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[12] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.112&mac=D8-CB-8A-1F-74-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[13] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.113&mac=D8-CB-8A-1F-75-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[14] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.114&mac=D8-CB-8A-1F-76-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[15] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.115&mac=D8-CB-8A-1F-77-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[16] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.116&mac=D8-CB-8A-1F-78-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[17] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.117&mac=D8-CB-8A-1F-79-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[18] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.118&mac=D8-CB-8A-1F-80-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[19] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.119&mac=D8-CB-8A-1F-81-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[0] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.100&mac=D8-CB-8A-1F-62-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[27] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.127&mac=D8-CB-8A-1F-89-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[21] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.121&mac=D8-CB-8A-1F-83-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[22] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.122&mac=D8-CB-8A-1F-84-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[23] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.123&mac=D8-CB-8A-1F-85-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[24] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.124&mac=D8-CB-8A-1F-86-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[20] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.120&mac=D8-CB-8A-1F-82-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[25] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.125&mac=D8-CB-8A-1F-87-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[28] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.128&mac=D8-CB-8A-1F-90-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[29] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.129&mac=D8-CB-8A-1F-91-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[26] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.126&mac=D8-CB-8A-1F-88-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[31] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.131&mac=D8-CB-8A-1F-93-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[32] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.132&mac=D8-CB-8A-1F-94-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[30] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.130&mac=D8-CB-8A-1F-92-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[33] 正在并发[50]次请求http://10.10.3.227/index.jsp?ip=10.10.3.133&mac=D8-CB-8A-1F-95-BC&toDo=1&asmType=1&natType=0&toUrl=union.click.jd.com&eth0_mac=b0-51-8e-03-9c-93&netapp=1&userAgent=2&netApp_error=0
-[结果]
--------------------并发设备数[35]个，并发请求次数[50]次。-------------------
--------------------本次并发测试结束，用时52.3289198s。-------------------
+-------------------[开始]-------------------
+-------------------[结束]-------------------
+-------------------并发设备数[0]个，并发请求次数[50]次。-------------------
+-------------------本次并发测试结束，用时29.5198ms。-------------------
+-------------------[开始]-------------------
+-------------------[结束]-------------------
+-------------------并发设备数[0]个，并发请求次数[50]次。-------------------
+-------------------本次并发测试结束，用时30.5221ms。-------------------
+-------------------[开始]--------------------------------------[结束]-------------------
+-------------------并发设备数[0]个，并发请求次数[50]次。-------------------
+-------------------本次并发测试结束，用时33.3145ms。-------------------
