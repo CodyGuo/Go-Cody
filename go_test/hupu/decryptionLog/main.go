@@ -1,9 +1,12 @@
 package main
 
 import (
-	// "fmt"
+	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -12,6 +15,77 @@ import (
 	. "github.com/lxn/walk/declarative"
 )
 
+type Log struct {
+	Index  int
+	File   string
+	Path   string
+	Result string
+	Remark string
+}
+
+type LogModel struct {
+	walk.TableModelBase
+	items []*Log
+}
+
+func NewLogModel() *LogModel {
+	return new(LogModel)
+}
+
+func (lm *LogModel) RowCount() int {
+	return len(lm.items)
+}
+
+func (lm *LogModel) Items() interface{} {
+	return lm.items
+}
+
+// 结果展示
+func (l *LogModel) Value(row, col int) interface{} {
+	item := l.items[row]
+
+	switch col {
+	case 0:
+		return item.Index
+	case 1:
+		return item.File
+	case 2:
+		return item.Path
+	case 3:
+		return item.Result
+	case 4:
+		return item.Remark
+	}
+	panic("unexpected col")
+}
+
+func (lm *LogModel) AddLogFile(path, file string) int {
+	index := 0
+	if len(lm.items) > 0 {
+		index = lm.items[len(lm.items)-1].Index
+	}
+
+	lm.items = append(lm.items, &Log{
+		Index:  index + 1,
+		File:   file,
+		Path:   path,
+		Result: "未解密",
+		Remark: "",
+	})
+	lm.PublishRowsReset()
+	return index
+}
+
+func (lm *LogModel) SetResult(index int, result, remark string) {
+	lm.items[index].Result = result
+	lm.items[index].Remark = remark
+	lm.PublishRowsReset()
+}
+
+func (lm *LogModel) GetPath(index int) string {
+	return lm.items[index].Path
+}
+
 func main() {
 	mw := new(MyWindow)
 	mw.RunApp()
@@ -19,59 +93,104 @@ func main() {
 
 type MyWindow struct {
 	*walk.MainWindow
-	textEdit *walk.TextEdit
-	tv       *walk.TableView
+	tv    *walk.TableView
+	model *LogModel
+
+	row int
 }
 
 func (mw *MyWindow) RunApp() {
+	mw.model = NewLogModel()
+	open := walk.NewAction()
+	open.SetText("打开目录")
+
 	if err := (MainWindow{
 		AssignTo: &mw.MainWindow,
-		Title:    "iMan日志解密工具 1.0",
+		Title:    "iMan高级调试日志解密工具 2.0",
 		Layout:   VBox{},
-		MinSize:  Size{600, 450},
+		MinSize:  Size{980, 650},
 		Children: []Widget{
-			Composite{
-				Layout:  HBox{},
-				MaxSize: Size{0, 50},
-				Children: []Widget{
-					// VSpacer{MinSize: Size{50, 0}},
-					PushButton{
-						Text: "开始解密日志",
-						OnClicked: func() {
-							walk.MsgBox(mw, "title", "message", walk.MsgBoxIconInformation)
-						},
-					},
-					PushButton{
-						Text: "打开输出文件夹",
-						OnClicked: func() {
-							exec.Command("cmd", "/c", "start", "logout").Run()
-						},
-					},
-					Composite{
-						Layout:  HBox{},
-						MinSize: Size{60, 60},
-						MaxSize: Size{60, 60},
-						Children: []Widget{
-							TextEdit{
-								AssignTo: &mw.textEdit,
-								Text:     "请将日志文件拖放到这里!",
-								ReadOnly: true,
-							},
-						},
-					},
-				},
-			},
-
 			TableView{
-				AssignTo: &mw.tv,
+				AssignTo:            &mw.tv,
+				LastColumnStretched: true,
+				Columns: []TableViewColumn{
+					{Title: "序号", Width: 45},
+					{Title: "文件名", Width: 180},
+					{Title: "文件路径", Width: 200},
+					{Title: "状态", Width: 70},
+					{Title: "备注", Width: 0},
+				},
+				Model: mw.model,
+				OnCurrentIndexChanged: func() {
+					mw.row = mw.tv.CurrentIndex()
+				},
+				ContextMenuItems: []MenuItem{
+					ActionRef{&open},
+				},
 			},
 		},
 	}.CreateCody()); err != nil {
 		log.Fatal(err)
 	}
 
-	mw.textEdit.DropFiles().Attach(func(files []string) {
-		mw.textEdit.SetText(strings.Join(files, "\r\n"))
+	open.Triggered().Attach(func() {
+		path := ""
+		if len(mw.model.items) == 0 {
+			exec.Command("cmd", "/c", "start", ".").Run()
+		} else {
+			path = mw.model.GetPath(mw.row) + "\\logout\\"
+			exec.Command("cmd", "/c", "start", path).Run()
+		}
 	})
+
+	mw.dropFiles()
+
+	icon, _ := walk.NewIconFromResourceId(3)
+	mw.SetIcon(icon)
 	mw.Run()
+}
+
+func (mw *MyWindow) dropFiles() {
+	mw.tv.DropFiles().Attach(func(files []string) {
+		go func() {
+			var fileDir, fileName string
+			index := 0
+			ok := make(chan bool)
+			for _, file := range files {
+				fileDir = filepath.Dir(file)
+				fileName = filepath.Base(file)
+				fmt.Println("===========================================")
+				fmt.Printf("Files: \n%v \nFileName: \n%s \nDir: \n%s\n", file, fileName, fileDir)
+				index = mw.model.AddLogFile(fileDir, fileName)
+				go mw.decode(ok, index, file, fileName)
+				<-ok
+			}
+		}()
+	})
+}
+
+func (mw *MyWindow) decode(ok chan bool, index int, file, fileName string) {
+	filenameOnly := GetFileName(fileName)
+	outlogFile := ".\\logout\\" + filenameOnly + ".rar"
+
+	mw.model.items[index].Result = "正在解密中..."
+	nac_cmd := exec.Command("./bin/openssl", "des3", "-salt", "-d", "-k", "zaq#@!", "-in", file, "-out", outlogFile)
+	err := nac_cmd.Run()
+	if err != nil {
+		remark := string(err.Error()) + "解密失败!请检查bin目录下程序是否完整.包含openssl.exe libeay32.dll ssleay32.dll."
+		mw.model.SetResult(index, "解密失败", remark)
+		os.RemoveAll(outlogFile)
+	} else {
+		mw.model.SetResult(index, "解密成功", "右键打开解密后目录.")
+	}
+	ok <- true
+}
+
+func GetFileName(fileName string) string {
+	var filenameWithSuffix, fileSuffix, filenameOnly string
+	filenameWithSuffix = path.Base(fileName)
+	fileSuffix = path.Ext(filenameWithSuffix)
+	filenameOnly = strings.TrimSuffix(filenameWithSuffix, fileSuffix)
+
+	return filenameOnly
 }

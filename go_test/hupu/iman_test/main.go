@@ -1,18 +1,21 @@
 package main
 
 import (
-	"encoding/csv"
 	"fmt"
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
+
+	"database/sql"
+	"encoding/csv"
+	"os/exec"
 )
 
 import (
 	"github.com/Unknwon/goconfig"
+	_ "github.com/go-sql-driver/mysql"
 )
 
 const (
@@ -36,6 +39,11 @@ debug = false
 `
 )
 
+const (
+	POST = "POST"
+	GET  = "GET"
+)
+
 type Conf struct {
 	url          string
 	toDo         string
@@ -50,11 +58,13 @@ type Conf struct {
 }
 
 type BoomDevce struct {
-	URL   []string
-	conf  Conf
-	c     string
-	mysql bool
-	debug bool
+	URL      []string
+	serverIP string
+	deviceid map[string]int
+	conf     Conf
+	c        string
+	mysql    bool
+	debug    bool
 }
 
 func (b *BoomDevce) readINI() {
@@ -112,6 +122,17 @@ func (b *BoomDevce) readINI() {
 		b.conf.csvFile, err = conf.GetValue("File", "csvFile")
 		checkErr(info, err)
 	}
+
+	b.serverIP = strings.Split(b.conf.url, "/")[2]
+}
+
+func (b *BoomDevce) urlConv(ip, mac string) string {
+	urlStr := fmt.Sprintf("%s?ip=%s&mac=%s&toDo=%s&asmType=%s&natType=%s&toUrl=%s&eth0_mac=%s&netapp=%s&userAgent=%s&netApp_error=%s",
+		b.conf.url, ip, mac, b.conf.toDo, b.conf.asmType,
+		b.conf.natType, b.conf.toUrl, b.conf.eth0_mac, b.conf.netapp,
+		b.conf.userAgent, b.conf.netApp_error)
+
+	return urlStr
 }
 
 func (b *BoomDevce) getDeviceFromCSV() {
@@ -128,34 +149,100 @@ func (b *BoomDevce) getDeviceFromCSV() {
 		} else if err != nil {
 			log.Fatal(err)
 		}
-
-		urlStr := fmt.Sprintf("%s?ip=%s&mac=%s&toDo=%s&asmType=%s&natType=%s&toUrl=%s&eth0_mac=%s&netapp=%s&userAgent=%s&netApp_error=%s",
-			b.conf.url, dev[0], dev[1], b.conf.toDo, b.conf.asmType,
-			b.conf.natType, b.conf.toUrl, b.conf.eth0_mac, b.conf.netapp,
-			b.conf.userAgent, b.conf.netApp_error)
+		urlStr := b.urlConv(dev[0], dev[1])
 		b.URL = append(b.URL, urlStr)
 	}
 
 }
 
 func (b *BoomDevce) getDeviceFromMysql() {
-	info := "getDeviceFromMysql"
-	fmt.Println(info, "正在获取mysql设备.")
+	info := "getDeviceFromMysql："
+	// [http:  10.10.3.227 index.jsp]
+	db, err := sql.Open("mysql", "root:hupu12iman!@tcp("+fmt.Sprint(b.serverIP)+":3306)/hupunac?charset=utf8")
+	checkErr(info, err)
+
+	rows, err := db.Query("SELECT ideviceid,sdeviceip,sdevicemac FROM tdevice WHERE sdeviceip IS NOT NULL and sdevicemac IS NOT NULL")
+	checkErr(info, err)
+	defer rows.Close()
+
+	b.deviceid = make(map[string]int)
+	var deviceid int
+	var ip, mac []byte
+	for rows.Next() {
+		err := rows.Scan(&deviceid, &ip, &mac)
+		checkErr(info, err)
+		ip := string(ip)
+		mac := string(mac)
+		b.deviceid[mac] = deviceid
+		urlStr := b.urlConv(ip, mac)
+		b.URL = append(b.URL, urlStr)
+	}
+	err = rows.Err()
+	checkErr(info, err)
 }
 
 func (b *BoomDevce) Request(index int, url string, ok chan bool) {
-	info := "Request："
 	writeLog(fmt.Sprintf("[%d] 正在并发[%s]次请求%s\n", index, b.c, url))
 
-	cmd := exec.Command("boom", "-n", b.c, "-c", b.c, url)
-	outPut, err := cmd.Output()
-	checkErr(info, err)
-	cmd.Wait()
+	ipTemp := strings.Split(url, "=")[1]
+	macTemp := strings.Split(url, "=")[2]
+	ip := strings.Split(ipTemp, "&")[0]
+	mac := strings.Split(macTemp, "&")[0]
+	deviceid := b.deviceid[mac]
+
+	// result := b.request(GET, url)
+
+	// LicenseParserLicense := fmt.Sprintf("http://%s/license/License-parserLicense", b.serverIP)
+	// b.request(POST, LicenseParserLicense)
+
+	// AdminGetCompanyInfo := fmt.Sprintf("http://%s/approve/Admin-getCompanyInfo?sascuniqueid=%s", b.serverIP, b.conf.eth0_mac)
+	// b.request(POST, AdminGetCompanyInfo)
+
+	// CloudConfigGetLogoUrl := fmt.Sprintf("http://%s/cloud/CloudConfig-getLogoUrl?requestUri=/index.jsp", b.serverIP)
+	// b.request(POST, CloudConfigGetLogoUrl)
+
+	// CloudConfigGetContactInfo := fmt.Sprintf("http://%s/cloud/CloudConfig-getContactInfo?requestUri=/index.jsp", b.serverIP)
+	// b.request(POST, CloudConfigGetContactInfo)
+
+	// DviceValidateLicense := fmt.Sprintf("http://%s/approve/Dvice-validateLicense?companycode=10000000", b.serverIP)
+	// b.request(POST, DviceValidateLicense)
+
+	// DviceGetDeviceInfoByAuthApprove := fmt.Sprintf(`http://%s/approve/Dvice-getDeviceInfoByAuthApprove?deviceip=%s&devicemac=%s&scompanycode=10000000&natType=%s&asmType=%s`,
+	// 	b.serverIP, ip, mac, b.conf.natType, b.conf.asmType)
+	// b.request(POST, DviceGetDeviceInfoByAuthApprove)
+
+	// authPolicySelectAuthPolicyInfo := fmt.Sprintf("http://%s/approve/authPolicy-selectAuthPolicyInfo?scompanycode=10000000&ip=%s", b.serverIP, ip)
+	// b.request(POST, authPolicySelectAuthPolicyInfo)
+
+	// AuthBindValiBind := fmt.Sprintf(`http://%s/approve/AuthBind-valiBind?deviceip=%s&devicemac=%s&scompanycode=10000000&natType=%s&asmType=%s`,
+	// 	b.serverIP, ip, mac, b.conf.natType, b.conf.asmType)
+	// b.request(POST, AuthBindValiBind)
+
+	// DviceGetDeviceBySearch := fmt.Sprintf(`http://%s/approve/Dvice-getDeviceBySearch?scompanycode=scompanycode=10000000&sdeviceip=%s&sdevicemac=%s&asmType=%s&natType=%s`,
+	// 	b.serverIP, ip, mac, b.conf.asmType, b.conf.natType)
+	// b.request(POST, DviceGetDeviceBySearch)
+
+	UsersDeviceAuthByControl := fmt.Sprintf(`http://%s/approve/Users-deviceAuthByControl?iuserid=&ideptid=&iguestid=&iguesttypeid=&scompanycode=10000000&asmType=%s&ideviceid=%d&deviceip=%s&devicemac=%s&natType=%s&controlMac=%s&authItemStr=&authPolicyId=1&ifGuestAuth=false&authResult=0&iauthidentity=0`,
+		b.serverIP, b.conf.asmType, deviceid, ip, mac, b.conf.natType, b.conf.eth0_mac)
+	result := b.request(POST, UsersDeviceAuthByControl)
+
+	// UsersGetCookie := fmt.Sprintf("http://%s/approve/Users-getCookie", b.serverIP)
+	// b.request(POST, UsersGetCookie)
 
 	if b.debug {
-		writeLog(fmt.Sprintf("[%d] 请求URL=%s，并发[%s]次结果为：\n%q\n", index, url, b.c, string(outPut)))
+		writeLog(fmt.Sprintf("[%d] 请求URL=%s，并发[%s]次结果为：\n%s\n", index, url, b.c, result))
 	}
 	ok <- true
+}
+
+func (b *BoomDevce) request(method, url string) string {
+	info := "request："
+	cmd := exec.Command("boom", "-n", b.c, "-c", b.c, "-m", method, "-h", "IMan-Language:zh-CN", url)
+	outPut, err := cmd.Output()
+	checkErr(info, err)
+
+	cmd.Wait()
+	return string(outPut)
 }
 
 func main() {
