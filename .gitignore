@@ -1,3 +1,4 @@
 *.exe
 *.tags*
 *dmp
+!go_test/hupu/decryptionLog/bin/*.exe

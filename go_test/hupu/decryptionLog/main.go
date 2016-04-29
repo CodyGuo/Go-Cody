@@ -171,6 +171,7 @@ func (mw *MyWindow) dropFiles() {
 
 func (mw *MyWindow) decode(ok chan bool, index int, file, fileName string) {
 	filenameOnly := GetFileName(fileName)
+	os.Mkdir("logout", 0755)
 	outlogFile := ".\\logout\\" + filenameOnly + ".rar"
 
 	mw.model.items[index].Result = "正在解密中..."
