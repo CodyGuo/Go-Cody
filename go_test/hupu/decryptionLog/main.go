@@ -106,7 +106,7 @@ func (mw *MyWindow) RunApp() {
 
 	if err := (MainWindow{
 		AssignTo: &mw.MainWindow,
-		Title:    "iMan高级调试日志解密工具 2.0",
+		Title:    "iMan高级调试日志解密工具 2.1",
 		Layout:   VBox{},
 		MinSize:  Size{980, 650},
 		Children: []Widget{
