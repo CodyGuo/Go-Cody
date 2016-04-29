@@ -113,6 +113,7 @@ func (mw *MyWindow) RunApp() {
 			TableView{
 				AssignTo:            &mw.tv,
 				LastColumnStretched: true,
+				ToolTipText:         "把日志拖放上来即可解密.",
 				Columns: []TableViewColumn{
 					{Title: "序号", Width: 45},
 					{Title: "文件名", Width: 180},
@@ -134,12 +135,11 @@ func (mw *MyWindow) RunApp() {
 	}
 
 	open.Triggered().Attach(func() {
-		path := ""
 		if len(mw.model.items) == 0 {
 			exec.Command("cmd", "/c", "start", ".").Run()
 		} else {
-			path = mw.model.GetPath(mw.row) + "\\logout\\"
-			exec.Command("cmd", "/c", "start", path).Run()
+			path, _ := os.Getwd()
+			exec.Command("cmd", "/c", "start", path+"\\logout\\").Run()
 		}
 	})
 
@@ -147,12 +147,22 @@ func (mw *MyWindow) RunApp() {
 
 	icon, _ := walk.NewIconFromResourceId(3)
 	mw.SetIcon(icon)
+
+	walk.MsgBox(mw, "提示", "把日志拖放到空白区即可解密！", walk.MsgBoxIconInformation)
 	mw.Run()
 }
 
 func (mw *MyWindow) dropFiles() {
 	mw.tv.DropFiles().Attach(func(files []string) {
 		go func() {
+			for i, file := range files {
+				info, _ := os.Stat(file)
+				if info.IsDir() {
+					files = append(files[:i], files[i+1:]...)
+					files = append(files, getFileList(file)...)
+				}
+			}
+
 			var fileDir, fileName string
 			index := 0
 			ok := make(chan bool)
@@ -178,8 +188,11 @@ func (mw *MyWindow) decode(ok chan bool, index int, file, fileName string) {
 	nac_cmd := exec.Command("./bin/openssl", "des3", "-salt", "-d", "-k", "zaq#@!", "-in", file, "-out", outlogFile)
 	err := nac_cmd.Run()
 	if err != nil {
-		remark := string(err.Error()) + "解密失败!请检查bin目录下程序是否完整.包含openssl.exe libeay32.dll ssleay32.dll."
-		mw.model.SetResult(index, "解密失败", remark)
+		if strings.Contains(err.Error(), "exit status 1") {
+			mw.model.SetResult(index, "解密失败", "不是iMan的高级调试日志或者已经是文明日志.")
+		} else {
+			mw.model.SetResult(index, "未解密", "请检查bin目录下的解密程序是否完整.包含openssl.exe libeay32.dll ssleay32.dll."+err.Error())
+		}
 		os.RemoveAll(outlogFile)
 	} else {
 		mw.model.SetResult(index, "解密成功", "右键打开解密后目录.")
@@ -194,4 +207,22 @@ func GetFileName(fileName string) string {
 	filenameOnly = strings.TrimSuffix(filenameWithSuffix, fileSuffix)
 
 	return filenameOnly
+}
+
+func getFileList(path string) []string {
+	files := []string{}
+	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		if info == nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	if err != nil {
+		fmt.Println(err)
+	}
+	return files
 }

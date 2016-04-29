@@ -47,7 +47,8 @@ func main() {
 				OnClicked: model.aa,
 			},
 			TableView{
-				AssignTo: &tv,
+				AssignTo:    &tv,
+				ToolTipText: "把日志拖放上来即可解密.",
 				Columns: []TableViewColumn{
 					{Title: "序号"}, // Changed Title to Name.
 					{Title: "文件"},
