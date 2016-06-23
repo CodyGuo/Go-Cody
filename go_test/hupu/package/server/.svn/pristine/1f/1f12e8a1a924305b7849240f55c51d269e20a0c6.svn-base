@@ -1,0 +1,159 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "CheckIEMainPage.h"
+#include "SystemCheck.h"
+#include "DebugInfo.h"
+
+/************************************************************
+ Description: 获取键值数据
+ input: 
+ output:
+ Return: TRUE[成功]；FALSE[失败];ERROR_MORE_DATA[buffer太小]
+*************************************************************/
+LONG GetValueDataFromReg(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName, IN DWORD dwType, OUT WCHAR* pValueData, OUT PDWORD pDwDataLen)
+{
+    LONG ret = FALSE;
+    HKEY hRetKey = NULL;
+    DWORD dwDataLen = 0;
+    WCHAR* pDatabuf = NULL;
+
+    ret = RegOpenKeyEx(hKey, lpSubKey, 0, KEY_ALL_ACCESS, &hRetKey);
+
+    if(  ret == ERROR_SUCCESS )
+    {
+        ret = RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, NULL, &dwDataLen);
+
+        if (  ret == ERROR_SUCCESS )
+        {
+            if (*pDwDataLen == 0)
+            {
+                *pDwDataLen = dwDataLen;
+                RegCloseKey(hRetKey);
+                return ERROR_MORE_DATA;
+            }
+
+            pDatabuf = (WCHAR*)malloc(dwDataLen);
+
+            if ( RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, (LPBYTE)pDatabuf, &dwDataLen) == ERROR_SUCCESS )
+            {
+                wmemcpy(pValueData, pDatabuf, MIN(dwDataLen/sizeof(WCHAR), MAXL_URL_LEN));
+                ret = TRUE;
+            }
+            free(pDatabuf);
+        }
+        RegCloseKey(hRetKey);
+    }
+
+    return ret;
+}
+
+/************************************************************
+ Description: 修改键值数据
+ Input: 
+ Output:
+ Return:  TRUE[成功]；FALSE[失败];
+*************************************************************/
+LONG SetValueData(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName, IN DWORD dwType, IN const BYTE* lpData, IN DWORD cbData)
+{
+    LONG ret = FALSE;
+    HKEY hRetKey = NULL;
+    DWORD dwDataLen = 0;
+    WCHAR* pDatabuf = NULL;
+
+    ret = RegOpenKeyEx(hKey, lpSubKey, 0, KEY_ALL_ACCESS, &hRetKey);
+
+    if(  ret == ERROR_SUCCESS )
+    {
+        ret = RegSetValueEx(hRetKey, lpValueName, 0, dwType, lpData, cbData);
+        if ( ret == ERROR_SUCCESS )
+        {
+            ret = TRUE;
+        }
+        RegCloseKey(hRetKey);
+    }
+    return ret;
+}
+
+/************************************************************ 
+ Description: 检查IE主页并是否修复
+ Return: TRUE[检查IE主页不符合要求或修复成功];
+         FALSE[检查IE主页符合要求或修复失败];
+*************************************************************/
+BOOL CheckIEMainPage()
+{
+    LPCWSTR lpSubKey = L"SOFTWARE\\Microsoft\\Internet Explorer\\MAIN";
+    LPCTSTR lpValueName = L"Start Page";
+    DWORD dwType = REG_SZ;
+    WCHAR* wStartPage = NULL;
+    DWORD urlLen = 0;
+    BOOL ret = FALSE;
+
+    if (GetValueDataFromReg(HKEY_CURRENT_USER, lpSubKey, lpValueName, dwType, NULL, &urlLen) == ERROR_MORE_DATA)
+    {
+        wStartPage =(WCHAR*)malloc(urlLen);
+
+        LONG retGetValue =  GetValueDataFromReg(HKEY_CURRENT_USER, lpSubKey, lpValueName, dwType, wStartPage, &urlLen);
+
+        if ( retGetValue &&
+            _wcsnicmp(wStartPage, mainPagePolicy.mainPageUrl, wcslen(mainPagePolicy.mainPageUrl)) != 0)
+        {
+            ret = TRUE;
+        }
+
+        urlLen = 0;
+
+        free(wStartPage);
+        wStartPage = NULL;
+    }
+
+    if (GetValueDataFromReg(HKEY_LOCAL_MACHINE, lpSubKey, lpValueName, dwType, NULL, &urlLen) == ERROR_MORE_DATA)
+    {
+        wStartPage =(WCHAR*)malloc(urlLen);
+
+        if ( GetValueDataFromReg(HKEY_LOCAL_MACHINE, lpSubKey, lpValueName, dwType, wStartPage, &urlLen) &&
+            _wcsnicmp(wStartPage, mainPagePolicy.mainPageUrl, wcslen(mainPagePolicy.mainPageUrl)) != 0)
+        {
+            //ret = TRUE;
+        }
+
+        urlLen = 0;
+        free(wStartPage);
+        wStartPage = NULL;
+    }
+
+    if (!mainPagePolicy.fixFlag)
+    {
+        return ret;
+    }
+
+    if (ret == TRUE && mainPagePolicy.fixFlag)
+    {
+        ret = SetValueData(HKEY_CURRENT_USER, lpSubKey, lpValueName, dwType, (const BYTE*)mainPagePolicy.mainPageUrl, (wcslen(mainPagePolicy.mainPageUrl)+1)*sizeof(WCHAR));
+        SetValueData(HKEY_LOCAL_MACHINE, lpSubKey, lpValueName, dwType, (const BYTE*)mainPagePolicy.mainPageUrl, (wcslen(mainPagePolicy.mainPageUrl)+1)*sizeof(WCHAR));
+    }
+
+    return ret;
+}
+
+/************************************************************ 
+ Description: 设置IE主页策略
+ input:pIEMainPagePolicy[检查策略结构]
+*************************************************************/
+void SetIEMainPagePolicy(IN MAINPAGEPOLICY mPagePolicy)
+{
+    wchar_t writeLog[MAXL_URL_LEN*2] = {0};
+
+    memset(&mainPagePolicy, 0, sizeof(MAINPAGEPOLICY));
+    mainPagePolicy.fixFlag = mPagePolicy.fixFlag;
+    wcsncpy_s(mainPagePolicy.mainPageUrl, MAXL_URL_LEN, mPagePolicy.mainPageUrl, MAXL_URL_LEN);
+
+    swprintf_s(writeLog, MAXL_URL_LEN*2, L"fixFlag[%d] mainPageUrl[%ws]", mainPagePolicy.fixFlag, mainPagePolicy.mainPageUrl);
+    WriteDebugInfomation(LEVEL_DEBUG, MODULE_MAINPAGE,  __FILE__, __LINE__, __FUNCTION__, writeLog);
+}

@@ -1,0 +1,49 @@
+/*模块名称：GetOsInfo.h 
+   模块功能：获取操作系统详细信息
+   作者：gcy
+   时间：2014-1-7 
+*/
+
+typedef struct OSDATAINFO
+{
+    //操作系统类型
+    char ostype[MAX_PATH];
+    //操作系统版本补丁版本号
+    char osspversion[MAX_PATH];
+
+    safecheckattr attriinfo;
+}_OSDATAINFO;
+
+
+class CGetOsInfo
+{
+public:
+    CGetOsInfo();
+    ~CGetOsInfo();
+
+    int m_numcount;
+
+    int m_failnumcount;
+
+    int GetDataFromDB(wchar_t  *dirpath, char *userid,char* usertype, char *currdata, char *millisecond, char *weekday);
+
+    string ExecOSVersionItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess);
+
+    int RestoreFailItem();
+
+    OSDATAINFO m_osckeckinfo;
+
+protected:
+
+private:
+
+    char m_osdetailinfo[MAX_PATH];
+    char  m_servpack[MAX_PATH];
+
+    char* trim_all(char *s);
+
+    void InitData();
+   
+    list<OSDATAINFO> m_stgosinfo;
+
+};

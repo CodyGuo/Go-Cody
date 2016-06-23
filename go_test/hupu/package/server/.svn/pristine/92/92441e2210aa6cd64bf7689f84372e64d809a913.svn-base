@@ -1,0 +1,635 @@
+#include "StdAfx.h"
+#include "Port.h"
+#include  "..\DebugInfo.h"
+#include "..\GlobalDate.h"
+#include "SafeCheckFuntion.h"
+#include "..\strconvert.h"
+#include <tlhelp32.h>
+#include <Psapi.h>
+#pragma comment(lib,"Psapi.lib")
+
+
+
+Port::Port(void):m_portCnt(0),
+	m_portInfo(NULL),
+	m_failportnum(0),
+	m_failportInfo(NULL),
+	m_totolportInfo(NULL)
+{
+	
+}
+
+Port::~Port(void)
+{
+	if(m_portInfo!=NULL)
+	{
+		delete[] m_portInfo;
+		m_portInfo=NULL;
+	}
+	
+	if(m_failportInfo!=NULL)
+	{
+		delete[] m_failportInfo;
+		m_failportInfo=NULL;
+	}
+}
+
+
+int Port::GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday)
+{
+	int ret=SQLITE_OK;
+	if (HP_openDB(dirpath)==HP_DB_OPENFAIL)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_PORT,LOGLOCATION,"打开数据库失败");
+		return HP_DB_OPENFAIL;
+	}
+	else
+	{
+
+		DeleteData();
+		//获取process数据
+		char sql[HP_C_SQLDATA]={'0'}; 
+		char sqlReal[HP_C_SQLDATA]={'0'};
+		char **pszResult='\0';
+		CHAR *szErrMsg='\0';
+		INT nRow = 0;
+		INT nCloumn = 0;
+		sprintf_s(sql,HP_C_SQLDATA,"SELECT %s, sexceptionprocess,\
+								   iport,sporttype,exceptproc FROM (SELECT * FROM tstgport a, tstgportcontent b WHERE (a.ipolicyauthid=b.ipolicyauthid)\
+								   AND (a.iuserid=%d) AND (a.usertype=\'%s\')AND (dstartdate<=\'%s\') AND (denddate>=\'%s\') AND (%ld>a.sstarttime) \
+								   AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority DESC) AS tb  ORDER BY tb.iport ,tb.ipriority ASC ", 
+								   HP_ATTRIBUTE_SQLNAME,atoi(userid),usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));	 
+
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_PORT,LOGLOCATION,"查询端口策略的SQL语句",sql); 
+		Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+		//EnterCriticalSection(&g_opdbcs);
+		if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+		{
+	//		LeaveCriticalSection(&g_opdbcs);
+			sqlite3_free_table(pszResult);
+			ret = sqlite3_close(g_db);
+			g_db=NULL;
+			return HP_DB_GETTABLEFAIL;
+		}
+
+		if ((nRow>0) && (nCloumn>0))
+		{	
+			m_totalCnt = nRow;
+			m_totolportInfo = new XMLPORTINFO[nRow];
+			memset(m_totolportInfo,0,sizeof(XMLPORTINFO));
+			for (int i=0;i<nRow;i++)
+			{
+				for (int j=0;j<nCloumn;j++)
+				{
+					if(strcmp(pszResult[j],"spolicyaction")==0)
+					{				
+						memset(m_totolportInfo[i].attriinfo.spolicyaction,0,sizeof(m_totolportInfo[i].attriinfo.spolicyaction));
+						Convert(pszResult[(i+1)*nCloumn+j],m_totolportInfo[i].attriinfo.spolicyaction,sizeof(m_totolportInfo[i].attriinfo.spolicyaction),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"ipriority")==0)
+					{
+						memset(m_totolportInfo[i].attriinfo.ipriority,0,sizeof(m_totolportInfo[i].attriinfo.ipriority));
+						Convert(pszResult[(i+1)*nCloumn+j],m_totolportInfo[i].attriinfo.ipriority,sizeof(m_totolportInfo[i].attriinfo.ipriority),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"spromptinfo")==0)
+					{
+						memset(m_totolportInfo[i].attriinfo.spromptinfo,0,sizeof(m_totolportInfo[i].attriinfo.spromptinfo));
+						Convert(pszResult[(i+1)*nCloumn+j],m_totolportInfo[i].attriinfo.spromptinfo,sizeof(m_totolportInfo[i].attriinfo.spromptinfo),CP_UTF8,CP_ACP);					
+					}
+					else  if(strcmp(pszResult[j],"warningcont")==0)
+					{
+						memset(m_totolportInfo[i].attriinfo.warningcont,0,sizeof(m_totolportInfo[i].attriinfo.warningcont));
+						Convert(pszResult[(i+1)*nCloumn+j],m_totolportInfo[i].attriinfo.warningcont,sizeof(m_totolportInfo[i].attriinfo.warningcont),CP_UTF8,CP_ACP);					
+					}
+					else  if(strcmp(pszResult[j],"warninglevel")==0)
+					{
+						memset(m_totolportInfo[i].attriinfo.warninglevel,0,sizeof(m_totolportInfo[i].attriinfo.warninglevel));
+						Convert(pszResult[(i+1)*nCloumn+j],m_totolportInfo[i].attriinfo.warninglevel,sizeof(m_totolportInfo[i].attriinfo.warninglevel),CP_UTF8,CP_ACP);					
+					}			
+					else  if(strcmp(pszResult[j],"srcevent")==0)
+					{
+						memset(m_totolportInfo[i].attriinfo.srcevent,0,sizeof(m_totolportInfo[i].attriinfo.srcevent));
+						Convert(pszResult[(i+1)*nCloumn+j],m_totolportInfo[i].attriinfo.srcevent,sizeof(m_totolportInfo[i].attriinfo.srcevent),CP_UTF8,CP_ACP);					
+					}		
+
+					else if(strcmp(pszResult[j],"sexceptionprocess")==0)
+					{
+						memset(m_totolportInfo[i].sexceptionprocess,0,sizeof(m_totolportInfo[i].sexceptionprocess));
+						Convert(pszResult[(i+1)*nCloumn+j],m_totolportInfo[i].sexceptionprocess,sizeof(m_totolportInfo[i].sexceptionprocess),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"iport")==0)
+					{
+						memset(m_totolportInfo[i].iport,0,sizeof(m_totolportInfo[i].iport));
+						Convert(pszResult[(i+1)*nCloumn+j],m_totolportInfo[i].iport,sizeof(m_totolportInfo[i].iport),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"sporttype")==0)
+					{
+						memset(m_totolportInfo[i].sporttype,0,sizeof(m_totolportInfo[i].sporttype));
+						Convert(pszResult[(i+1)*nCloumn+j],m_totolportInfo[i].sporttype,sizeof(m_totolportInfo[i].sporttype),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"exceptproc")==0)
+					{
+						memset(m_totolportInfo[i].excepproc,0,sizeof(m_totolportInfo[i].excepproc));
+						Convert(pszResult[(i+1)*nCloumn+j],m_totolportInfo[i].excepproc,sizeof(m_totolportInfo[i].excepproc),CP_UTF8,CP_ACP);					
+					}			
+
+				}
+			}
+		}//if ((nRow>0) && (nCloumn>0))
+		sqlite3_free_table(pszResult);
+		//LeaveCriticalSection(&g_opdbcs);
+		///////////端口取优先级高的冲突的策略，不冲突的策略合并例外进程
+
+		m_portCnt=0;
+		if(m_totalCnt>0)
+		{
+			m_portInfo= new XMLPORTINFO[m_totalCnt];
+			memset(m_portInfo,0,sizeof(XMLPORTINFO));
+			for(int i=0;i<m_totalCnt;i++)
+			{
+				if(i==0){
+					m_portInfo[m_portCnt]=m_totolportInfo[i];
+				}
+				else
+				{
+					if(strcmp(m_totolportInfo[i].iport,m_portInfo[m_portCnt].iport)==0)  /////////////////端口号是一样
+					{
+						if( strcmp(m_totolportInfo[i].sporttype,m_portInfo[m_portCnt].sporttype)==0 )//协议是一样的
+						{
+							if((strcmp(m_totolportInfo[i].attriinfo.spolicyaction,m_portInfo[m_portCnt].attriinfo.spolicyaction)!=0)) /////动作不一样
+							{
+								if(atoi(m_totolportInfo[i].attriinfo.ipriority)<atoi(m_portInfo[m_portCnt].attriinfo.ipriority))
+								{
+									//m_portCnt++;
+									m_portInfo[m_portCnt]=m_totolportInfo[i];
+								}
+							}
+							else//////动作是一样的,继承例外进程
+							{
+								mergeExceptProcess(i,m_portCnt);
+							}
+						}
+						else
+						{
+							m_portInfo[m_portCnt]=m_totolportInfo[i];
+						}
+					}
+					else  ///端口号不一样
+					{
+						m_portCnt++;
+						m_portInfo[m_portCnt]=m_totolportInfo[i];
+					}
+				}
+			}
+			m_portCnt++;
+		}
+	}
+	return HP_SUCCESS;
+}
+
+string Port::ExecPortItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int *IsPortSuccess)
+{
+	char tempheader[512]={"0"};
+	memset(tempheader,0,sizeof(tempheader));
+	sprintf_s(tempheader,512,"%s;%s;%d;%d;1;%d;%s;",servertime, g_deviceid.c_str(), totalitem, curritem, nextitem, mac);
+	string xmlstring;
+	HMODULE LibraryModule;
+	LibraryModule=InitPortFunc();
+	if(LibraryModule==NULL){
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_PORT,LOGLOCATION,"Load Library Fail");
+		return "";
+	}
+	string SendportfailMsg;
+	char *SendPortInfo= new char[MAX_PATH*2*m_portCnt+1]();
+	memset(SendPortInfo,0,MAX_PATH*2*m_portCnt+1);
+	bool IsPortStgSuccess = true;
+
+	if (m_portCnt>0)
+	{
+		m_failportInfo = new XMLPORTINFO[m_portCnt*2];
+		memset(m_failportInfo,0,sizeof(XMLPORTINFO));
+		for(int m=0;m<m_portCnt;m++)
+		{
+			DWORD tcpportprocessid = 0;
+            DWORD udpportprocessid = 0;
+            tcpportprocessid = GetProcessIdByTcpPort(LibraryModule,atoi(m_portInfo[m].iport));
+            udpportprocessid = GetUdpPortByProcessId(LibraryModule,atoi(m_portInfo[m].iport));
+			PROCESSDETINFO procdetinfo;
+			memset(&procdetinfo,0,sizeof(PROCESSDETINFO));
+			procdetinfo.memused="0";
+			procdetinfo.procname="0";
+			procdetinfo.procpath="0";
+			procdetinfo.starttime="0";
+
+            if ( (atoi(m_portInfo[m].sporttype)==0) )//tcp
+            {
+                if ( (atoi(m_portInfo[m].attriinfo.spolicyaction)== REFUSE) )
+                {
+                   if ( (tcpportprocessid >0) && (!IsInexceptProcess(m,tcpportprocessid,&procdetinfo)))
+                   {
+                       m_failportInfo[m_failportnum]=m_portInfo[m];
+					   SendportfailMsg += GetFailDescription(m_failportnum,FALSE,m_failportInfo[m_failportnum],procdetinfo);
+                       m_failportnum++;
+                       IsPortStgSuccess = false;
+                   }
+                }
+                else
+                {
+                    if ( (atoi(m_portInfo[m].attriinfo.spolicyaction)== ALLOW) && (tcpportprocessid == 0))
+                    {
+                        m_failportInfo[m_failportnum]=m_portInfo[m];
+						SendportfailMsg += GetFailDescription(m_failportnum,FALSE,m_failportInfo[m_failportnum],procdetinfo);
+                        m_failportnum++;
+                         IsPortStgSuccess = false;
+                    }
+                }
+            }// if ( atoi(m_portInfo[m].sporttype)==0 )
+		    else if ((atoi(m_portInfo[m].sporttype) == 1))//udp
+            {
+                if ( (atoi(m_portInfo[m].attriinfo.spolicyaction)== REFUSE) )
+                {
+                    if ( (udpportprocessid >0) && (!IsInexceptProcess(m,udpportprocessid,&procdetinfo)))
+                    {
+                        m_failportInfo[m_failportnum]=m_portInfo[m];
+						SendportfailMsg += GetFailDescription(m_failportnum,TRUE,m_failportInfo[m_failportnum],procdetinfo);
+                        m_failportnum++;
+                         IsPortStgSuccess = false;
+                    }
+                }
+                else
+                {
+                    if ( (atoi(m_portInfo[m].attriinfo.spolicyaction)== ALLOW) && (udpportprocessid == 0))
+                    {
+                        m_failportInfo[m_failportnum]=m_portInfo[m];
+						SendportfailMsg += GetFailDescription(m_failportnum,TRUE,m_failportInfo[m_failportnum],procdetinfo);
+                        m_failportnum++;
+                        IsPortStgSuccess = false;
+                    }
+                }
+            }
+			else if (atoi(m_portInfo[m].sporttype) == 2)//tcp或者udp
+            {
+                if ( (atoi(m_portInfo[m].attriinfo.spolicyaction)== REFUSE) )
+                {
+                    if ( ((udpportprocessid >0) && (!IsInexceptProcess(m,udpportprocessid,&procdetinfo))) ||
+                        ((tcpportprocessid >0) && (!IsInexceptProcess(m,tcpportprocessid,&procdetinfo))))
+                    {
+						if(tcpportprocessid >0)
+						{
+							m_failportInfo[m_failportnum]=m_portInfo[m];
+							SendportfailMsg += GetFailDescription(m_failportnum,FALSE,m_failportInfo[m_failportnum],procdetinfo);
+							m_failportnum++;
+							IsPortStgSuccess = false;
+						}
+						if(udpportprocessid >0)
+						{
+							m_failportInfo[m_failportnum]=m_portInfo[m];
+							SendportfailMsg += GetFailDescription(m_failportnum,TRUE,m_failportInfo[m_failportnum],procdetinfo);
+							m_failportnum++;
+							IsPortStgSuccess = false;
+						}
+                    }
+                }
+                else
+                {
+                    if ( (atoi(m_portInfo[m].attriinfo.spolicyaction)== ALLOW) && (udpportprocessid == 0) && (tcpportprocessid == 0 ))
+                    {
+                        m_failportInfo[m_failportnum]=m_portInfo[m];
+						SendportfailMsg += GetFailDescription(m_failportnum,FALSE,m_failportInfo[m_failportnum],procdetinfo);
+                        m_failportnum++;
+                        IsPortStgSuccess = false;
+                    }
+                }
+            }//else if (atoi(m_portInfo[m].sporttype) == 2)
+        }
+	}
+
+	if(IsPortStgSuccess)
+	{
+		IsPortSuccess[PORT] = HP_SUCCESS;
+
+		xmlstring = SendSingleItemSafeCheckSuccess(tempheader);
+	}
+	else
+	{
+		IsPortSuccess[PORT] = HP_PORT_CHECKPORTFAIL;
+		string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac><iman succflag =\"0\">";
+		string  xmltail ="</iman></nac>";
+		xmlstring = tempheader;
+		xmlstring +=xmlHeader+SendportfailMsg+xmltail;
+	}
+	delete[] SendPortInfo;
+	return xmlstring;
+}
+
+
+int  Port::RestoreFailItem(int index)
+{
+	HMODULE LibraryModule;
+	LibraryModule=InitPortFunc();
+	if(LibraryModule==NULL)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_PORT,LOGLOCATION,"Load Library Fail");
+		return false;
+	}
+
+	int startindex = 0;
+	int endindex = m_failportnum;
+	if ( index != INFINITE )
+	{
+		startindex = index;
+		endindex = index+1;
+	}
+	for(int m=startindex;m<endindex;m++)
+	{
+		switch(atoi(m_failportInfo[m].sporttype))
+		{
+		case 0:////Tcp
+			{
+				if(atoi(m_failportInfo[m].attriinfo.spolicyaction) == REFUSE )
+					TerminateProcessForOccupiedTcpPort(LibraryModule,atoi(m_failportInfo[m].iport));
+			}
+			break;
+		case 1://///Udp
+			{
+				if(atoi(m_failportInfo[m].attriinfo.spolicyaction) == REFUSE )
+					TerminateProcessForOccupiedUdpPort(LibraryModule,atoi(m_failportInfo[m].iport));
+			}
+			break;
+		case 2://TcpandUdp
+			{
+				if(atoi(m_failportInfo[m].attriinfo.spolicyaction)==REFUSE )
+				{
+					TerminateProcessForOccupiedTcpPort(LibraryModule,atoi(m_failportInfo[m].iport));
+					TerminateProcessForOccupiedUdpPort(LibraryModule,atoi(m_failportInfo[m].iport));
+				}
+			}
+			break;
+		default:
+			break;
+		}
+	}
+	FreePortLibrary(LibraryModule);
+	return true;
+}
+
+void Port::DeleteData()
+{
+	m_portCnt=0;
+	if (m_portInfo!=NULL)
+	{
+		delete[] m_portInfo;
+		m_portInfo=NULL;
+	}
+	
+	 m_failportnum=0;
+	 if (m_failportInfo!=NULL)
+	 {
+		  delete[] m_failportInfo;
+		 m_failportInfo=NULL;
+	 }
+	 m_totalCnt=0; 
+	 if (m_totolportInfo!=NULL)
+	 {
+		 delete[] m_totolportInfo;
+		 m_totolportInfo=NULL;
+	 }
+}
+
+/*************************************************
+Function Name: mergeExceptProcess
+Description: 合并例外进程项
+Input and output:  
+        index:要进行合并的安检项的下标
+        currindex:当前保留的安检项的标号
+RetVal:
+**************************************************/
+void Port::mergeExceptProcess(IN int index,IN int currindex)
+{
+    int totalexceptlen = strlen(m_totolportInfo[index].sexceptionprocess);
+    if (totalexceptlen != 0 )
+    {
+        int curritemlen = strlen(m_portInfo[currindex].sexceptionprocess);
+        if ( curritemlen =! 0)
+        {
+            strcat_s(m_portInfo[currindex].sexceptionprocess,MAX_PATH,",");
+        }
+        strcat_s(m_portInfo[currindex].sexceptionprocess,MAX_PATH,m_totolportInfo[index].sexceptionprocess);
+    }
+    
+    int subitemexcplen = strlen(m_totolportInfo[index].excepproc);
+    if (subitemexcplen != 0 )
+    {
+        int curritemlen = strlen(m_portInfo[currindex].excepproc);
+        if ( curritemlen != 0)
+        {
+             strcat_s(m_portInfo[currindex].excepproc,MAX_PATH,",");
+        }
+        strcat_s(m_portInfo[currindex].excepproc,MAX_PATH,m_totolportInfo[index].excepproc);
+    }
+
+    subitemexcplen = strlen(m_portInfo[currindex].excepproc);
+    if (subitemexcplen != 0)
+    {
+        int curritemlen = strlen(m_portInfo[currindex].sexceptionprocess);
+        if ( curritemlen != 0)
+        {
+            strcat_s(m_portInfo[currindex].sexceptionprocess,MAX_PATH,",");
+        }
+        strcat_s(m_portInfo[currindex].sexceptionprocess,MAX_PATH,m_portInfo[currindex].excepproc);
+    }
+}
+
+/*************************************************
+Function Name: IsInexceptProcess
+Description: 判断占用端口号的进程是否属于例外进程
+Input and output:  
+        index:安检项的编号
+        processid:进程id号
+        processname:进程id为processid的进程名称
+RetVal:成功返回TRUE
+             失败返回FALSE
+**************************************************/
+bool Port::IsInexceptProcess(IN int index,IN DWORD processid,OUT PROCESSDETINFO* procinfo)
+{
+    bool res = false;
+    PROCESSENTRY32 pe32; 
+    pe32.dwSize = sizeof(pe32); 
+    HANDLE hProcessSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0); 
+    if (hProcessSnap == INVALID_HANDLE_VALUE)
+    { 
+        CloseHandle(hProcessSnap);
+        hProcessSnap=NULL;
+        return res;
+    } 
+    BOOL bMore = ::Process32First(hProcessSnap,&pe32);
+    while (bMore) 
+    { 
+        if(pe32.th32ProcessID == processid)
+        {
+            char procname[MAX_PATH]={0};
+            ConvertW2A(pe32.szExeFile,procname,MAX_PATH);
+			procinfo->procname = procname;
+
+			if ( processid == (DWORD)SYSTEM_PROCESS_ID )
+			{
+				GetSystemProcessInfo(procinfo->procpath,procinfo->starttime,procinfo->memused);
+			}
+			else
+			{
+				HANDLE hProc = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, FALSE, pe32.th32ProcessID);
+				if ( hProc )
+				{
+					FILETIME  ftCreation;
+					FILETIME ftExit;
+					FILETIME ftKernel;
+					FILETIME ftUser;
+					COleDateTime oletime;
+					if (GetProcessTimes(hProc,&ftCreation,&ftExit,&ftKernel,&ftUser))
+					{
+						oletime = ftCreation;
+						char starttimestr[HP_C_USERCONTENTLEN] = {"0"};
+						sprintf_s(starttimestr,"%04d-%02d-%02d %02d:%02d:%02d",oletime.GetYear(),
+							oletime.GetMonth(),oletime.GetDay(),oletime.GetHour(),oletime.GetMinute(),oletime.GetSecond());
+						procinfo->starttime = starttimestr;
+					}
+
+					PROCESS_MEMORY_COUNTERS pmc;
+					GetProcessMemoryInfo(hProc, &pmc, sizeof(pmc));
+					procinfo->memused = std::to_string((_Longlong)(pmc.WorkingSetSize/1024.0));
+					procinfo->memused +="K";
+					CloseHandle(hProc);
+					hProc = NULL;
+				}
+
+				wchar_t exePathW[MAX_PATH*2] = {L"0"};
+				if ( GetProcessFullPath(pe32.th32ProcessID,exePathW))
+				{
+					char exepath[MAX_PATH] = {"0"};
+					ConvertW2A(exePathW,exepath,sizeof(exepath));
+					procinfo->procpath = exepath;
+				}
+			}
+			
+            string sexecprocstr = m_portInfo[index].excepproc;
+			string  execptprocess = sexecprocstr;
+            
+            if(execptprocess.length()>0)//有例外进程,需要拆分例外进程
+            {
+                int pos=execptprocess.find(',');
+                if(pos==string::npos)
+                {
+                    char cmpstrname[MAX_PATH] = {0};
+                    sprintf_s(cmpstrname,MAX_PATH,"%s",execptprocess.c_str());
+
+                    if( _strnicmp(cmpstrname,procname,max(strlen(procname),strlen(cmpstrname)))==0 )
+                    {
+                        res = true;
+                    }
+                }
+                else//有多个例外进程
+                {
+                    string substring = execptprocess.substr(0,pos);
+
+                    char cmpstrname[MAX_PATH] = {0};
+                    sprintf_s(cmpstrname,MAX_PATH,"%s",substring.c_str());
+
+                    if( _strnicmp(cmpstrname,procname,max(strlen(procname),strlen(cmpstrname)))==0 )
+                    {
+                        res = true;
+                    }
+                    int posend=execptprocess.find(',',pos+1);
+                    while((posend!=string::npos) && (!res))
+                    {
+                        substring = execptprocess.substr(pos+1,posend-pos-1);
+
+                        char cmpstrname[MAX_PATH] = {0};
+                        sprintf_s(cmpstrname,MAX_PATH,"%s",substring.c_str());
+
+                        if( _strnicmp(cmpstrname,procname,max(strlen(procname),strlen(cmpstrname)))==0 )
+                        {
+                            res = true;
+                            break;
+                        }
+                        pos=posend;
+                        posend=execptprocess.find(',',pos+1);
+                    }
+                    string laststring = execptprocess.substr(pos+1);
+
+                    memset(cmpstrname,0,sizeof(cmpstrname));
+                    sprintf_s(cmpstrname,MAX_PATH,"%s",laststring.c_str());
+
+                    if( _strnicmp(cmpstrname,procname,max(strlen(procname),strlen(cmpstrname)))==0 )
+                    {
+                        res = true;
+                    }
+                }
+            }
+               break;
+        }
+        bMore = ::Process32Next(hProcessSnap,&pe32); 
+    }
+    ::CloseHandle(hProcessSnap);
+    hProcessSnap=NULL;
+    return res;
+}
+
+string Port::GetFailDescription(int ifailindex,BOOL bUdp,XMLPORTINFO failportinfo,PROCESSDETINFO procinfo)
+{
+	string porttype = "";
+	string portdes = "";
+
+	if((atoi(failportinfo.attriinfo.spolicyaction) == ALLOW) && (atoi(failportinfo.sporttype)==2))
+	{
+		porttype = "2";
+		portdes="TCP/UDP端口";
+	}
+	else
+	{
+		if(bUdp)
+		{
+			porttype = "1";
+			portdes="UDP端口";
+		}
+		else
+		{
+			porttype = "0";
+			portdes="TCP端口";
+		}
+	}
+	string resdes = "";
+	if(atoi(failportinfo.attriinfo.spolicyaction) == ALLOW)
+		resdes="没有打开";
+	else
+		resdes="被占用";
+
+	string failmsg="";
+	failmsg = "<subitem checkItemId=\"";
+	failmsg += std::to_string(long long(ifailindex));
+	failmsg += "\" checkItemAction=\"";
+	failmsg += failportinfo.attriinfo.spolicyaction;
+	failmsg += "\" processName=\"";
+	failmsg += procinfo.procname;
+	failmsg += "\" path=\"";
+	failmsg += procinfo.procpath;
+	failmsg += "\"  memUsed=\"";
+	failmsg += procinfo.memused;
+	failmsg += "\"  startTime=\"";
+	failmsg += procinfo.starttime;
+	failmsg += "\"  faildes=\"";
+	failmsg += portdes;
+	failmsg += failportinfo.iport;
+	failmsg += resdes;
+	failmsg += "\"  port=\"";
+	failmsg += failportinfo.iport;
+	failmsg += "\"  porttype=\"";
+	failmsg += porttype;
+	failmsg += "\" swarnname=\"";
+	failmsg += failportinfo.attriinfo.warningcont; 
+	failmsg += "\" iwarnlevel=\"";
+	failmsg += failportinfo.attriinfo.warninglevel; 
+	failmsg += "\" ilogrecord=\"";
+	failmsg += failportinfo.attriinfo.srcevent; 
+	failmsg +=  "\" />";
+	return failmsg;
+}

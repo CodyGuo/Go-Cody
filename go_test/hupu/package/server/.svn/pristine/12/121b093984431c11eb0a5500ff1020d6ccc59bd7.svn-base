@@ -1,0 +1,118 @@
+#pragma once
+
+#define MAX_RECV_LEN           1024  // 每次接收最大字符串长度.
+#define MAX_PENDING_CONNECTS   4 
+
+
+class CHttpSect
+{
+public:
+    CString  szProxyAddr;     // 理服务器地址.
+    CString  szHostAddr;      // Host地址.
+    int      nProxyPort;      // 代理服务端口号.
+    int      nHostPort;       // Host端口号.
+    CString  szHttpAddr;      // Http文件地址.
+    CString  szHttpFilename;  // Http文件名.
+    CString  szDesFilename;   // 下载后的文件名.
+    DWORD64    nStart;          // 分割的起始位置.
+    DWORD64    nEnd;            // 分割的起始位置.
+    DWORD64    bProxyMode;      // 下载模态. 
+};
+
+class  CHttpGet  
+{
+public:
+    CHttpGet();
+    virtual ~CHttpGet();
+    //static unsigned long m_downloaded;
+
+private:
+    CHttpSect *sectinfo;
+    static int m_nCount;
+    static UINT ThreadDownLoad(void* pParam);
+
+public:
+    static DWORD64 m_nFileLength;
+    static CString m_filemd5;
+
+//private:
+    static SOCKET ConnectHttpProxy(CString strProxyAddr,int nPort);
+    static SOCKET ConnectHttpNonProxy(CString strHostAddr,int nPort);
+    static BOOL SendHttpHeader(SOCKET hSocket,CString strHostAddr,
+        CString strHttpAddr,CString strHttpFilename,DWORD64 nStart,DWORD64 nEnd);
+    static DWORD GetHttpHeader(SOCKET sckDest,char *str);
+    static DWORD GetFileLength(char *httpHeader);
+    static BOOL GetFileMD5(char *httpHeader,CString &Md5);
+    static BOOL GetSupportRange(char* httpHeader);
+    static BOOL GetServerSendLen(char* httpHeader);
+
+    static BOOL SocketSend(SOCKET sckDest,CString szHttp);
+
+    static int UrlEncodeUtf8(LPCSTR pszUrl, LPSTR pszEncode, int nEncodeLen);
+
+    static int UrlEncodeUtf8(LPCWSTR pszUrl, LPWSTR pszEncode, int nEncodeLen);
+
+    BOOL FileCombine(CHttpSect *pInfo, FILE *fpwrite);
+
+public:
+    BOOL HttpDownLoadProxy(
+        CString strProxyAddr,
+        int nProxyPort,
+        CString strHostAddr,
+        CString strHttpAddr,
+        CString strHttpFilename,
+        CString strWriteFileName,
+        int nSectNum,
+        DWORD64 &totalSize);
+
+    BOOL HttpDownLoadNonProxy(
+        CString strHostAddr,
+        CString strHttpAddr,
+        CString strHttpFilename,
+        CString strWriteFileName,
+        int nSectNum,
+        DWORD64 &totalSize);
+
+    BOOL HttpDownLoad(
+        CString strProxyAddr,
+        int nProxyPort,
+        CString strHostAddr,
+        int nHostPort,
+        CString strHttpAddr,
+        CString strHttpFilename,
+        CString strWriteFileName,
+        int nSectNum,
+        BOOL bProxy);
+
+};
+
+class CDealSocket  
+{
+public:
+    CDealSocket();
+    virtual ~CDealSocket();
+
+public:
+    SOCKET GetConnect(CString host ,int port);
+    SOCKET Listening(int port);
+    CString GetResponse(SOCKET hSock);
+};
+
+class CMyFile  
+{
+public:
+    CMyFile();
+    virtual ~CMyFile();
+
+public:
+    BOOL FileExists(LPCTSTR lpszFileName);
+    FILE* GetFilePointer(LPCTSTR lpszFileName);
+    DWORD GetFileSizeByName(LPCTSTR lpszFileName);
+    CString GetShortFileName(LPCTSTR lpszFullPathName);
+};
+
+extern CMyFile myfile;
+
+extern CDealSocket dealsocket;
+
+

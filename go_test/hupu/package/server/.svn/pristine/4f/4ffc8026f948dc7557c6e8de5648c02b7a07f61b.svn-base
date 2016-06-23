@@ -1,0 +1,654 @@
+// AuthenticationWindow.cpp : implementation file
+//
+
+#include "stdafx.h"
+#include "Hupu802.1x.h"
+#include "AuthenticationWindow.h"
+#include "afxdialogex.h"
+#include "8021xCommunicate.h"
+#include "../../common/GlobalFunction/GlobalFunction.h"
+#include <fstream>
+#include <direct.h>
+
+#define AUTHEN_FAILURE_FLAG "0"
+#define AUTHEN_SUCCESSS_FLAG "1"
+#define NO_REMEMBER_USER L"no_remember_user"
+#define REMEMBER_USER L"remember_user"
+#define USERDAT_FILE_NAME "user.dat"
+#define HP_8021X_LOG_FILENAME "Hp8021XLog.log"
+
+#pragma data_seg ( "Shared" )
+wchar_t wstrShareBuf[MAX_BUF_LEN] = {0};
+#pragma data_seg()
+
+#pragma comment (linker, "/SECTION:Shared,RWS" )
+
+CAuthenticationWindow *pAuthenticationWindowDlg = NULL;
+HANDLE hThread = NULL;
+HWND g_hMainWnd = NULL;
+
+// CAuthenticationWindow dialog
+
+IMPLEMENT_DYNAMIC(CAuthenticationWindow, CDialogEx)
+
+CAuthenticationWindow::CAuthenticationWindow(CWnd* pParent /*=NULL*/)
+	: CDialogEx(CAuthenticationWindow::IDD, pParent)
+{
+#ifndef _WIN32_WCE
+	EnableActiveAccessibility();
+#endif
+
+	m_dlg_nicset.m_iSelectedCard = 0;
+}
+
+CAuthenticationWindow::~CAuthenticationWindow()
+{
+	m_isConnect = FALSE;
+	hThread = NULL;
+
+	m_global_data.hWnd = NULL;
+	memset(&m_global_data.m_UserData, 0, sizeof(m_global_data.m_UserData));
+}
+
+void CAuthenticationWindow::DoDataExchange(CDataExchange* pDX)
+{
+	CDialogEx::DoDataExchange(pDX);
+	DDX_Control(pDX, IDC_TAB_OPTIONS, m_tab_authen_window);
+}
+
+
+BEGIN_MESSAGE_MAP(CAuthenticationWindow, CDialogEx)
+	ON_BN_CLICKED(IDC_BTN_LOGON, &CAuthenticationWindow::OnBnClickedBtnLogon)
+	ON_BN_CLICKED(IDC_BTN_LOGOFF, &CAuthenticationWindow::OnBnClickedBtnLogoff)
+	ON_BN_CLICKED(IDC_BTN_HIDEWIN, &CAuthenticationWindow::OnBnClickedBtnHidewin)
+	ON_NOTIFY(TCN_SELCHANGE, IDC_TAB_OPTIONS, &CAuthenticationWindow::OnSelchangeTabOptions)
+	ON_BN_CLICKED(IDC_CHK_SAVE_USERNAME, &CAuthenticationWindow::OnBnClickedChkSaveUsername)
+	ON_MESSAGE(WM_USER_DISPLAY_INFO_NOTIFY, OnDiaplayInfoNotify)
+	ON_MESSAGE(WM_USER_DISCONNECTED_NOTIFY, OnDisconnectedNotify)
+
+	ON_WM_DESTROY()
+END_MESSAGE_MAP()
+
+
+// CAuthenticationWindow message handlers
+
+
+BOOL CAuthenticationWindow::OnInitDialog()
+{
+	CDialogEx::OnInitDialog();
+
+	// TODO:  Add extra initialization here
+	CRect tabRect; 
+	CRect cr8021xWind;
+	wstring wstrUserName = L"";
+	wstring wstrPwd = L"";
+	wstring wstrSaveUserFlag = L"";
+	char authenStatus[4] = {0};
+	char curPath[MAX_PATH] = {0};
+	string strIniPath = "";
+
+	string strLogInfo = "";
+	wstring wstrLogInfo = L"";
+	HICON hicon = LoadIcon(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDI_MAIN_ICON));
+	int icx = GetSystemMetrics(SM_CXFULLSCREEN);
+	int icy = GetSystemMetrics(SM_CYFULLSCREEN);
+
+	SetIcon(hicon, FALSE);
+
+	::GetWindowRect(this->m_hWnd, &cr8021xWind);
+	SetWindowPos(NULL, (icx-cr8021xWind.Width())/2, (icy-cr8021xWind.Height())/2, cr8021xWind.Width(), cr8021xWind.Height(), SWP_SHOWWINDOW);
+
+	GetSavedUserNameAndPwd(wstrUserName, wstrPwd, wstrSaveUserFlag);
+	GetCurrentPath(curPath);
+	strIniPath = curPath;
+	strIniPath += "data\\VersAndLog_config.ini";
+	GetPrivateProfileStringA("Param", "state", AUTHEN_FAILURE_FLAG, authenStatus, 4, strIniPath.c_str());
+
+	if ( _strnicmp(authenStatus, AUTHEN_SUCCESSS_FLAG, strlen(AUTHEN_SUCCESSS_FLAG)) == 0 )
+	{
+		GetDlgItem(IDC_EDT_USERNAME)->SetWindowText(wstrUserName.c_str());
+		GetDlgItem(IDC_EDT_PASSWORD)->SetWindowText(wstrPwd.c_str());
+		if (wstrSaveUserFlag.compare(REMEMBER_USER) == 0)
+		{
+			((CButton *)GetDlgItem(IDC_CHK_SAVE_USERNAME))->SetCheck(TRUE);
+		}
+
+	}
+	else
+	{
+		if (wstrSaveUserFlag.compare(REMEMBER_USER) == 0)
+		{
+			GetDlgItem(IDC_EDT_USERNAME)->SetWindowText(wstrUserName.c_str());
+			((CButton *)GetDlgItem(IDC_CHK_SAVE_USERNAME))->SetCheck(TRUE);
+		}
+	}
+
+	this->GetDlgItem(IDC_BTN_LOGOFF)->EnableWindow(0);
+
+	m_global_data.hWnd = this->m_hWnd;
+	m_dlg_nicset.m_AuthInfo.hWnd = this->m_hWnd;
+
+	m_tab_authen_window.InsertItem(0, L"日志信息"); 
+	m_tab_authen_window.InsertItem(1, L"网卡选项");  
+	m_tab_authen_window.InsertItem(2, L"帮助"); 
+
+	m_dlg_loginfo.Create(IDD_DLG_LOGINFO, GetDlgItem(IDC_TAB_OPTIONS)); 
+	m_dlg_nicset.Create(IDD_DLG_NICSET, GetDlgItem(IDC_TAB_OPTIONS)); 
+	m_dlg_help.Create(IDD_DLG_HELP, GetDlgItem(IDC_TAB_OPTIONS)); 
+
+	m_tab_authen_window.GetClientRect(&tabRect); 
+
+	tabRect.top += 20; 
+
+	m_dlg_loginfo.MoveWindow(&tabRect); 
+	m_dlg_nicset.MoveWindow(&tabRect); 
+	m_dlg_help.MoveWindow(&tabRect); 
+
+	strLogInfo = ReadAuthenLog();
+	wstrLogInfo = AnsiToWChar(strLogInfo.c_str());
+	m_dlg_loginfo.m_DisplayInfo = wstrLogInfo.c_str();
+
+	m_dlg_loginfo.ShowWindow(TRUE); 
+	m_tab_authen_window.SetCurSel(0); 
+
+	return TRUE;  // return TRUE unless you set the focus to a control
+	// EXCEPTION: OCX Property Pages should return FALSE
+}
+
+void CAuthenticationWindow::OnBnClickedBtnLogon()
+{
+	// TODO: Add your control notification handler code here
+	DWORD dwExitCode = 0;
+	CString cstrUserName = L"";
+	CString cstrPwd = L"";
+	CString cstrCmbBoxNetInfo = L"";
+	wstring wstrSendNetInfo = L"AuthenNetWork:";
+	int iCurSelNet = 0;
+
+	m_isConnect = TRUE;
+
+	((CEdit*)(GetDlgItem(IDC_EDT_USERNAME)))->SetReadOnly(1);
+	((CEdit*)(GetDlgItem(IDC_EDT_PASSWORD)))->SetReadOnly(1);
+	m_dlg_nicset.GetDlgItem(IDC_CMB_NETCARDS)->EnableWindow(0);
+	GetDlgItem(IDC_BTN_LOGOFF)->EnableWindow(1);
+	GetDlgItem(IDC_BTN_LOGON)->EnableWindow(0);
+
+	GetDlgItem(IDC_EDT_USERNAME)->GetWindowText(cstrUserName);
+	m_dlg_nicset.m_AuthInfo.strUsername = WCharToAnsi(cstrUserName.GetBuffer());
+	GetDlgItem(IDC_EDT_PASSWORD)->GetWindowText(cstrPwd);
+	m_dlg_nicset.m_AuthInfo.strPassword = WCharToAnsi(cstrPwd.GetBuffer());
+	m_dlg_nicset.m_AuthInfo.bConnect = true;
+
+	if(hThread != NULL)
+	{
+		WaitForSingleObject(hThread, INFINITE);
+		GetExitCodeThread(hThread, &dwExitCode);
+		TerminateThread(hThread, dwExitCode);
+		CloseHandle(hThread); 
+		hThread = NULL;
+	}
+
+	bThreadRunFlag = TRUE;
+	hThread = CreateThread(NULL, 0, ConThread, &m_dlg_nicset.m_AuthInfo, 0, NULL);
+
+	iCurSelNet = m_dlg_nicset.m_cmbNicInfo.GetCurSel();
+	m_dlg_nicset.m_cmbNicInfo.GetLBText(iCurSelNet, cstrCmbBoxNetInfo);
+
+	wstrSendNetInfo += (wstring)cstrCmbBoxNetInfo.GetBuffer();
+	wstrSendNetInfo += L";";
+
+	if (g_hMainWnd)
+	{
+		wstrSendNetInfo += (wstring)cstrUserName.GetBuffer();
+		wstrSendNetInfo += L";";
+		wstrSendNetInfo += (wstring)cstrPwd.GetBuffer();
+		wstrSendNetInfo += L";";
+
+		wcsncpy_s(wstrShareBuf, MAX_BUF_LEN, wstrSendNetInfo.c_str(), wstrSendNetInfo.length());
+		::PostMessage(g_hMainWnd, WM_LOGON_STATES_NOTIFY, NULL, NULL);
+
+	}
+
+}
+
+void CAuthenticationWindow::OnBnClickedBtnLogoff()
+{;
+	// TODO: Add your control notification handler code here
+	if(m_isConnect)
+	{
+		DWORD dwExitCode = 0;
+
+		m_isConnect = FALSE;
+
+		((CEdit*)(this->GetDlgItem(IDC_EDT_USERNAME)))->SetReadOnly(0);
+		((CEdit*)(this->GetDlgItem(IDC_EDT_PASSWORD)))->SetReadOnly(0);
+		m_dlg_nicset.GetDlgItem(IDC_CMB_NETCARDS)->EnableWindow(1);
+		this->GetDlgItem(IDC_BTN_LOGON)->EnableWindow(1);
+		this->GetDlgItem(IDC_BTN_LOGOFF)->EnableWindow(0);
+
+		m_dlg_nicset.m_AuthInfo.bConnect = false;
+
+		if(hThread != NULL)
+		{
+			GetExitCodeThread(hThread, &dwExitCode);
+			TerminateThread(hThread, dwExitCode);
+			CloseHandle(hThread); 
+		}
+
+		bThreadRunFlag = FALSE;
+		hThread = CreateThread(NULL, 0, ConThread, &m_dlg_nicset.m_AuthInfo, 0, NULL);
+
+	}
+}
+
+void CAuthenticationWindow::OnBnClickedBtnHidewin()
+{
+	// TODO: Add your control notification handler code here
+	this->ShowWindow(SW_HIDE);
+}
+
+void CAuthenticationWindow::SaveUserInfo()
+{
+	char curPath[MAX_PATH] = {0};
+	string strUserDatPath = "";
+	CString cstrUserName = L"";
+	CString cstrPwd = L"";
+	CString cstrWriteBuf = L"";
+	string strWriteBuf = "";
+	FILE *pfile = NULL;
+	errno_t err = 0;
+
+	GetCurrentPath(curPath);
+	strUserDatPath = (string)curPath;
+	strUserDatPath += (string)USERDAT_FILE_NAME;
+
+	GetDlgItem(IDC_EDT_USERNAME)->GetWindowText(cstrUserName);
+	GetDlgItem(IDC_EDT_PASSWORD)->GetWindowText(cstrPwd);
+
+	if(BST_CHECKED == IsDlgButtonChecked(IDC_CHK_SAVE_USERNAME))
+	{
+		cstrWriteBuf = REMEMBER_USER;
+	}
+	else
+	{
+		cstrWriteBuf = NO_REMEMBER_USER;
+	}
+	cstrWriteBuf += L";";
+	cstrWriteBuf += cstrUserName;
+	cstrWriteBuf += L";";
+	cstrWriteBuf += cstrPwd;
+	cstrWriteBuf += L";";
+
+	strWriteBuf = WCharToAnsi(cstrWriteBuf.GetBuffer());
+	EncryptString((unsigned char*)strWriteBuf.c_str(), strWriteBuf.length());
+
+	if ( err = fopen_s(&pfile, strUserDatPath.c_str(), "w+") == 0)
+	{
+		fwrite(strWriteBuf.c_str(), sizeof(CHAR), strWriteBuf.length(), pfile);
+		fclose(pfile);
+		pfile = NULL;
+	}
+}
+
+void CAuthenticationWindow::OnBnClickedChkSaveUsername()
+{
+	// TODO: Add your control notification handler code here
+	SaveUserInfo();
+}
+
+void CAuthenticationWindow::OnSelchangeTabOptions(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	// TODO: Add your control notification handler code here
+	 *pResult = 0;
+
+	switch(m_tab_authen_window.GetCurSel()) 
+	{
+		case 0: 
+			{
+				m_dlg_loginfo.ShowWindow(TRUE); 
+				m_dlg_nicset.ShowWindow(FALSE); 
+				m_dlg_help.ShowWindow(FALSE); 
+
+			}
+			break; 
+
+		case 1: 
+			{
+				m_dlg_loginfo.ShowWindow(FALSE); 
+				m_dlg_nicset.ShowWindow(TRUE); 
+				m_dlg_help.ShowWindow(FALSE); 
+			}
+			break; 
+
+		case 2: 
+			{
+				m_dlg_loginfo.ShowWindow(FALSE); 
+				m_dlg_nicset.ShowWindow(FALSE); 
+				m_dlg_help.ShowWindow(TRUE); 
+			}
+			break; 
+
+		default: ; 
+	} 
+}
+
+LRESULT  CAuthenticationWindow::OnDiaplayInfoNotify(WPARAM wparam, LPARAM lparam)
+{
+	string strTime = "";
+	wstring wstrLog = L"";
+	string strLog = "";
+	CString cstrLogInfo = L"";
+
+	if ((wchar_t*)lparam == NULL)
+	{
+		return 0;
+	}
+
+	strTime = GetCurrentTimeString();
+	wstrLog = AnsiToWChar(strTime.c_str());
+	wstrLog += L"   ";
+	wstrLog += (wchar_t*)lparam;
+	wstrLog += L"\r\n";
+
+	strLog = WCharToAnsi(wstrLog.c_str());
+	cstrLogInfo += wstrLog.c_str();
+	m_dlg_loginfo.m_DisplayInfo += wstrLog.c_str();
+
+	if (!WriteAuthenLog(strLog.c_str()))
+	{
+		string strDisplayInfo = "";
+
+		strDisplayInfo = WCharToAnsi(cstrLogInfo.GetBuffer());
+		WriteAuthenLog(strDisplayInfo.c_str());
+	}
+
+	if(!wcscmp((wchar_t*)lparam, L"认证成功.."))
+	{
+		this->GetDlgItem(IDC_BTN_LOGON)->EnableWindow(0);
+		this->GetDlgItem(IDC_BTN_LOGOFF)->EnableWindow(1);
+		SaveUserInfo();
+
+		wcsncpy_s(wstrShareBuf, MAX_BUF_LEN, L"SUCCESS", wcslen(L"SUCCESS"));
+		::PostMessage(g_hMainWnd, WM_LOGON_STATES_NOTIFY, NULL, NULL);
+	}
+	else if (!wcscmp((wchar_t*)lparam, L"断开网络.") ||
+		!wcscmp((wchar_t*)lparam, L"断开连接."))
+	{
+		this->GetDlgItem(IDC_BTN_LOGON)->EnableWindow(1);
+		this->GetDlgItem(IDC_BTN_LOGOFF)->EnableWindow(0);
+
+		wcsncpy_s(wstrShareBuf, MAX_BUF_LEN, (const wchar_t*)lparam, wcslen((const wchar_t*)lparam));
+		::PostMessage(g_hMainWnd, WM_LOGON_STATES_NOTIFY, NULL, NULL);
+	}
+	else if(!wcscmp((wchar_t*)lparam, L"认证失败...") || 
+		!wcscmp((wchar_t*)lparam, L"服务器通知断开网络.."))
+	{
+		if(hThread != NULL)
+		{
+			DWORD dwExitCode =  0;
+
+			WaitForSingleObject(hThread, INFINITE);
+			GetExitCodeThread(hThread, &dwExitCode);
+			TerminateThread(hThread, dwExitCode);
+			CloseHandle(hThread); 
+			hThread = NULL;
+		}
+
+		wcsncpy_s(wstrShareBuf, MAX_BUF_LEN, L"FAILED", wcslen(L"FAILED"));
+		::PostMessage(g_hMainWnd, WM_LOGON_STATES_NOTIFY, NULL, NULL);
+	}
+
+	::PostMessage(m_dlg_loginfo.m_hWnd, WM_USER_DISPLAY_LOG_INFO, NULL, NULL);
+
+	return TRUE;
+}
+
+LRESULT  CAuthenticationWindow::OnDisconnectedNotify(WPARAM wparam, LPARAM lparam)
+{
+	m_isConnect = FALSE;
+	((CEdit*)(this->GetDlgItem(IDC_EDT_USERNAME)))->SetReadOnly(0);
+	((CEdit*)(this->GetDlgItem(IDC_EDT_PASSWORD)))->SetReadOnly(0);
+	m_dlg_nicset.GetDlgItem(IDC_CMB_NETCARDS)->EnableWindow(1);
+	this->GetDlgItem(IDC_BTN_LOGOFF)->EnableWindow(0);
+	this->GetDlgItem(IDC_BTN_LOGON)->EnableWindow(1);
+
+	wcsncpy_s(wstrShareBuf, MAX_BUF_LEN, L"FAILED", wcslen(L"FAILED"));
+	::PostMessage(g_hMainWnd, WM_LOGON_STATES_NOTIFY, NULL, NULL);
+
+	return TRUE;
+}
+
+void CAuthenticationWindow::OnDestroy()
+{
+	CDialogEx::OnDestroy();
+
+	// TODO: Add your message handler code here
+}
+
+void CAuthenticationWindow::GetSavedUserNameAndPwd(OUT wstring& wstrUserName, OUT wstring& wstrPwd, OUT wstring& wstrSaveUserFlag)
+{
+	char curPath[MAX_PATH] = {0};
+	string strUserDatPath = "";
+	string strReadBuf = "";
+	string strUserName = "";
+	string strPwd = "";
+	string strSaveUserFlag = "";
+	ifstream ifFile;
+	char szLine[256] = {0};
+	size_t stPos = -1;
+
+	GetCurrentPath(curPath);
+	strUserDatPath = (string)curPath;
+	strUserDatPath += (string)USERDAT_FILE_NAME;
+
+	ifFile.open(strUserDatPath.c_str(), fstream::in);  
+
+	if (ifFile.is_open())  
+	{  
+		while (ifFile.getline(szLine, 256))  
+		{  
+			strReadBuf += (string)szLine;
+			memset(szLine, 0, sizeof(szLine));  
+		} 
+		ifFile.close();
+	}  
+
+	DecryptString((unsigned char* )strReadBuf.c_str(), strReadBuf.length());
+	stPos = strReadBuf.find(";");
+
+	if (stPos != string::npos)
+	{
+		strSaveUserFlag = strReadBuf.substr(0, stPos);
+		wstrSaveUserFlag = AnsiToWChar(strSaveUserFlag.c_str());
+		strReadBuf =  strReadBuf.substr(stPos+1, strReadBuf.length()-stPos-1);
+
+		stPos = strReadBuf.find(";");
+		if (stPos != string::npos)
+		{
+			strUserName = strReadBuf.substr(0, stPos);
+			wstrUserName = AnsiToWChar(strUserName.c_str());
+			strReadBuf =  strReadBuf.substr(stPos+1, strReadBuf.length()-stPos-1);
+		}
+
+		stPos = strReadBuf.find(";");
+		if (stPos != string::npos)
+		{
+			strPwd = strReadBuf.substr(0, stPos);
+			wstrPwd = AnsiToWChar(strPwd.c_str());
+		}
+	}
+}
+
+int CAuthenticationWindow::WriteAuthenLog(IN const char* pWriteBuf)
+{
+	int					iRet = FALSE;
+	char				curPath[MAX_PATH] = {0};
+	string				strLogFilePath = "";
+	ULONG64				ulFileSize = 0;
+	std::fstream		file;
+
+	GetCurrentPath(curPath);
+	strLogFilePath += curPath;
+	strLogFilePath += "ImanLogInfo\\";
+	strLogFilePath += HP_8021X_LOG_FILENAME;
+
+	file.open(strLogFilePath.c_str(), std::ios::out|std::ios::app);
+	file.seekg(0, std::ios::end);
+	ulFileSize = file.tellg();
+
+	if ( ulFileSize >= 1024*10)
+	{
+		file.close();
+		file.open(strLogFilePath.c_str(), std::ios::out|std::ios::trunc);
+		file.close();
+
+		return iRet;
+	}
+
+	iRet = TRUE;
+	file.write(pWriteBuf, strlen(pWriteBuf));
+	file.close();
+
+	return iRet;
+}
+
+string CAuthenticationWindow::ReadAuthenLog()
+{
+	string  strLineBuf = "";
+	char curPath[MAX_PATH] = {0};
+	string strLogFilePath = "";
+	string strReadBuf = "";
+
+	GetCurrentPath(curPath);
+	strLogFilePath += curPath;
+	strLogFilePath += "ImanLogInfo";
+
+	_mkdir(strLogFilePath.c_str());
+
+	strLogFilePath += "\\";
+	strLogFilePath += HP_8021X_LOG_FILENAME;
+
+	ifstream ifstr(strLogFilePath.c_str());  
+
+	strReadBuf = "";
+
+	while (getline(ifstr, strLineBuf))
+	{    
+		strReadBuf += strLineBuf;
+		strReadBuf += "\r\n";
+	}
+
+	ifstr.clear();
+	ifstr.close();
+
+	return strReadBuf;
+}
+
+DWORD WINAPI CAuthenticationWindow::ConThread(LPVOID lpParameter)
+{
+	string strDeviceName = "\\Device\\NPF_";
+	u_char8 ucIp[4] = {127,0,0,1}; 
+
+	memset(&m_global_data, 0, sizeof(m_global_data));
+
+	m_global_data.hWnd = ((pAuthInfo)lpParameter)->hWnd;
+	strcpy_s(m_global_data.m_UserData.username, 50, ((pAuthInfo)lpParameter)->strUsername.c_str());
+	strcpy_s(m_global_data.m_UserData.password, 50, ((pAuthInfo)lpParameter)->strPassword.c_str());
+
+	for (int j = 0; j < 4; j++)
+	{
+		m_global_data.m_UserData.ip[j] = ucIp[j];
+	}
+
+	for (int j = 0; j < 6; j++)
+	{
+		m_global_data.m_UserData.mac[j] = ((pAuthInfo)lpParameter)->iLocalMac[j];
+	}
+
+	strDeviceName +=  ((pAuthInfo)lpParameter)->strDevice;
+	strcpy_s(m_global_data.m_UserData.nic, 60,  strDeviceName.c_str());
+
+	m_global_data.m_UserData.morb = 0;
+	m_global_data.m_UserData.dhcp = 1;
+	m_global_data.m_UserData.multisend = 0;
+	m_global_data.m_UserData.updateip= 0;
+	m_global_data.m_UserData.relogin = 0;
+
+	if(((pAuthInfo)lpParameter)->bConnect)
+	{
+		Connect();
+	}
+	else
+	{
+		DisConnect();
+	}
+
+	return 0;
+}
+
+HWND ShowAuthenWindowsDlg(IN HWND hMainWnd)
+{
+	AFX_MANAGE_STATE(AfxGetStaticModuleState());
+
+	HWND h8021xWnd = NULL;
+	
+	g_hMainWnd = hMainWnd;
+
+	pAuthenticationWindowDlg = new CAuthenticationWindow();
+	pAuthenticationWindowDlg->Create(IDD_DLG_AUTHEN_WIN);
+	pAuthenticationWindowDlg->ShowWindow(SW_NORMAL);
+	h8021xWnd = pAuthenticationWindowDlg->m_hWnd;
+
+	return h8021xWnd;
+}
+
+void ConnectingNetwork()
+{
+	if(pAuthenticationWindowDlg->GetDlgItem(IDC_BTN_LOGON)->IsWindowEnabled())
+	{
+		pAuthenticationWindowDlg->OnBnClickedBtnLogon();
+	}
+}
+
+void DisconnectNetwork()
+{
+	if(pAuthenticationWindowDlg->GetDlgItem(IDC_BTN_LOGOFF)->IsWindowEnabled())
+	{
+		pAuthenticationWindowDlg->OnBnClickedBtnLogoff();
+	}
+}
+
+void ClearResource()
+{
+	DWORD dwExitCode = 0;
+
+	if(hThread != NULL)
+	{
+		bThreadRunFlag = FALSE;
+		WaitForSingleObject(hThread, INFINITE);
+		GetExitCodeThread(hThread, &dwExitCode);
+		TerminateThread(hThread, dwExitCode);
+		CloseHandle(hThread); 
+	}
+
+	CloseAdapter();
+	
+	if (pAuthenticationWindowDlg != NULL)
+	{
+		OSVERSIONINFO   osVer;    
+
+		osVer.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);     
+		GetVersionEx(&osVer);     
+
+		if (!(osVer.dwMajorVersion >= 6 && osVer.dwMinorVersion >= 2))
+		{
+			delete pAuthenticationWindowDlg;
+			pAuthenticationWindowDlg = NULL;
+		}
+	}
+}
+
+void GetShareBuf(wchar_t* pShareBuf)
+{
+	wcsncpy_s(pShareBuf, MAX_BUF_LEN, wstrShareBuf, wcslen(wstrShareBuf));
+}

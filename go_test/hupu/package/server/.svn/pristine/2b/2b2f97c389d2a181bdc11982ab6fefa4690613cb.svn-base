@@ -1,0 +1,185 @@
+#include "StdAfx.h"
+#include "DrvierInstall.h"
+
+CDrvierInstall::CDrvierInstall(void)
+{
+	
+}
+
+CDrvierInstall::~CDrvierInstall(void)
+{
+	
+}
+
+
+DWORD CDrvierInstall::LoadDriver(const char* drivername)
+{
+	OutputDebugStringA("LoadDriver");
+	SC_HANDLE SCManager = OpenSCManagerA(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	DWORD retCode = DRV_SUCCESS;
+
+	if (SCManager == NULL) 
+	{
+		OutputDebugString(L"hppassthru:LoadDriver OpenSCManagerA Fail");
+		return DRV_ERROR_SCM;
+	}
+
+	char dirpath[MAX_PATH] = {"0"};
+	::GetSystemDirectoryA(dirpath,sizeof(dirpath));
+	char driverfilepath[MAX_PATH] = {"0"};
+	sprintf_s(driverfilepath,sizeof(driverfilepath),"%s\\drivers\\%s.sys",dirpath,drivername);
+
+	SC_HANDLE  SCService = CreateServiceA(SCManager,	
+		drivername,         
+		drivername,
+		SERVICE_ALL_ACCESS, 
+		SERVICE_KERNEL_DRIVER,
+		SERVICE_DEMAND_START, 
+		SERVICE_ERROR_NORMAL,  
+		driverfilepath,	          
+		NULL,
+		NULL, 
+		NULL,
+		NULL,
+		NULL
+		);
+
+	if (SCService == NULL) 
+	{
+		OutputDebugString(L"hppassthru:LoadDriver CreateServiceA Fail");
+		SCService = OpenServiceA(SCManager, drivername, SERVICE_ALL_ACCESS);
+
+		if (SCService == NULL) 
+			retCode = DRV_ERROR_SERVICE;
+	}
+	CloseServiceHandle(SCService);
+	SCService=NULL;
+
+	CloseServiceHandle(SCManager);
+	SCManager = NULL;
+
+	if(retCode == DRV_SUCCESS)
+	{
+		retCode = StartDriver(drivername);
+	}
+
+	return retCode;
+}
+
+DWORD CDrvierInstall::UnloadDriver(const char* drivername)
+{
+	DWORD retCode = DRV_SUCCESS;
+
+	if ((retCode = StopDriver(drivername)) == DRV_SUCCESS) 
+	{
+		SC_HANDLE SCManager = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+
+		if (SCManager == NULL) 
+			return DRV_ERROR_SCM;
+
+		SC_HANDLE SCService = OpenServiceA(SCManager, drivername, SERVICE_ALL_ACCESS);
+		if (SCService != NULL)
+		{
+			if(!DeleteService(SCService))
+				retCode = DRV_ERROR_REMOVING;
+			else
+				retCode = DRV_SUCCESS;
+		}
+		else
+			retCode = DRV_ERROR_SERVICE;
+
+		CloseServiceHandle(SCService);
+		SCService = NULL;
+
+		CloseServiceHandle(SCManager);
+		SCManager = NULL;
+	}
+	return retCode;
+}
+
+
+DWORD CDrvierInstall::StartDriver(const char* drivername)
+{
+	SC_HANDLE SCManager = OpenSCManagerA(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	DWORD retCode;
+
+	if (SCManager == NULL) 
+	{
+		OutputDebugString(L"hppassthru:StartDriver OpenSCManagerA Fail");
+		return DRV_ERROR_SCM;
+	}
+
+	SC_HANDLE SCService = OpenServiceA(SCManager,
+		drivername,
+		SERVICE_ALL_ACCESS);
+
+	if (SCService == NULL) 
+	{
+		OutputDebugString(L"hppassthru:StartDriver OpenServiceA Fail");
+		return DRV_ERROR_SERVICE;
+	}
+	else
+	{
+		OutputDebugString(L"hppassthru:StartDriver OpenServiceA success");
+	}
+
+	if (!StartServiceA( SCService, 0, NULL)) 
+	{
+		DWORD dwres = GetLastError();
+		wchar_t errmsg[MAX_PATH] = {L"0"};
+		wsprintf(errmsg,L"hppassthru:StartDriver StartServiceA fail,GetLastError()=%d",dwres);
+		OutputDebugString(errmsg);
+		if (dwres== ERROR_SERVICE_ALREADY_RUNNING) 
+		{
+			retCode = DRV_SUCCESS;
+		}
+		else
+			retCode = DRV_ERROR_STARTING;
+	}
+
+	else
+		retCode = DRV_SUCCESS;
+
+
+	CloseServiceHandle(SCService);
+	SCService = NULL;
+
+	CloseServiceHandle(SCManager);
+	SCManager = NULL;
+
+	return retCode;
+}
+
+
+DWORD CDrvierInstall::StopDriver(const char* drivername)
+{
+	SC_HANDLE SCManager = OpenSCManagerA(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	DWORD retCode;
+
+	if (SCManager == NULL) 
+		return DRV_ERROR_SCM;
+
+	SERVICE_STATUS  status;
+
+	SC_HANDLE SCService = OpenServiceA(SCManager, drivername, SERVICE_ALL_ACCESS);
+
+	if (SCService != NULL)
+	{
+		if(!ControlService(SCService, SERVICE_CONTROL_STOP, &status))
+			retCode = DRV_ERROR_STOPPING;
+
+		else
+			retCode = DRV_SUCCESS;
+	}
+	else
+		retCode = DRV_ERROR_SERVICE;
+
+
+	CloseServiceHandle(SCService);
+	SCService = NULL;
+
+	CloseServiceHandle(SCManager);
+	SCManager = NULL;
+
+	return retCode;
+}

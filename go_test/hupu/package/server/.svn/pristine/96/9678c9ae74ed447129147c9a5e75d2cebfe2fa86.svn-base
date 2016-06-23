@@ -1,0 +1,62 @@
+#include "StdAfx.h"
+#include "GUISetting.h"
+
+
+const int SYSTEMMETRIC2KVALUE = 2000;
+const int SYSTEMMETRIC3KVALUE = 3000;
+typedef enum _SYSTEMMETRICINDEX
+{
+	SYSTEMMETRICSBLOW2K=0,
+	SYSTEMMETRICS2KTO3K ,
+	SYSTEMMETRICS3KABOUT,
+	SYSTEMMETRICINDEXTOTAL,
+}SYSTEMMETRICINDEX;
+
+GUISETTING  guisettingDlg[SYSTEMMETRICINDEXTOTAL]={
+	{370,250,12,L"100"},
+	{740,500,24,L"200"},
+	{1120,750,36,L"300"}};
+
+	GUISETTING  guisettingTipDlg[SYSTEMMETRICINDEXTOTAL]={
+		{200,150,12,L"0"},
+		{400,300,24,L"0"},
+		{600,450,36,L"0"}};
+
+BOOL GetGuiSizeAndFontSize(BOOL bTipDlg,GUISETTING* guisetting)
+{
+	BOOL bRet = FALSE;
+	SYSTEMMETRICINDEX metrics = SYSTEMMETRICSBLOW2K;
+	int cx = GetSystemMetrics( SM_CXSCREEN ); 
+	int cy = GetSystemMetrics( SM_CYSCREEN );
+	if ( ((cx>SYSTEMMETRIC2KVALUE)||
+		(cy>SYSTEMMETRIC2KVALUE)) &&
+		((cx<SYSTEMMETRIC3KVALUE)&&(cy<SYSTEMMETRIC3KVALUE)))
+	{
+		metrics = SYSTEMMETRICS2KTO3K;
+	}
+	else if ((cx>SYSTEMMETRIC3KVALUE)||(cy>SYSTEMMETRIC3KVALUE))
+	{
+		metrics = SYSTEMMETRICS3KABOUT;
+	}
+	else 
+	{
+		metrics = SYSTEMMETRICSBLOW2K;
+	}
+	if (metrics == SYSTEMMETRICSBLOW2K)
+	{
+		bRet = FALSE;
+	}
+	else
+	{
+		bRet = TRUE;
+		if (bTipDlg)
+		{
+			memcpy(guisetting,&guisettingTipDlg[metrics],sizeof(GUISETTING));
+		}
+		else
+		{
+			memcpy(guisetting,&guisettingDlg[metrics],sizeof(GUISETTING));
+		}
+	}
+	return bRet;
+}

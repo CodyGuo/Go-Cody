@@ -1,0 +1,67 @@
+
+#include  <windows.h>
+#include "Config.h"
+#include "CWmiDeviceInfo.h"
+
+const char DLLVERSION[]={"0.0.0.1"};
+
+const wchar_t INITBUFFER[] = {L"#####"};
+
+const int MD5LENGTH = 32;
+
+
+extern "C" __declspec(dllexport) const char *GetDLLVersion();
+
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetDeviceHardWareSerialNumber(
+	OUT T_DEVICE_PROPERTY *hdSerial,
+	IN int uSize
+	);
+
+
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetDeviceHardWareMDL(
+	OUT T_DEVICE_PROPERTY *hdmdl,
+	IN int uSize
+	);
+
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetCPUProcessId(
+	OUT T_DEVICE_PROPERTY *cpuid,
+	IN int uSize);
+
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetBIOSSerialNumber(
+	OUT T_DEVICE_PROPERTY *biosserial,
+	IN int uSize
+	);
+
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetBaseBoardSerialNumber(
+	OUT T_DEVICE_PROPERTY *baseboardserial,
+	IN int uSize
+	);
+
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetPhysicalMacInfo(
+	OUT T_DEVICE_PROPERTY *physicalMaclist,
+	IN int uSize
+	);
+
+extern "C" __declspec(dllexport) 
+	BOOL  __cdecl GetMD5Value(
+	IN char* srcstring,
+	IN int srcstringlen,
+	OUT char* md5string,
+	OUT int md5stringlen
+	);
+
+extern "C" __declspec(dllexport) 
+	BOOL __cdecl GetHardWareUniqueIndetify(
+	  IN BOOL bUsingMac,
+	  OUT char* uniqueSerialnum,
+	  IN int usize,
+	  OUT int *changeSerail,
+	  OUT char* olduniqueSerial,
+	  IN int oldSerrialSize
+	  );

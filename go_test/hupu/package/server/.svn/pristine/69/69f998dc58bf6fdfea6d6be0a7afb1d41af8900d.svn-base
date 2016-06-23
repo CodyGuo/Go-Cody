@@ -1,0 +1,799 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="SafeCheckItem">
+      <UniqueIdentifier>{29233a86-063b-4936-898e-4792148cf2d6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="xml">
+      <UniqueIdentifier>{acbcacfe-e76d-48a0-be1b-73840d351093}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\GlobalFunction">
+      <UniqueIdentifier>{15b59f74-71f7-4439-ad71-7b5ab812eeb3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="httpsocket">
+      <UniqueIdentifier>{b5cae4ee-4f4b-4dd3-9713-5a17eccdc244}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="JobThread">
+      <UniqueIdentifier>{d714598b-bd11-4bab-9595-8f3af1f1ce5d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="networkchange">
+      <UniqueIdentifier>{b47934b8-0032-401b-ab72-df74b814dd84}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="CustomCheck">
+      <UniqueIdentifier>{0a5f3fbf-02f2-4680-b56b-ce2f2d24fbbb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="LSP">
+      <UniqueIdentifier>{3e1a4e3a-8c9c-412c-80a0-1f23a8d5aa5c}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="ReadMe.txt" />
+    <None Include="res\hpidmnac.rc2">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\hpidmnac.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\小助手2.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\小助手3.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\小助手4.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\Skin.bmp">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\小助手5.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\favicon.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\search.bmp">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\LOGOFFISOLATION.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\LOGONISOLATION.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\OFFLINE.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\ASCESCAPE_OR_FORBIT.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="res\search1.ico">
+      <Filter>Resource Files</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="hpidmnac.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="hpidmnacDlg.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="stdafx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="targetver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DebugInfo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="explorer1.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SocketComm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="EstablishSocket.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="sqlite3.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="OpStgClass.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LogOn.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Base64.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UninstallDlg.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AboutDlg.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AutoFindService.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HttpClient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeResult.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="mdump.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GlobalDate.h">
+      <Filter>Header Files\GlobalFunction</Filter>
+    </ClInclude>
+    <ClInclude Include="CertificationStg.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CommPub.h">
+      <Filter>Header Files\GlobalFunction</Filter>
+    </ClInclude>
+    <ClInclude Include="strconvert.h">
+      <Filter>Header Files\GlobalFunction</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\ExeProcess.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\FireWall.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\Guest.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\Port.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\RemoteDesk.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\SafeCheckServices.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\ScreenSave.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\SoftWare.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="JobThread\Job.h">
+      <Filter>JobThread</Filter>
+    </ClInclude>
+    <ClInclude Include="JobThread\JobExecuter.h">
+      <Filter>JobThread</Filter>
+    </ClInclude>
+    <ClInclude Include="JobThread\MThreadedJobQ.h">
+      <Filter>JobThread</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\ARP.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="JobThread\HandleJob1.h">
+      <Filter>JobThread</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\SafeCheckFuntion.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="JobThread\HandleJob2.h">
+      <Filter>JobThread</Filter>
+    </ClInclude>
+    <ClInclude Include="xml\tinystr.h">
+      <Filter>xml</Filter>
+    </ClInclude>
+    <ClInclude Include="xml\tinyxml.h">
+      <Filter>xml</Filter>
+    </ClInclude>
+    <ClInclude Include="Ftp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib\zip.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AssistRunAlarm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\FireWallEx.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\DomainUser.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\Antivirus.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\CheckDiskSpace.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\CheckIEExtensions.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\CheckIEMain.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\CheckJunkFiles.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\CheckNetShareResource.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\checkpwd.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\CheckPwdPolicy.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\CheckSystemPatchs.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\CheckSystemTime.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\GetAntivirusInfo.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\GetHardDiskInfo.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\GetOsInfo.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\NetWorkConnect.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\OperationSystem.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\ProcessInfo.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\RegExp.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\RegisterInfo.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\SinglePageItem.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\SingServerPage.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\wmi.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\WSUSConfig.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\Download.h">
+      <Filter>httpsocket</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\Httpdownload.h">
+      <Filter>httpsocket</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\MD5Checksum.h">
+      <Filter>httpsocket</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\MD5ChecksumDefines.h">
+      <Filter>httpsocket</Filter>
+    </ClInclude>
+    <ClInclude Include="HandleRecvData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SymbolEdit.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SystemLog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GlobalFunction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ShowAllowNetWorkDlg.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RepairByHand.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\UsingIllegalInternet.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\HardwareManage.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\SafeCheckRealTime.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\TimeCalculation.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\common\com_class\WmiClass.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\UsbStorageDevMana.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\DomainIdentydlg.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="8021x\Hp8021x.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="networkchange\NetworkChangeInfo.h">
+      <Filter>networkchange</Filter>
+    </ClInclude>
+    <ClInclude Include="networkchange\NLANetwork.h">
+      <Filter>networkchange</Filter>
+    </ClInclude>
+    <ClInclude Include="networkchange\NLMNetwork.h">
+      <Filter>networkchange</Filter>
+    </ClInclude>
+    <ClInclude Include="DuilibConfig.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UIMenu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DuiString.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DuiRect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ControlName.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\CheckDeskWallPaper.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="GetAdapterInfo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UserInfo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TipInfodlg.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FileinfoCheckSum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DomainDelayOfflineTip.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GetLangValue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\CheckCustom.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="CustomCheck\CommData.h">
+      <Filter>CustomCheck</Filter>
+    </ClInclude>
+    <ClInclude Include="CustomCheck\CheckFile.h">
+      <Filter>CustomCheck</Filter>
+    </ClInclude>
+    <ClInclude Include="CustomCheck\CheckPort.h">
+      <Filter>CustomCheck</Filter>
+    </ClInclude>
+    <ClInclude Include="CustomCheck\CheckProcess.h">
+      <Filter>CustomCheck</Filter>
+    </ClInclude>
+    <ClInclude Include="CustomCheck\CheckReg.h">
+      <Filter>CustomCheck</Filter>
+    </ClInclude>
+    <ClInclude Include="CustomCheck\CheckService.h">
+      <Filter>CustomCheck</Filter>
+    </ClInclude>
+    <ClInclude Include="CustomCheck\HpMntIoCtrl.h">
+      <Filter>CustomCheck</Filter>
+    </ClInclude>
+    <ClInclude Include="SocketMakeTip.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HandleTTLValue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GUISetting.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="lsp\instlsp.h">
+      <Filter>LSP</Filter>
+    </ClInclude>
+    <ClInclude Include="lsp\OpLsp.h">
+      <Filter>LSP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\common\lspcommon.h">
+      <Filter>LSP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\common\preheader.h">
+      <Filter>LSP</Filter>
+    </ClInclude>
+    <ClInclude Include="SafeCheckItem\NetMon.h">
+      <Filter>SafeCheckItem</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\common\CalcuPacket.h">
+      <Filter>LSP</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="hpidmnac.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="hpidmnacDlg.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="stdafx.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="explorer1.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SocketComm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="EstablishSocket.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="OpStgClass.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="LogOn.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Base64.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UninstallDlg.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="AboutDlg.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="AutoFindService.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="HttpClient.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeResult.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="mdump.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GlobalDate.cpp">
+      <Filter>Header Files\GlobalFunction</Filter>
+    </ClCompile>
+    <ClCompile Include="strconvert.cpp">
+      <Filter>Header Files\GlobalFunction</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\ExeProcess.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\FireWall.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\Guest.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\Port.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\RemoteDesk.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\SafeCheckServices.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\ScreenSave.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\SoftWare.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="JobThread\Job.cpp">
+      <Filter>JobThread</Filter>
+    </ClCompile>
+    <ClCompile Include="JobThread\JobExecuter.cpp">
+      <Filter>JobThread</Filter>
+    </ClCompile>
+    <ClCompile Include="JobThread\MThreadedJobQ.cpp">
+      <Filter>JobThread</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\ARP.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="JobThread\HandleJob1.cpp">
+      <Filter>JobThread</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\SafeCheckFuntion.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="JobThread\HandleJob2.cpp">
+      <Filter>JobThread</Filter>
+    </ClCompile>
+    <ClCompile Include="xml\tinystr.cpp">
+      <Filter>xml</Filter>
+    </ClCompile>
+    <ClCompile Include="xml\tinyxml.cpp">
+      <Filter>xml</Filter>
+    </ClCompile>
+    <ClCompile Include="xml\tinyxmlerror.cpp">
+      <Filter>xml</Filter>
+    </ClCompile>
+    <ClCompile Include="xml\tinyxmlparser.cpp">
+      <Filter>xml</Filter>
+    </ClCompile>
+    <ClCompile Include="Ftp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="CertificationStg.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="AssistRunAlarm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\FireWallEx.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\DomainUser.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\Antivirus.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\CheckDiskSpace.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\CheckIEExtensions.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\CheckIEMain.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\CheckJunkFiles.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\CheckNetShareResource.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\checkpwd.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\CheckPwdPolicy.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\CheckSystemPatchs.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\CheckSystemTime.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\GetAntivirusInfo.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\GetHardDiskInfo.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\GetOsInfo.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\NetWorkConnect.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\OperationSystem.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\ProcessInfo.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\RegisterInfo.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\SinglePageItem.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\SingServerPage.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\wmi.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\WSUSConfig.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\Download.cpp">
+      <Filter>httpsocket</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\Httpdownload.cpp">
+      <Filter>httpsocket</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\MD5Checksum.cpp">
+      <Filter>httpsocket</Filter>
+    </ClCompile>
+    <ClCompile Include="HandleRecvData.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dlgInfoExtern.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="EstablishSetting.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SymbolEdit.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SystemLog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GlobalFunction.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ShowAllowNetWorkDlg.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RepairByHand.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\UsingIllegalInternet.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\HardwareManage.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\SafeCheckRealTime.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\TimeCalculation.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\common\com_class\WmiClass.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\UsbStorageDevMana.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\DomainIdentydlg.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="8021x\Hp8021x.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="networkchange\NetworkChangeInfo.cpp">
+      <Filter>networkchange</Filter>
+    </ClCompile>
+    <ClCompile Include="networkchange\NLANetwork.cpp">
+      <Filter>networkchange</Filter>
+    </ClCompile>
+    <ClCompile Include="networkchange\NLMNetwork.cpp">
+      <Filter>networkchange</Filter>
+    </ClCompile>
+    <ClCompile Include="DuilibConfig.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UIMenu.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DuiString.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DuiRect.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\CheckDeskWallPaper.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="GetAdapterInfo.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UserInfo.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TipInfodlg.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FileinfoCheckSum.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DomainDelayOfflineTip.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GetLangValue.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\CheckCustom.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="CustomCheck\CheckFile.cpp">
+      <Filter>CustomCheck</Filter>
+    </ClCompile>
+    <ClCompile Include="CustomCheck\CheckPort.cpp">
+      <Filter>CustomCheck</Filter>
+    </ClCompile>
+    <ClCompile Include="CustomCheck\CheckProcess.cpp">
+      <Filter>CustomCheck</Filter>
+    </ClCompile>
+    <ClCompile Include="CustomCheck\CheckReg.cpp">
+      <Filter>CustomCheck</Filter>
+    </ClCompile>
+    <ClCompile Include="CustomCheck\CheckService.cpp">
+      <Filter>CustomCheck</Filter>
+    </ClCompile>
+    <ClCompile Include="CustomCheck\HpMntIoCtrl.cpp">
+      <Filter>CustomCheck</Filter>
+    </ClCompile>
+    <ClCompile Include="SocketMakeTip.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="HandleTTLValue.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GUISetting.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="lsp\lspadd.cpp">
+      <Filter>LSP</Filter>
+    </ClCompile>
+    <ClCompile Include="lsp\lspdel.cpp">
+      <Filter>LSP</Filter>
+    </ClCompile>
+    <ClCompile Include="lsp\lspmap.cpp">
+      <Filter>LSP</Filter>
+    </ClCompile>
+    <ClCompile Include="lsp\lsputil.cpp">
+      <Filter>LSP</Filter>
+    </ClCompile>
+    <ClCompile Include="lsp\OpLsp.cpp">
+      <Filter>LSP</Filter>
+    </ClCompile>
+    <ClCompile Include="lsp\prnpinfo.cpp">
+      <Filter>LSP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\common\provider.cpp">
+      <Filter>LSP</Filter>
+    </ClCompile>
+    <ClCompile Include="SafeCheckItem\NetMon.cpp">
+      <Filter>SafeCheckItem</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\common\CalcuPacket.cpp">
+      <Filter>LSP</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="hpidmnac.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="zlib1.lib">
+      <Filter>Resource Files</Filter>
+    </Library>
+    <Library Include="..\..\..\lib\hpDriverIoctl.lib">
+      <Filter>Resource Files</Filter>
+    </Library>
+    <Library Include="..\..\..\lib\GetDeviceUniqueInfo.lib">
+      <Filter>Resource Files</Filter>
+    </Library>
+  </ItemGroup>
+</Project>

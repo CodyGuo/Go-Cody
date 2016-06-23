@@ -1,0 +1,147 @@
+#include "StdAfx.h"
+#include "InstallServiceDriver.h"
+#include "InstallFunc.h"
+#include  <string>
+using namespace std;
+
+const wchar_t* HPXPACKETFILES[] = {L"hpxpacketx86.sys", L"hpxpacketx64.sys"}; 
+const wchar_t SERVICENAME[] = {L"hppacket"};
+const wchar_t DRIVERGROUP[] = {L"Extended Base"};
+const wchar_t DRIVERDEPEND[] = {L"NDIS"};
+
+void CopyhpxpacketFiles(OUT wstring& hpxpacketDriverPath)
+{
+	wchar_t  lpFilename[MAX_PATH] = {L"0"};
+	wchar_t    szDrive[ _MAX_DRIVE ] = {L"0"};
+	wchar_t    szDir[ _MAX_DIR ] = {L"0"};
+	GetModuleFileName( NULL, lpFilename, sizeof(lpFilename));
+	_wsplitpath_s( lpFilename, szDrive,_MAX_DRIVE,szDir,_MAX_DIR,NULL,0,NULL,0);
+
+	wchar_t systemPath[MAX_PATH] = {L"0"};
+	wstring strExistingFile = L"";
+	wstring strNewFile = L"";
+
+	GetSystemDirectory(systemPath, MAX_PATH);
+	strExistingFile = (wstring)szDrive;
+	strExistingFile += (wstring)szDir;
+	if (IsWin64Os())
+	{
+		strExistingFile += HPXPACKETFILES[1];
+	}
+	else
+	{
+		strExistingFile += HPXPACKETFILES[0];
+	}
+
+	strNewFile = systemPath;
+	strNewFile += L"\\drivers\\";
+	strNewFile += SERVICENAME;
+	strNewFile += L".sys";
+
+	hpxpacketDriverPath = strNewFile;
+
+	CopyFile(strExistingFile.c_str(), strNewFile.c_str(),FALSE);
+}
+
+BOOL InstallServiceDriver()
+{
+	wstring binarypath = L"";
+	CopyhpxpacketFiles(binarypath);
+
+	BOOL bRet = FALSE;
+	SC_HANDLE hScMgr = NULL;
+	SC_HANDLE hService = NULL;
+
+	hScMgr = OpenSCManager( NULL, NULL, SC_MANAGER_ALL_ACCESS );
+
+	if( hScMgr == NULL )  
+	{
+		bRet = FALSE;
+		goto GotoEnd;
+	}													
+
+	hService = CreateService( hScMgr,
+		SERVICENAME, 
+		SERVICENAME, 
+		SERVICE_ALL_ACCESS, 
+		SERVICE_KERNEL_DRIVER,
+		SERVICE_BOOT_START, 
+		SERVICE_ERROR_IGNORE,
+		binarypath.c_str(),
+		DRIVERGROUP,
+		NULL,
+		DRIVERDEPEND,
+		NULL,  
+		NULL);  
+
+	if( hService == NULL )  
+	{  
+		bRet = FALSE;
+		goto GotoEnd;
+	}
+
+	bRet = StartService( hService,NULL, NULL );  
+	if( !bRet )  
+	{  
+		bRet = TRUE;
+		goto GotoEnd;
+	}
+
+GotoEnd:
+
+	if(hService)
+	{
+		CloseServiceHandle(hService);
+	}
+
+	if(hScMgr)
+	{
+		CloseServiceHandle(hScMgr);
+	}
+
+	return bRet;
+}
+
+
+BOOL UninstallServiceDriver()
+{
+	BOOL bRet = FALSE;
+	SC_HANDLE hScMgr = NULL;
+	SC_HANDLE hService = NULL;
+	SERVICE_STATUS SvrSta;
+
+	hScMgr = OpenSCManager( NULL, NULL, SC_MANAGER_ALL_ACCESS );  
+	if( hScMgr == NULL )  
+	{
+		bRet = FALSE;
+		goto GotoEnd;
+	}  
+
+	hService = OpenService( hScMgr, SERVICENAME, SERVICE_ALL_ACCESS );  
+
+	if( hService == NULL )  
+	{
+		bRet = FALSE;
+		goto GotoEnd;
+	}  
+
+	ControlService( hService, SERVICE_CONTROL_STOP , &SvrSta );
+
+	if(DeleteService(hService))  
+	{
+		bRet = TRUE;
+	}  
+
+GotoEnd:
+
+	if(hService)
+	{
+		CloseServiceHandle(hService);
+	}
+
+	if(hScMgr)
+	{
+		CloseServiceHandle(hScMgr);
+	}
+	return bRet;	
+}

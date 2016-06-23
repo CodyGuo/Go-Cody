@@ -1,0 +1,79 @@
+#pragma once
+
+#include <string>
+using namespace std;
+#include "..\CommPub.h"
+
+const int LOCALANDSERVERIPCOUNT = 12;
+
+const char TIMESTR[] = {"time:"};
+const int TIMESTRLEN = strlen(TIMESTR);
+
+const char SRCIPSTR[] = {"srcip:"};
+const int SRCIPSTRLEN = strlen(SRCIPSTR);
+
+const char DSTIPSTR[] = {"dstip:"};
+const int DSTIPSTRLEN = strlen(DSTIPSTR);
+
+
+//ip范围段
+typedef struct _IP_ENTERVAL
+{
+	//开始ip
+	ULONG startip;
+	//结束ip
+	ULONG endip;
+}IP_ENTERVAL;
+
+
+class CUsingIllegalInternet
+{
+public:
+	CUsingIllegalInternet(void);
+	~CUsingIllegalInternet(void);
+
+public:
+    int GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday,bool execioctl);
+
+	//bUploadSuccMsg:是否向服务器上传违规外联成功的消息:实时安检时不需要上传
+	string ExecIllegalInternetItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,bool bUploadSuccMsg,int  *IsSuccess);
+
+	int RestoreFailItem();
+	void InitIllegalInternetData();
+
+	//开启违规外联
+	void StartIllegalInternet();
+
+	//关闭违规外联
+	void StopIllegalInternet();
+
+	//服务器下发的违规外联的配置
+	SAFECHECKSAMEATTRIBUTE m_illegalIntConf;
+	//违规外联的安检项
+	int m_numcount;
+	//违规外联失败的项
+	int m_failcnt;
+
+	//违规外联的安检的策略状态,若这次安检的状态和上次的安检的策略状态
+	//相同,则不对驱动下发消息
+	int m_illIntLastStat;
+
+private:
+
+	//将数据库中的字段转化为结构体字段
+    void GetdbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, SAFECHECKSAMEATTRIBUTE *dbrowdata);
+
+
+    //开始计算违规外联的时间:用于查询该时间段
+    //以后的数据包若有外网则表示为违规外联
+    SYSTEMTIME   m_starttime;
+
+    BOOL ReadDriverPacketData(char* errdes,int errdeslen);
+
+	//判断ip是否在局域网ip中
+    BOOL compareipresult(string srcip,string dstip);
+
+	list<IP_ENTERVAL> m_ipintervallist;
+
+};
+

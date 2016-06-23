@@ -1,0 +1,377 @@
+// GetDeviceUniqueInfo.cpp : Defines the exported functions for the DLL application.
+//
+
+#include "stdafx.h"
+#include "GetDeviceUniqueInfo.h"
+#include "MD5Checksum.h"
+
+#include <shlwapi.h>
+#pragma comment(lib,"shlwapi.lib")
+
+//************************************
+// 函数名称:  GetDLLVersion
+// 函数说明:  获取dll的版本号
+// 返回值:   const char*
+// 参数: dllexport
+// 作者: gaochunyan
+// 日期：2015/11/16
+//************************************
+extern "C" __declspec(dllexport) const char *GetDLLVersion()
+{
+	return DLLVERSION;
+}
+
+
+
+//************************************
+// 函数名称:  GetDeviceHardWareSerialNumber
+// 函数说明:  获取硬盘的序列号
+// 返回值:   int
+// 参数: dllexport
+// 作者: gaochunyan
+// 日期：2015/11/16
+//************************************
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetDeviceHardWareSerialNumber(OUT T_DEVICE_PROPERTY *hdSerial,IN int uSize)
+{
+	return GetWqlPropertyValue(szWQLQuery[DISKDRIVESERIAL],DISKDRIVESERIAL,hdSerial,uSize);
+}
+
+//************************************
+// 函数名称:  GetDeviceHardWareMDL
+// 函数说明:  获取硬盘的Model
+// 返回值:  int
+// 参数: dllexport
+// 作者: gaochunyan
+// 日期：2015/11/16
+//************************************
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetDeviceHardWareMDL(OUT T_DEVICE_PROPERTY *hdmdl,IN int uSize)
+{
+	return GetWqlPropertyValue(szWQLQuery[DISKDRIVEMDL],DISKDRIVEMDL,hdmdl,uSize);
+}
+
+
+//************************************
+// 函数名称:  GetCPUProcessId
+// 函数说明:  获取电脑的CPUID
+// 返回值:   extern "C"
+// 参数: dllexport
+// 作者: gaochunyan
+// 日期：2015/11/17
+//************************************
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetCPUProcessId(OUT T_DEVICE_PROPERTY *cpuid,IN int uSize)
+{
+	return GetWqlPropertyValue(szWQLQuery[CPUPROCESSID],CPUPROCESSID,cpuid,uSize);
+}
+
+//************************************
+// 函数名称:  GetBIOSSerialNumber
+// 函数说明:  获取BIOS的序列号
+// 返回值:   extern "C"
+// 参数: dllexport
+// 作者: gaochunyan
+// 日期：2015/11/16
+//************************************
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetBIOSSerialNumber(OUT T_DEVICE_PROPERTY *biosserial,IN int uSize)
+{
+	return GetWqlPropertyValue(szWQLQuery[BIOSSERIAL],BIOSSERIAL,biosserial,uSize);
+}
+
+//************************************
+// 函数名称:  GetBaseBoardSerialNumber
+// 函数说明:  获取BaseBoard的序列号
+// 返回值:   extern "C"
+// 参数: dllexport
+// 作者: gaochunyan
+// 日期：2015/11/16
+//************************************
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetBaseBoardSerialNumber(OUT T_DEVICE_PROPERTY *baseboardserial,IN int uSize)
+{
+	return GetWqlPropertyValue(szWQLQuery[BASEBOARDSERIAL],BASEBOARDSERIAL,baseboardserial,uSize);
+}
+
+//************************************
+// 函数名称:  GetPhysicalMacInfo
+// 函数说明:  获取网卡的原生mac值
+// 返回值:   extern "C"
+// 参数: dllexport
+// 作者: gaochunyan
+// 日期：2015/11/16
+//************************************
+
+extern "C" __declspec(dllexport) 
+	int  __cdecl GetPhysicalMacInfo(OUT T_DEVICE_PROPERTY *physicalMaclist,IN int uSize)
+{
+	return GetWqlPropertyValue(szWQLQuery[PERMANENTMAC],PERMANENTMAC,physicalMaclist,uSize);
+}
+
+
+//************************************
+// 函数名称:  GetMD5Value
+// 函数说明:   获取字符串的MD5值
+// 返回值:  BOOL:执行成功返回TRUE,失败返回FALSE
+// 参数: srcstring:需要加密的字符串,
+//           srcstringlen:需要加密的字符串的长度
+//           md5string:加密之后的字符串
+//           md5stringlen:加密之后的字符串的长度
+// 作者: gaochunyan
+// 日期：2015/11/16
+//************************************
+extern "C" __declspec(dllexport) 
+	BOOL  __cdecl GetMD5Value(
+	IN char* srcstring,
+	IN int srcstringlen,
+	OUT char* md5string,
+	OUT int md5stringlen)
+{
+
+	return FALSE;
+}
+
+BOOL MakeFileMd5Value(IN wchar_t* filepath,wstring &fileMd5)
+{
+	fileMd5=L"";
+	HANDLE hFile = NULL;
+	hFile=CreateFile(filepath,GENERIC_READ|GENERIC_WRITE,0,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+	if(hFile==INVALID_HANDLE_VALUE)
+	{
+		OutputDebugString(L"打开文件失败");
+		return FALSE;	
+	}
+	FILETIME CreateTime;// 文件创建的时间
+	FILETIME VisitTime;//文件访问时间
+	FILETIME ModifyTime;// 文件修改时间
+	BOOL bGotFileCreateTime = GetFileTime( hFile, &CreateTime, &VisitTime, &ModifyTime );
+	if (bGotFileCreateTime)
+	{
+		SYSTEMTIME tCreate;
+		FileTimeToSystemTime(&CreateTime,&tCreate);
+
+		SYSTEMTIME tModify;
+		FileTimeToSystemTime(&ModifyTime,&tModify);
+
+		wchar_t timestrinfo[MAX_PATH] = {L"0"};
+		wsprintf(timestrinfo,L"%04d-%02d-%02d-%02d-%02d-%02d;%04d-%02d-%02d-%02d-%02d-%02d;hupunac",tCreate.wYear,
+			tCreate.wMonth,tCreate.wDay,tCreate.wHour,tCreate.wMinute,tCreate.wSecond,tModify.wYear,tModify.wMonth,tModify.wDay,
+			tModify.wHour,tModify.wMinute,tModify.wSecond);
+
+		fileMd5 = CMD5Checksum::GetMD5((BYTE*)timestrinfo,wcslen(timestrinfo)*sizeof(wchar_t));
+	}
+	else
+	{
+		CloseHandle(hFile);
+		hFile = NULL;
+		return FALSE;
+	}
+	CloseHandle(hFile);
+	hFile = NULL;
+	return TRUE;
+}
+
+//************************************
+// 函数名称:  GetHardWareUniqueIndetify
+// 函数说明: 获取设备的唯一标识值:默认使用硬盘序列号+硬盘mdl+cpuid
+//                 +bios序列号+baseboard序列号+物理的原生mac
+// 返回值:   extern "C"
+// 参数: uniqueSerialnum:输出的md5值，uniqueSerialnum的长度
+//           changeSerail:是否存在缓存的md5值:0表示不存在,1表示存在
+// 作者: gaochunyan
+// 日期：2015/12/03
+//  备注:使用mac的原因是因为认为copy虚拟机，这样的话硬件信息是完全一样的,所以添加上mac
+//************************************
+extern "C" __declspec(dllexport) 
+	BOOL __cdecl GetHardWareUniqueIndetify(  
+	IN BOOL bUsingMac,
+	OUT char* uniqueSerialnum,
+	IN int usize,
+	OUT int *changeSerail,
+	OUT char* olduniqueSerial,
+	IN int oldSerrialSize)
+{
+	
+	BOOL bRet = FALSE;
+	*changeSerail = 0;
+
+	//获取硬盘序列号的值
+	T_DEVICE_PROPERTY hardWareSerial[HP_DEVICEPROPERTY_MAXNUM] = {0};
+	memset(hardWareSerial,0,sizeof(T_DEVICE_PROPERTY)*HP_DEVICEPROPERTY_MAXNUM);
+	int lRetNum = GetWqlPropertyValue(szWQLQuery[DISKDRIVESERIAL],DISKDRIVESERIAL,hardWareSerial,HP_DEVICEPROPERTY_MAXNUM);
+   if (lRetNum == HP_DEVICEPROPERTY_MAXNUM)
+   {
+	   OutputDebugString(L"获取硬盘的序列号超过了最大值的限制");
+   }
+	T_DEVICE_PROPERTY hardWareMdl[HP_DEVICEPROPERTY_MAXNUM] = {0};
+	memset(hardWareMdl,0,sizeof(T_DEVICE_PROPERTY)*HP_DEVICEPROPERTY_MAXNUM);
+	lRetNum = GetWqlPropertyValue(szWQLQuery[DISKDRIVEMDL],DISKDRIVEMDL,hardWareMdl,HP_DEVICEPROPERTY_MAXNUM);
+	if (lRetNum == HP_DEVICEPROPERTY_MAXNUM)
+	{
+		OutputDebugString(L"获取硬盘的MDL值超过了最大值的限制");
+	}
+	T_DEVICE_PROPERTY cpuidinfo[HP_DEVICEPROPERTY_MAXNUM] = {0};
+	memset(cpuidinfo,0,sizeof(T_DEVICE_PROPERTY)*HP_DEVICEPROPERTY_MAXNUM);
+	lRetNum = GetWqlPropertyValue(szWQLQuery[CPUPROCESSID],CPUPROCESSID,cpuidinfo,HP_DEVICEPROPERTY_MAXNUM);
+	if (lRetNum == HP_DEVICEPROPERTY_MAXNUM)
+	{
+		OutputDebugString(L"获取CPUid值超过了最大值的限制");
+	}
+
+	T_DEVICE_PROPERTY biosSerial[HP_DEVICEPROPERTY_MAXNUM] = {0};
+	memset(biosSerial,0,sizeof(T_DEVICE_PROPERTY)*HP_DEVICEPROPERTY_MAXNUM);
+	lRetNum = GetWqlPropertyValue(szWQLQuery[BIOSSERIAL],BIOSSERIAL,biosSerial,HP_DEVICEPROPERTY_MAXNUM);
+	if (lRetNum == HP_DEVICEPROPERTY_MAXNUM)
+	{
+		OutputDebugString(L"获取BIOS序列号值超过了最大值的限制");
+	}
+	T_DEVICE_PROPERTY baseboardSerial[HP_DEVICEPROPERTY_MAXNUM] = {0};
+	memset(baseboardSerial,0,sizeof(T_DEVICE_PROPERTY)*HP_DEVICEPROPERTY_MAXNUM);
+	lRetNum = GetWqlPropertyValue(szWQLQuery[BASEBOARDSERIAL],BASEBOARDSERIAL,baseboardSerial,HP_DEVICEPROPERTY_MAXNUM);
+	if (lRetNum == HP_DEVICEPROPERTY_MAXNUM)
+	{
+		OutputDebugString(L"获取BASEBOARDSERIAL序列号值超过了最大值的限制");
+	}
+
+	T_DEVICE_PROPERTY permanetmac[HP_DEVICEPROPERTY_MAXNUM] = {0};
+	memset(permanetmac,0,sizeof(T_DEVICE_PROPERTY)*HP_DEVICEPROPERTY_MAXNUM);
+	lRetNum = GetWqlPropertyValue(szWQLQuery[PERMANENTMAC],PERMANENTMAC,permanetmac,HP_DEVICEPROPERTY_MAXNUM);
+	if (lRetNum == HP_DEVICEPROPERTY_MAXNUM)
+	{
+		OutputDebugString(L"获取原生mac值超过了最大值的限制");
+	}
+	
+	wchar_t buffinfo[MAX_PATH*6] = {L"0"};
+	if (bUsingMac)
+	{
+		wsprintf(buffinfo,L"%s#%s#%s#%s#%s#%s",
+		hardWareSerial[0].szProperty,hardWareMdl[0].szProperty,cpuidinfo[0].szProperty,biosSerial[0].szProperty,
+		baseboardSerial[0].szProperty,permanetmac[0].szProperty);
+	}
+	else
+	{
+		wsprintf(buffinfo,L"%s#%s#%s#%s#%s",
+			hardWareSerial[0].szProperty,hardWareMdl[0].szProperty,cpuidinfo[0].szProperty,biosSerial[0].szProperty,
+			baseboardSerial[0].szProperty);
+	}
+
+	wchar_t DirPath[MAX_PATH] = {L"0"};
+	GetSystemDirectory(DirPath,sizeof(DirPath));
+	wchar_t IniFilePath[MAX_PATH] = {L"0"};
+	wsprintf(IniFilePath,L"%s\\file.ini",DirPath);
+	
+	wstring Md5value = CMD5Checksum::GetMD5((BYTE*)buffinfo,wcslen(buffinfo)*sizeof(wchar_t));
+	for(wstring::iterator iter = Md5value.begin(); iter != Md5value.end(); ++iter)
+	{
+		*iter = toupper(*iter);
+	}
+
+	BOOL bFileIsInvalid = TRUE;
+	if (PathFileExists(IniFilePath))
+	{
+		//判断文件是否发生过变化
+		wchar_t  recodeFileMd5[MD5LENGTH*2] = {L"0"};
+		GetPrivateProfileString(L"param", L"md5value", INITBUFFER, recodeFileMd5, wcslen(recodeFileMd5), IniFilePath);
+
+		wstring  calcaFileMd5(L"");
+		MakeFileMd5Value(IniFilePath,calcaFileMd5);
+
+		if (wcscmp(recodeFileMd5,calcaFileMd5.c_str()))
+		{
+			OutputDebugString(L"记录硬件id信息的文件已经发生了变化，不再使用该文件");
+			bFileIsInvalid = TRUE;
+		}
+		else
+		{
+			wchar_t md5iniValue[50] = {L"0"};
+			wsprintf(md5iniValue,L"%s",INITBUFFER);
+			GetPrivateProfileString(L"param", L"value", INITBUFFER, md5iniValue, 50, IniFilePath);
+
+			if ( wcscmp(md5iniValue,Md5value.c_str()) == 0 )
+			{
+				OutputDebugString(L"获取到的md5值与现在的是一样的");
+				bFileIsInvalid = FALSE;
+			}
+			else
+			{
+				if ( wcslen(md5iniValue)== MD5LENGTH )
+				{
+					if (bUsingMac)
+					{
+						wchar_t macvalue[50] = {L"0"};
+						wsprintf(macvalue,L"%s",INITBUFFER);
+						int pos = GetPrivateProfileString(L"param", L"mac", INITBUFFER, macvalue, 49, IniFilePath);
+						if ( pos <=0 )
+						{
+							OutputDebugString(L"本地没有存储mac信息");
+						}
+						else
+						{
+							for (int i=0;i<lRetNum;i++)
+							{
+								if (wcscmp(permanetmac[i].szProperty,macvalue) == 0 )
+								{
+									OutputDebugString(L"设备上存在着原始mac,是其他硬件信息发生了变化,重新记录硬件信息,使用旧的信息");
+									wchar_t newbuff[MAX_PATH*6] = {L"0"};
+									wsprintf(newbuff,L"%s#%s#%s#%s#%s#%s",
+										hardWareSerial[0].szProperty,hardWareMdl[0].szProperty,cpuidinfo[0].szProperty,biosSerial[0].szProperty,
+										baseboardSerial[0].szProperty,macvalue);
+									wstring newMd5value = CMD5Checksum::GetMD5((BYTE*)newbuff,wcslen(newbuff)*sizeof(wchar_t));
+									if ( !wcsicmp(newMd5value.c_str(),md5iniValue) )
+									{
+										bFileIsInvalid = FALSE;
+										Md5value = md5iniValue;
+									}
+									break;
+								}
+							}
+						}
+					}
+					
+					if (bFileIsInvalid)
+					{
+						*changeSerail = 1;
+						int oldmd5len = WideCharToMultiByte(CP_ACP,0,md5iniValue,MD5LENGTH,NULL,0,NULL,NULL);
+						if (oldmd5len<usize)
+						{	
+							WideCharToMultiByte(CP_ACP,0,md5iniValue,MD5LENGTH,olduniqueSerial,oldmd5len,NULL,NULL);
+						}
+					}
+				}
+			}
+		}
+	}
+	if (bFileIsInvalid)
+	{
+		if (!PathFileExists(IniFilePath))
+		{
+			char inifile[MAX_PATH] = {"0"};
+			WideCharToMultiByte(CP_ACP,0,IniFilePath,-1,inifile,sizeof(inifile),NULL,NULL);
+			bRet = TRUE;
+			FILE *pfile=NULL;
+			errno_t  err;
+			if ( err=fopen_s(&pfile,inifile,"w+")==0)
+			{
+				fclose(pfile);
+				pfile = NULL;
+			}
+		}
+		wstring  calcaFileMd5(L"");
+		MakeFileMd5Value(IniFilePath,calcaFileMd5);
+		WritePrivateProfileString(L"param", L"md5value", calcaFileMd5.c_str(), IniFilePath);
+
+		WritePrivateProfileString(L"param",L"value", (wchar_t*)Md5value.c_str(), IniFilePath);
+		if (bUsingMac)
+		{
+			WritePrivateProfileString(L"param",L"mac",permanetmac[0].szProperty, IniFilePath);
+		}
+	}
+
+	int md5len = WideCharToMultiByte(CP_ACP,0,Md5value.c_str(),Md5value.size(),NULL,0,NULL,NULL);
+	if (md5len<usize)
+	{
+		WideCharToMultiByte(CP_ACP,0,Md5value.c_str(),Md5value.size(),uniqueSerialnum,md5len,NULL,NULL);
+	}
+	return TRUE;
+};

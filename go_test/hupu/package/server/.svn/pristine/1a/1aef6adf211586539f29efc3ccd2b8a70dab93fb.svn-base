@@ -1,0 +1,1686 @@
+/*************************************************
+File Name: SingServerPage
+Author:  gcy
+Description:  系统安检中服务器端只有单个页面配置的安检项
+                        包括:windows防火墙,Guest用户检查,远程桌面,屏幕保护
+Version:  0.0.1
+Data:  2014/10/31
+**************************************************/
+
+#include "StdAfx.h"
+#include "SingServerPage.h"
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+#include "HandleJob1.h"
+#include "..\GlobalDate.h"
+#include "SafeCheckFuntion.h"
+#include "CheckCustom.h"
+
+SingServerPage::SingServerPage(void):
+    m_cnt(0),
+    m_failcnt(0)
+{
+    InitData();
+}
+
+SingServerPage::~SingServerPage(void)
+{
+    InitData();
+}
+
+/*************************************************
+Function Name: GetDataFromDB
+Description: 从数据库中查询安检数据
+Input and output:  
+      dirpath   :程序文件夹路径
+      userid:用户id号
+      usertype:用户类型
+      itemtype:属性表的表名称
+      currdata:当前日期
+      millisecond:当前毫秒数
+      weekday:当前的星期
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_DB_OPFAIL
+**************************************************/
+int SingServerPage::GetDataFromDB(IN wchar_t *dirpath,IN char *userid, IN char* usertype, IN char* itemtype, IN char *currdata,IN char *millisecond,IN char *weekday)
+ {
+	 try
+	 {
+		 int ret = HP_DB_OPENFAIL;
+
+		 if (HP_openDB(dirpath) == HP_DB_OPENFAIL)
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE, MODULE_SERVICE, LOGLOCATION, "打开数据库失败");
+			 return ret;
+		 }
+
+		 InitData();
+
+		 if (strcmp(itemtype,(char*)HP_DOMAINUSER_TABLE) == 0 )
+		 {
+			 int res = m_domainuser.GetDataFromDB(dirpath, userid, usertype, currdata, millisecond, weekday);
+			 if (res == HP_SUCCESS)
+			 {
+				 m_cnt = m_domainuser.m_domainCnt;
+			 }
+			 return res;
+		 }
+		 else if (strcmp(itemtype, NET_SHARE_TABLE_NAME) == 0)
+		 { 
+			 int res = GetNetShareDataFromDB(dirpath, userid, usertype, currdata, millisecond, weekday, &shareDirPolicy, &m_checkitem);
+			 if (res == HP_SUCCESS)
+			 {
+				 m_cnt++;
+			 }
+			 return res;
+		 }
+		 else if (strcmp(itemtype, IE_EXTENSIONS_TABLE_NAME) == 0)
+		 { 
+			 int res = GetIeExtensionsDataFromDB(dirpath, userid, usertype, currdata, millisecond, weekday, &ieExtensionsPolicy, &m_checkitem);
+
+			 if (res == HP_SUCCESS)
+			 {
+				 m_cnt++;
+			 }
+			 return res;
+		 }
+		 else if (strcmp(itemtype,(char*)HP_NETWORK_TABLE) == 0)
+		 {
+			 int res = m_network.GetDataFromDB(dirpath, userid, usertype, currdata, millisecond, weekday);
+			 if (res == HP_SUCCESS)
+			 {
+				 m_cnt = m_network.m_netwkCnt;
+			 }
+			 return res;
+		 }
+		 else if (strcmp(itemtype,(char*)HP_OSVERSION_TABLE) == 0)
+		 {
+			 int res = m_osinfo.GetDataFromDB(dirpath, userid, usertype,currdata, millisecond, weekday);
+			 if (res == HP_SUCCESS)
+			 {
+				 m_cnt = m_osinfo.m_numcount;
+			 }
+			 return res;
+		 }
+		 else if (strcmp(itemtype,(char*)HP_WSUS_TABLE) == 0)
+		 {
+			 int res = m_wsus.GetDataFromDB(dirpath,userid,usertype,currdata,millisecond,weekday);
+			 if (res == HP_SUCCESS)
+			 {
+				 m_cnt = m_wsus.m_numcount;
+			 }
+			 return res;
+		 }
+		 else if ( strcmp(itemtype,(char*)HP_WEAKPWD_TABLE) == 0 )
+		 {
+			 int res = m_checkpwd.GetDataFromDB(dirpath,userid,usertype,currdata,millisecond,weekday);
+			 if (res == HP_SUCCESS)
+			 {
+				 m_cnt = m_checkpwd.m_numcount;
+			 }
+			 return res;
+		 }
+		 else if ( strcmp(itemtype,(char*)HP_PROCESS_TABLE) == 0 )
+		 {
+			 int res = m_process.GetDataFromDB(dirpath,userid,usertype, currdata,millisecond,weekday);
+			 if (res == HP_SUCCESS)
+			 {
+				 m_cnt = m_process.m_procCnt;
+			 }
+			 return res;
+		 }
+		 else if (strcmp(itemtype,(char*)HP_PORT_TABLE) == 0)
+		 {
+			 int res = m_port.GetDataFromDB(dirpath,userid,usertype,currdata,millisecond,weekday);
+			 if (res == HP_SUCCESS)
+			 {
+				 m_cnt = m_port.m_portCnt;
+			 }
+			 return res;
+		 }
+		 else if (strcmp(itemtype,(char*)HP_SERVICES_TABLE) == 0)
+		 {
+			 int res = m_sv.GetDataFromDB(dirpath,userid,usertype,currdata,millisecond,weekday);
+			 if ( res == HP_SUCCESS )
+			 {
+				 m_cnt = m_sv.m_svCnt;
+			 }
+			 return res;
+		 }
+		 else if (strcmp(itemtype,(char*)HP_SOFTWARE_TABLE) == 0)
+		 {
+			 int res = m_sf.GetDataFromDB(dirpath,userid,usertype,currdata,millisecond,weekday);
+			 if ( res == HP_SUCCESS )
+			 {
+				 m_cnt = m_sf.m_sfCnt;
+			 }
+			 return res;
+		 }
+		 else if (strcmp(itemtype,(char*)HP_ANTIVIRUS_TABLE) == 0)
+		 {
+			 int res = m_antivirus.GetDataFromDB(dirpath, userid, usertype, currdata, millisecond, weekday);
+			 if ( res == HP_SUCCESS )
+			 {
+				 m_cnt = m_antivirus.m_antiCnt;
+			 }
+			 return res;
+		 }
+		 else if (strcmp(itemtype, SYSTEM_PATCHS_TABLE_NAME) == 0)
+		 { 
+			 int res = GetPatchDataFromDB(dirpath, userid, usertype, currdata, millisecond, weekday, systemPatchPolicyList, &m_checkitem);
+			 if (res == HP_SUCCESS)
+			 {
+				 m_cnt++;
+			 }
+			 return res;
+		 }
+		 else if(strcmp(itemtype, HP_ILLEGALINTERNET_TABLE) == 0)
+		 {
+			  int res = m_illegalInt.GetDataFromDB(dirpath, userid, usertype, currdata, millisecond, weekday,false);
+			 if ( res == HP_SUCCESS )
+			 {
+				 m_cnt = m_illegalInt.m_numcount;
+			 }
+			 return res;
+		 }
+		 else if(strcmp(itemtype, TSTG_CHECKCUSTOM_TABLE_NAME) == 0)
+		 {
+			 int iRes = GetCustomCheckDataFromTables(dirpath, userid, usertype, currdata, millisecond, weekday, g_checkCustomPolicyList);
+			 if (iRes == HP_SUCCESS)
+			 {
+				 m_cnt++;
+			 }
+			 return iRes;
+		 }
+		 else if(strcmp(itemtype, HP_NETMON_TABLE) == 0)
+		 {
+			 int iRet = m_netmon.GetDataFromDB(dirpath, userid, usertype, currdata, millisecond, weekday);
+			  if ( iRet == HP_SUCCESS )
+			 {
+				 m_cnt = m_netmon.m_totalNum;
+			 }
+			 return iRet;
+		 }
+		 else
+		 {
+
+			 char sql[HP_C_SQLDATA]={'0'}; 
+			 char sqlReal[HP_C_SQLDATA]={'0'};
+			 char **pszResult='\0';
+			 CHAR *szErrMsg='\0';
+			 INT nRow = 0;
+			 INT nCloumn = 0;
+
+			 if (strcmp(itemtype, (char*)HP_SCREENSAVER_TABLE) == 0 )
+			 {
+				 sprintf_s(sql,HP_C_SQLDATA,HP_SELECTSCREEN_TABLE,itemtype,userid,usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));
+			 }
+			 else if (strcmp(itemtype,(char*)JUNK_FILES_TABLE_NAME) == 0)
+			 {
+				 sprintf_s(sql, HP_C_SQLDATA, selectJunkfileTableItem, itemtype, userid, usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));
+			 }
+			 else if ( strcmp(itemtype,(char*)HP_COMPUTERNAME_TABLE)==0 )
+			 {
+				 sprintf_s(sql, HP_C_SQLDATA, HP_SELECTCOMPUTERNAME_TABLE,itemtype,userid,usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));
+			 }
+			 else if (strcmp(itemtype,(char*)SYSTEM_TIME_TABLE_NAME)==0)
+			 {
+				 sprintf_s(sql, HP_C_SQLDATA, selectSystemTimeTable, itemtype, userid, usertype, currdata, currdata, atol(millisecond), atol(millisecond), atoi(weekday));
+			 }
+			 else if (strcmp(itemtype,(char*)MAINPAGE_TABLE_NAME)==0)
+			 {
+				 sprintf_s(sql, HP_C_SQLDATA, selectMainPageTable, itemtype, userid, usertype, currdata, currdata, atol(millisecond), atol(millisecond), atoi(weekday));
+			 }
+			 else if (strcmp(itemtype,(char*)DISK_SPACE_TABLE_NAME)==0)
+			 {
+				 sprintf_s(sql, HP_C_SQLDATA, selectDiskSpaceTable, itemtype, userid, usertype, currdata, currdata, atol(millisecond), atol(millisecond), atoi(weekday));
+			 }
+			 else if (strcmp(itemtype,(char*)PWD_POLICY_TABLE_NAME)==0)
+			 {
+				 sprintf_s(sql, HP_C_SQLDATA, selectpwdPolicyTable, itemtype, userid, usertype, currdata, currdata, atol(millisecond), atol(millisecond), atoi(weekday));
+			 }
+			 else if (strcmp(itemtype,(char*)WALL_PAPER_TABLE_NAME)==0)
+			 {
+				 sprintf_s(sql, HP_C_SQLDATA, selectWallpaperTable, itemtype, userid, usertype, currdata, currdata, atol(millisecond), atol(millisecond), atoi(weekday));
+			 }
+			 else
+			 {
+				 sprintf_s(sql,HP_C_SQLDATA, HP_SELECTSINGPAGE_TABLE, itemtype, userid, usertype, currdata, currdata, atol(millisecond), atol(millisecond), atoi(weekday));
+			 }
+
+			 Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+             WriteDebugInfomation(LEVEL_RELEASE, MODULE_SERVICE, LOGLOCATION, "sql=",sql);
+			// EnterCriticalSection(&g_opdbcs);
+			 if(SQLITE_OK != (ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+			 {
+				 WriteDebugInfomation(LEVEL_RELEASE, MODULE_SERVICE, LOGLOCATION, "sqlite3_get_table Fail");
+				// LeaveCriticalSection(&g_opdbcs);
+				 sqlite3_free_table(pszResult);
+				 ret = sqlite3_close(g_db);
+				 g_db = NULL;
+				 return HP_DB_GETTABLEFAIL;
+			 }
+			 if ((nRow>0) && (nCloumn>0))
+			 {	
+				 m_cnt++;
+
+				 for (int i=0;i<nRow;i++)
+				 {
+					 for (int j=0;j<nCloumn;j++)
+					 {
+						 if(strcmp(pszResult[j], "ipriority")==0)
+						 {		
+							 memset(m_checkitem.ipriority, 0, sizeof(m_checkitem.ipriority));
+							 Convert(pszResult[(i+1)*nCloumn+j], m_checkitem.ipriority, sizeof(m_checkitem.ipriority), CP_UTF8, CP_ACP);					
+						 }
+						 else if(strcmp(pszResult[j],"spolicyaction")==0)
+						 {	
+							 if (strcmp(pszResult[(i+1)*nCloumn+j],""))//有一些策略没有策略动作
+							 {
+								 memset(m_checkitem.spolicyaction, 0, sizeof(m_checkitem.spolicyaction));
+								 Convert(pszResult[(i+1)*nCloumn+j],m_checkitem.spolicyaction,sizeof(m_checkitem.spolicyaction),CP_UTF8,CP_ACP);				
+							 }
+						 }
+						 else if(strcmp(pszResult[j],"spromptinfo")==0)
+						 {
+							 memset(m_checkitem.spromptinfo,0,sizeof(m_checkitem.spromptinfo));
+							 Convert(pszResult[(i+1)*nCloumn+j],m_checkitem.spromptinfo,sizeof(m_checkitem.spromptinfo),CP_UTF8,CP_ACP);					
+						 }
+						 else if(strcmp(pszResult[j], "warningcont")==0)
+						 {			
+							 memset(m_checkitem.warningcont,0,sizeof(m_checkitem.warningcont));
+							 Convert(pszResult[(i+1)*nCloumn+j],m_checkitem.warningcont,sizeof(m_checkitem.warningcont),CP_UTF8,CP_ACP);					
+						 }
+						 else if(strcmp(pszResult[j], "warninglevel")==0)
+						 {
+							 memset(m_checkitem.warninglevel,0,sizeof(m_checkitem.warninglevel));
+							 Convert(pszResult[(i+1)*nCloumn+j],m_checkitem.warninglevel,sizeof(m_checkitem.warninglevel),CP_UTF8,CP_ACP);					
+						 }
+						 else if(strcmp(pszResult[j], "srcevent")==0)
+						 {
+							 memset(m_checkitem.srcevent,0,sizeof(m_checkitem.srcevent));
+							 Convert(pszResult[(i+1)*nCloumn+j],m_checkitem.srcevent,sizeof(m_checkitem.srcevent),CP_UTF8,CP_ACP);					
+						 }
+						 else
+						 {
+							 if (strcmp(itemtype,(char*)HP_SCREENSAVER_TABLE) == 0 )
+							 {
+								 if(strcmp(pszResult[j], "iscreentimeout")==0)
+								 {		
+									 memset(m_timeout,0,sizeof(m_timeout));
+									 Convert(pszResult[(i+1)*nCloumn+j],m_timeout,sizeof(m_timeout),CP_UTF8,CP_ACP);					
+								 }
+								 else if(strcmp(pszResult[j], "srecoverusepwd")==0)
+								 {			
+									 memset(m_userpwd,0,sizeof(m_userpwd));
+									 Convert(pszResult[(i+1)*nCloumn+j],m_userpwd,sizeof(m_userpwd),CP_UTF8,CP_ACP);					
+								 }
+							 }
+							 else if (strcmp(itemtype, JUNK_FILES_TABLE_NAME) == 0)
+							 {
+								 InitJunkFilePolicy(pszResult[j], pszResult[(i+1)*nCloumn+j], &junkDirPolicy);
+							 }
+							 else if ( strcmp(itemtype,(char*)HP_COMPUTERNAME_TABLE) == 0 )
+							 {
+								 if(strcmp(pszResult[j],"regexcont")==0)
+								 {		
+									 memset(m_cmpregexcnt,0,sizeof(m_cmpregexcnt));
+									 Convert(pszResult[(i+1)*nCloumn+j],m_cmpregexcnt,sizeof(m_cmpregexcnt),CP_UTF8,CP_ACP);					
+								 }
+								 else if(strcmp(pszResult[j],"regexdes")==0)
+								 {			
+									 memset(m_cmpregexdes,0,sizeof(m_cmpregexdes));
+									 Convert(pszResult[(i+1)*nCloumn+j], m_cmpregexdes, sizeof(m_cmpregexdes), CP_UTF8, CP_ACP);					
+								 }
+							 }
+							 else if ( strcmp(itemtype,(char*)SYSTEM_TIME_TABLE_NAME) == 0 )
+							 {
+								 if(strcmp(pszResult[j], "stimeerror")==0)
+								 {
+									 systemTimePolicy.dwTimeError = atoi(pszResult[(i+1)*nCloumn+j]);
+								 }
+							 }
+							 else if ( strcmp(itemtype, (char*)MAINPAGE_TABLE_NAME) == 0 )
+							 {
+								 InitMainPagePolicy(pszResult[j], pszResult[(i+1)*nCloumn+j], &mainPagePolicy);
+							 }
+							 else if (strcmp(itemtype,(char*)DISK_SPACE_TABLE_NAME)==0)
+							 {
+								 InitDiskSpacePolicy(pszResult[j], pszResult[(i+1)*nCloumn+j], &diskSpacePolicy);
+							 }
+							 else if (strcmp(itemtype,(char*)PWD_POLICY_TABLE_NAME)==0)
+							 {
+								 InitCheckPwdPolicy(pszResult[j], pszResult[(i+1)*nCloumn+j], &pwdPolicyPolicy.checkPwdPolicy);;
+							 }
+							 else if (strcmp(itemtype,(char*)WALL_PAPER_TABLE_NAME)==0)
+							 {
+								 InitWallpaperPolicy(pszResult[j], pszResult[(i+1)*nCloumn+j], &wallPaperPolicy);;
+							 }
+						 }
+					 }//for (int j=0;j<nCloumn;j++)
+
+					 break;
+				 }// for (int i=0;i<nRow;i++)
+			 }//if ((nRow>0) && (nCloumn>0))
+			 sqlite3_free_table(pszResult);
+			 //LeaveCriticalSection(&g_opdbcs);
+		 }
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 ::MessageBox(NULL, L"SingServerPage::GetDataFromDB Exception", L"Msg", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::GetDataFromDB Exception");
+	 }
+    return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: InitData
+Description: 初始化成员变量
+Input and output:  
+**************************************************/
+void  SingServerPage::InitData()
+{
+	try
+	{
+		m_cnt = 0;
+		m_failcnt = 0;
+
+		memset(&m_checkitem, 0, sizeof(SAFECHECKSAMEATTRIBUTE));
+		sprintf_s(m_checkitem.spolicyaction,sizeof(m_checkitem.spolicyaction),"%d",0);
+		memset(m_timeout, 0, sizeof(m_timeout));
+		memset(m_userpwd, 0, sizeof(m_userpwd));
+		memset(m_cmpregexcnt, 0, sizeof(m_cmpregexcnt));
+		memset(m_cmpregexdes, 0, sizeof(m_cmpregexdes));
+
+		memset(&junkDirPolicy, 0, sizeof(JUNKDIRPOLICY));
+		memset(&systemTimePolicy, 0, sizeof(SYSTEMTIMEPOLICY));
+		//memset(&mainPagePolicy, 0, sizeof(MAINPAGEPOLICY));
+		memset(&pwdPolicyPolicy, 0, sizeof(PWDPOLICYPOLICY));
+
+		list<FAILMESSAGEBOXINFO>::iterator  failmsgiter;
+		for ( failmsgiter= m_failmsgbox.begin();failmsgiter != m_failmsgbox.end();)
+		{
+			m_failmsgbox.erase(failmsgiter++);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::InitData Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::InitData Exception");
+	}
+}
+
+/*************************************************
+Function Name: ExecSafeCheckItem
+Description: 从数据库中查询安检数据
+Input and output:  
+      servertime   :服务器发送的时间戳
+      mac:本机计算机的MAC
+      totalitem:安检的总项数
+      curritem:当前的安检项
+      nextitem:下一个将要安检的项目
+      exeresult:安检的执行结果
+RetVal:
+      将要回传给服务器的安检的字符串
+**************************************************/
+string SingServerPage::ExecSafeCheckItem(IN SFSAFECHECKTYPE sfchecktype,IN LANGUAGETYPE language,IN char *servertime, 
+	IN char* mac, IN int totalitem, IN int curritem, IN int nextitem, IN int *exeresult)
+{
+	try
+	{
+		if ( curritem ==  SFDOMAIN )
+		{
+			string sendsfcheckres =  m_domainuser.ExecDomainItem(sfchecktype,language,servertime,mac,totalitem,curritem,nextitem,exeresult);
+			if (m_domainuser.m_faildomainnum>0)
+			{
+				m_failcnt = m_domainuser.m_faildomainnum;
+			}
+			return sendsfcheckres;
+		}
+		if (curritem ==  NETWORKSTATE )
+		{
+			return m_network.ExecNetWorkItem(servertime,mac,totalitem,curritem,nextitem,exeresult);
+		}
+		if (curritem == OSVERSION)
+		{
+			string sendsfcheckres =  m_osinfo.ExecOSVersionItem(servertime,mac,totalitem,curritem,nextitem,exeresult);
+			if (m_osinfo.m_failnumcount>0)
+			{
+				m_failcnt= m_osinfo.m_failnumcount;
+
+				memcpy(m_checkitem.spromptinfo,m_osinfo.m_osckeckinfo.attriinfo.spromptinfo,
+					strlen(m_osinfo.m_osckeckinfo.attriinfo.spromptinfo));
+			}
+			return sendsfcheckres;
+		}
+		if (curritem == PROCESS)
+		{
+			return m_process.ExecProcessItem(servertime, mac, totalitem, curritem, nextitem, exeresult);
+		}
+		if (curritem == PORT)
+		{
+			return m_port.ExecPortItem(servertime, mac, totalitem, curritem, nextitem, exeresult);
+		}
+		if (curritem == SERVICES)
+		{
+			return m_sv.ExecSvItem(servertime,mac,totalitem,curritem,nextitem,exeresult);
+		}
+		if (curritem == SOFTWARE)
+		{
+			return m_sf.ExecSoftWareItem(servertime,mac,totalitem,curritem,nextitem,exeresult);
+		}
+		if (curritem == WSUSCONFIG)
+		{
+			string sendsfcheckres =  m_wsus.ExeWSUSItem(servertime,mac,totalitem,curritem,nextitem,exeresult);
+			if (m_wsus.m_failcount>0)
+			{
+				m_failcnt=m_wsus.m_failcount;
+
+				memcpy(m_checkitem.spromptinfo,m_wsus.m_execwsusinfo.attriinfo.spromptinfo,
+					strlen(m_wsus.m_execwsusinfo.attriinfo.spromptinfo));
+			}
+			return sendsfcheckres;
+		}
+		if (curritem ==WEAKPWD )
+		{
+			string sendsfcheckres =  m_checkpwd.ExecWeakPwdItem(servertime,mac,totalitem,curritem,nextitem,exeresult);
+			if (m_checkpwd.m_numfailcount>0)
+			{
+				m_failcnt=m_checkpwd.m_numfailcount;
+				list<FAILACCONTINFO>::iterator failiter=m_checkpwd.m_failItem.begin();
+				FAILACCONTINFO failinfo;
+				memset(&failinfo,0,sizeof(FAILACCONTINFO));
+				failinfo = *failiter;
+				memcpy(m_checkitem.spromptinfo,failinfo.failmsg.c_str(),failinfo.failmsg.length());
+				//memcpy(m_checkitem.spromptinfo,failinfo.failmsginfo,strlen(failinfo.failmsginfo));
+			}
+			return sendsfcheckres;
+		}
+		if ( curritem ==  ANTIVIRUSCHECK )
+		{
+			string sendsfcheckres =  m_antivirus.ExecAntivirusItem(servertime,mac,totalitem,curritem,nextitem,exeresult);
+			if (m_antivirus.m_failantinum>0)
+			{
+				m_failcnt = m_antivirus.m_failantinum;
+			}
+			return sendsfcheckres;
+		}
+		if ( curritem ==  ILLEGALINTERNET )
+		{
+			string sendsfcheckres =  m_illegalInt.ExecIllegalInternetItem(servertime,mac,totalitem,curritem,nextitem,TRUE,exeresult);
+			if (m_illegalInt.m_failcnt>0)
+			{
+				m_failcnt =m_illegalInt.m_failcnt;
+			}
+			return sendsfcheckres;
+		}
+		if(NETMON == curritem)
+		{
+			string sendsfcheckres =  m_netmon.ExecNetMonItem(servertime,mac,totalitem,curritem,nextitem,exeresult);
+			if (m_netmon.m_failItemNum>0)
+			{
+				m_failcnt =m_netmon.m_failItemNum;
+			}
+			return sendsfcheckres;
+		}
+
+		char tempheader[MAX_PATH]={"0"};
+
+		sprintf_s(tempheader, MAX_PATH, "%s;%s;%d;%d;1;%d;%s;", servertime, g_deviceid.c_str(), totalitem, curritem, nextitem, mac);
+
+		//错误描述
+		char errdescript[MAX_PATH*4] = {0};
+
+		//当前安检项的文字描述
+		char curritemtextdes[HP_C_USERCONTENTLEN] = {0};
+
+		//屏幕保护的状态
+		char timeoutstat[HP_C_USERCONTENTLEN] =  {0};
+		char ispwdstate[HP_C_USERCONTENTLEN] = {0};
+		BOOL bScreenSave = FALSE;
+
+		//垃圾文件检查
+		BOOL bJunkFile = FALSE;
+
+		//计算机名称检查
+		BOOL bCmpName = FALSE;
+		char srcCmpname[MAX_PATH] = {0};
+
+		//系统时间检查
+		BOOL bCheckSystemTime = FALSE;
+
+		//IE主页检查
+		BOOL bCheckMainPage = FALSE;
+
+		//网络共享检查
+		BOOL bCheckNetShare = FALSE;
+
+		//磁盘使用检查
+		BOOL bCheckDiskSpace = FALSE;
+
+		//密码策略检查
+		BOOL bCheckPwdPolicy = FALSE;
+
+		//IE控件检查
+		BOOL bCheckIeExtension = FALSE;
+		string strIeExtensionErrorMsg = "";
+
+		//系统补丁检查
+		BOOL bCheckSystemPatch = FALSE;
+		string strPatchErrorMsg = "";
+
+		//桌面背景检查
+		BOOL bCheckWallPaper = FALSE;
+		int iCheckWallPaperRet = -1;
+
+		//自定义安检检查
+		BOOL bCheckCustom = FALSE;
+		string strCustomErrorMsg = "";
+
+		string xmlstring;
+		bool IsSucces = true;
+		int itemstate = UNKNOWNSTATE;
+
+		if (m_cnt>0)
+		{
+			switch(curritem)
+			{
+			case FIREWALL:
+				itemstate = GetFireWallStateForSafeCheck();
+				sprintf_s(curritemtextdes,HP_C_USERCONTENTLEN,"%s","防火墙");
+				break;
+			case GUEST:
+				itemstate = GetGuestStateForSafeCheck();
+				sprintf_s(curritemtextdes, HP_C_USERCONTENTLEN, "%s", "Guest用户");
+				break;
+			case REMOTEDESK:
+				itemstate = GetRemoteDeskStateForSafeCheck();
+				sprintf_s(curritemtextdes,HP_C_USERCONTENTLEN,"%s","远程桌面");
+				break;
+			case SCREENSAVER:
+				itemstate = GetScreenSaverStateForSafeCheck(timeoutstat,ispwdstate);
+				sprintf_s(curritemtextdes,HP_C_USERCONTENTLEN,"%s","屏幕保护");
+				bScreenSave = TRUE ;
+				break;
+
+			case CHECKJUNKFILES:
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_JUNKFILES, LOGLOCATION, "检查垃圾文件!");
+					itemstate = SendMsgCheckJunkFile(&junkDirPolicy);
+					bJunkFile = TRUE;
+				}
+				break;
+
+			case COMPUTERNAME:
+				{
+					itemstate = GetComputerNameForSafeCheck(srcCmpname, m_cmpregexcnt);
+					sprintf_s(curritemtextdes, HP_C_USERCONTENTLEN, "%s", "计算机名称");
+					bCmpName = TRUE;
+				}
+				break;
+
+			case CHECKSYSTEMTIME:
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMTIME, LOGLOCATION, "系统时间检查!");
+
+					sprintf_s(systemTimePolicy.serverTime, SYSTEMTIMELEN, "%s", servertime);
+					itemstate = CheckSystemTime(servertime, FALSE, systemTimePolicy.dwTimeError);
+					bCheckSystemTime = TRUE;
+				}
+				break;
+
+			case CHECKMAINPAGE:
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMTIME, LOGLOCATION, "IE主页检查!");
+					mainPagePolicy.fixFlag = FALSE;
+					itemstate = CheckIEMainPage(mainPagePolicy);
+					bCheckMainPage = TRUE;
+				}
+				break;
+
+			case CHECKNETSHARE:
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_NETSHARE, LOGLOCATION, "共享资源检查!");
+					itemstate = NetShareResourceEnum(FALSE, &shareDirPolicy);
+					bCheckNetShare = TRUE;
+				}
+				break;
+
+			case CHECKDISKSPACE:
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_DISKSPACE, LOGLOCATION, "磁盘使用检查!");
+					itemstate = CheckDiskSpace(&diskSpacePolicy);
+					bCheckDiskSpace = TRUE;
+				}
+				break;
+
+			case PWDPOLICY:
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_PWDPOLICY, LOGLOCATION, "密码策略检查!");
+					itemstate =CheckPwdPolicy(g_nacdirpath, FALSE, &pwdPolicyPolicy);
+					bCheckPwdPolicy = TRUE;
+				}
+				break;
+
+			case CHECKIEEXTENSIONS:
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "IE控件检查!");
+					itemstate = CheckIEExtensions(FALSE, &ieExtensionsPolicy, INFINITE);
+					bCheckIeExtension = TRUE;
+				}
+				break;
+			case CHECKSYSTEMPATCH:
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "系统补丁检查!");
+					itemstate = GetUninstallPatch(systemPatchPolicyList.systemPatchPolicyList);
+					bCheckSystemPatch = TRUE;
+				}
+				break;
+			case CHECKWALLPAPER:
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "桌面背景检查!");
+					itemstate = CheckDeskWallPaper(&wallPaperPolicy, &iCheckWallPaperRet);
+					bCheckWallPaper = TRUE;
+				}
+				break;
+			case CHECKCUSTOM:
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "自定义安检项检查!");
+					itemstate = CheckCustomCheck(language);
+					bCheckCustom = TRUE;
+				}
+				break;
+
+			default:
+				break;
+			}
+
+			if (bScreenSave)
+			{
+				if (atoi(m_checkitem.spolicyaction ) ==  itemstate)
+				{
+					IsSucces = true;
+					if ( atoi(m_checkitem.spolicyaction ) == ALLOW)
+					{
+						if ((strcmp(timeoutstat,m_timeout) != 0) &&(strcmp(ispwdstate,m_userpwd) != 0))
+						{
+							m_failcnt++;
+							IsSucces = false;
+							sprintf_s(errdescript,MAX_PATH*4,"<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"%s设置的时间和是否需要密码不对\" name=\"%s \" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+								m_failcnt,m_checkitem.spolicyaction,curritemtextdes,curritemtextdes,m_checkitem.warningcont,m_checkitem.warninglevel,m_checkitem.srcevent);
+						}
+						else if ((strcmp(timeoutstat,m_timeout) != 0) &&(strcmp(ispwdstate,m_userpwd) == 0))
+						{
+							m_failcnt++;
+							IsSucces = false;
+							sprintf_s(errdescript,MAX_PATH*4,"<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"%s设置的时间不对\" name=\"%s \" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",
+								m_failcnt,m_checkitem.spolicyaction,curritemtextdes,curritemtextdes,m_checkitem.warningcont,m_checkitem.warninglevel,m_checkitem.srcevent);
+						}
+						else if ((strcmp(timeoutstat,m_timeout) == 0) &&(strcmp(ispwdstate,m_userpwd) != 0))
+						{
+							m_failcnt++;
+							IsSucces = false;
+							sprintf_s(errdescript,MAX_PATH*4,"<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"%s设置是否需要密码不对\" name=\"%s \" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",
+								m_failcnt,m_checkitem.spolicyaction,curritemtextdes,curritemtextdes,m_checkitem.warningcont,m_checkitem.warninglevel,m_checkitem.srcevent);
+						}
+					}
+				}//if (atoi(m_checkitem.spolicyaction ) ==  itemstate)
+
+				else
+				{
+					m_failcnt++;
+					IsSucces = false;
+					if ( atoi(m_checkitem.spolicyaction ) == ALLOW)
+					{
+						sprintf_s(errdescript,MAX_PATH*4,"<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"关闭了%s\" name=\"%s \" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",
+							m_failcnt,m_checkitem.spolicyaction,curritemtextdes,curritemtextdes,m_checkitem.warningcont,m_checkitem.warninglevel,m_checkitem.srcevent);
+					}
+					else
+					{
+						sprintf_s(errdescript,MAX_PATH*4,"<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"开启了%s\" name=\"%s \" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",
+							m_failcnt,m_checkitem.spolicyaction,curritemtextdes,curritemtextdes,m_checkitem.warningcont,m_checkitem.warninglevel,m_checkitem.srcevent);
+					}
+				}
+			}//  if (bScreenSave)
+
+
+			else if (bCmpName)
+			{
+				//表示计算机名称设置符合要求
+				if (itemstate ==  ENABLE)
+				{
+					IsSucces = true;
+				}
+				else
+				{
+					m_failcnt++;
+					IsSucces = false;
+					sprintf_s(errdescript,MAX_PATH*4,"<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"计算机名称%s不符合管理员设置\" name=\"%s \" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",
+						m_failcnt,m_checkitem.spolicyaction,srcCmpname,curritemtextdes,m_checkitem.warningcont,m_checkitem.warninglevel, m_checkitem.srcevent);
+				}
+			}//  if (bCmpName)
+			else if (bJunkFile)
+			{
+				IsSucces = JunkFileRetShowMsg(itemstate, m_checkitem, junkDirPolicy, &m_failcnt, errdescript, MAX_PATH*4, language);
+			}
+			else if (bCheckSystemTime)
+			{
+				if (itemstate == TRUE)
+				{
+					IsSucces = SystemTimeRetShowMsg(itemstate, m_checkitem, systemTimePolicy, &m_failcnt, errdescript, MAX_PATH*4, language);
+				}
+			}
+			else if (bCheckMainPage)
+			{
+				if (itemstate == TRUE)
+				{
+					IsSucces = IEMainRetShowMsg(itemstate, m_checkitem, mainPagePolicy, &m_failcnt, errdescript, MAX_PATH*4, language);
+				}
+			}
+			else if (bCheckNetShare)
+			{
+				IsSucces = NetShareRetShowMsg(itemstate, m_checkitem, &shareDirPolicy, &m_failcnt, errdescript, MAX_PATH*4, language);
+			}
+			else if (bCheckDiskSpace)
+			{
+				IsSucces = DiskSpaceRetShowMsg(itemstate, m_checkitem, &diskSpacePolicy, &m_failcnt, errdescript, MAX_PATH*4, language);
+			}
+			else if (bCheckPwdPolicy)
+			{
+				IsSucces = PwdPolicyRetShowMsg(itemstate, m_checkitem, &pwdPolicyPolicy.pwdPolicyCheckResult,  &m_failcnt, errdescript, MAX_PATH*4, language);
+			}
+			else if (bCheckIeExtension)
+			{
+				IsSucces = IEExtensionsRetShowMsg(itemstate,  m_checkitem, &ieExtensionsPolicy, &m_failcnt, language, strIeExtensionErrorMsg);
+			}
+			else if (bCheckSystemPatch)
+			{
+				IsSucces = SystemPatchShowMsg(itemstate, m_checkitem, systemPatchPolicyList, &m_failcnt, strPatchErrorMsg, language);
+			}
+			else if (bCheckWallPaper)
+			{
+				IsSucces = WallPaperRetShowMsg(iCheckWallPaperRet, m_checkitem, &m_failcnt, errdescript, MAX_PATH*4, language );
+			}
+			else if (bCheckCustom)
+			{
+				IsSucces = CustomCheckRetShowMsg(itemstate, &m_failcnt, strCustomErrorMsg );
+			}
+			else
+			{
+				if ( itemstate == atoi(m_checkitem.spolicyaction ))
+				{
+					IsSucces = true;
+				}
+				else
+				{
+					m_failcnt++;
+					IsSucces = false;
+
+					if ( atoi(m_checkitem.spolicyaction) == ALLOW )
+					{
+						sprintf_s(errdescript, MAX_PATH*4, "<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"关闭了%s\" name=\"%s \" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",
+							m_failcnt,m_checkitem.spolicyaction,curritemtextdes, curritemtextdes, m_checkitem.warningcont,m_checkitem.warninglevel,m_checkitem.srcevent);
+					}
+					else
+					{
+						sprintf_s(errdescript, MAX_PATH*4, "<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"开启了%s\" name=\"%s \" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+							m_failcnt,m_checkitem.spolicyaction,curritemtextdes,curritemtextdes,m_checkitem.warningcont,m_checkitem.warninglevel,m_checkitem.srcevent);
+					}
+				}
+			}
+		}//if (m_cnt>0)
+		if(IsSucces)
+		{
+			exeresult[curritem] = HP_SUCCESS;
+			xmlstring =SendSingleItemSafeCheckSuccess(tempheader);
+		}
+		else
+		{
+			string SendProcessItem = "<iman succflag =\"0\">";
+			string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+			string  xmltail ="</nac>";
+
+			exeresult[curritem] = HP_SF_SAFECHECKFAIL;
+
+			if (bCheckIeExtension)
+			{
+				SendProcessItem += strIeExtensionErrorMsg;
+			}
+			else if (bCheckSystemPatch)
+			{
+				SendProcessItem += strPatchErrorMsg;
+			}
+			else if (bCheckCustom)
+			{
+				SendProcessItem += strCustomErrorMsg;
+			}
+			else
+			{
+				SendProcessItem += (string)errdescript;
+			}
+			SendProcessItem += "</iman>";
+			xmlstring = tempheader+xmlHeader+SendProcessItem+xmltail;
+
+		}
+
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, (char*)xmlstring.c_str());
+
+		return xmlstring;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL,L"ExecSafeCheckItem Exception",L"Msg",0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"ExecSafeCheckItem Exception");
+	}
+	return "";
+}
+
+/*************************************************
+Function Name: RestoreFailItem
+Description: 修复失败的安检项
+Input and output:  
+      currSFitem:当前的安检项
+	  failItemIndex:失败项下标：INFINITE表示修复所有的安检项
+RetVal:
+      成功返回HP_SUCCESS
+      失败返回HP_SF_REPAIRESAFECHECKFAIL
+**************************************************/
+int SingServerPage::RestoreFailItem(IN int currSFitem,int failItemIndex)
+{
+	try
+	{
+		if (currSFitem == SFDOMAIN)
+		{
+			return m_domainuser.RestoreFailItem(failItemIndex);
+		}
+		else if (currSFitem == NETWORKSTATE)
+		{
+			return m_network.RestoreFailItem();
+		}
+		else if (currSFitem == OSVERSION)
+		{
+			return m_osinfo.RestoreFailItem();
+		}
+		else if (currSFitem == PROCESS)
+		{
+			return m_process.RestoreFailItem(failItemIndex);
+		}
+		else if (currSFitem == PORT)
+		{
+			return m_port.RestoreFailItem(failItemIndex);
+		}
+		else if (currSFitem == SERVICES)
+		{
+			return m_sv.RestoreFailItem(failItemIndex);
+		}
+		else if (currSFitem == SOFTWARE)
+		{
+			return m_sf.RestoreFailItem(failItemIndex);
+		}
+		else if (currSFitem == WSUSCONFIG)
+		{
+			return m_wsus.RestoreFailItem();
+		}
+		else if (currSFitem == WEAKPWD)
+		{
+			return m_checkpwd.RestoreFailItem();
+		}
+		else if (currSFitem == ANTIVIRUSCHECK )
+		{
+			return m_antivirus.RestoreFailItem();
+		}
+		else if( currSFitem ==  ILLEGALINTERNET )
+		{
+			return m_illegalInt.RestoreFailItem();
+		}
+		else if( NETMON == currSFitem )
+		{
+			return m_netmon.RestoreFailItem(0);
+		}
+		else 
+		{
+			int res = HP_SF_REPAIRESAFECHECKFAIL;
+
+			if (m_failcnt > 0)
+			{
+				int actiontype  = 0;
+				if ( atoi(m_checkitem.spolicyaction) == ALLOW)
+				{
+					actiontype = 1;
+				}
+				else
+				{
+					actiontype = 0;
+				}
+
+				switch(currSFitem)
+				{
+				case FIREWALL:
+					res = SetFireWallStateForSafeCheck(actiontype);
+					break;
+				case GUEST:
+					res = SetGuestStateForSafeCheck(actiontype);
+					break;
+				case REMOTEDESK:
+					res = SetRemoteDeskStateForSafeCheck(actiontype);
+					break;
+				case SCREENSAVER:
+					res = SetScreenSaverStateForSafeCheck(actiontype, m_timeout, m_userpwd);
+					break;
+				case COMPUTERNAME:
+					res = HP_SF_REPAIRESAFECHECKFAIL;//SetComputerNameForSafeCheck("gcytest");
+					break;
+				case CHECKJUNKFILES:
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_JUNKFILES, LOGLOCATION, "修复垃圾文件检查项!");
+						res = SendMsgCleanFile(&junkDirPolicy);
+					}
+					break;
+				case CHECKSYSTEMTIME:
+					{   
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMTIME, LOGLOCATION, "修复系统时间!");
+						res = SendMsgRepairSystemTime(&systemTimePolicy);
+					}
+					break;
+				case CHECKMAINPAGE:
+					{     
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_MAINPAGE, LOGLOCATION, "修复IE主页");
+						mainPagePolicy.fixFlag = TRUE;
+						res = CheckIEMainPage(mainPagePolicy);
+					}
+					break;
+
+				case CHECKNETSHARE:
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_NETSHARE, LOGLOCATION, "修复共享资源");
+						res = NetShareResourceEnum(TRUE, &shareDirPolicy);
+					}
+					break;
+
+				case CHECKDISKSPACE:
+					{
+
+					}
+					break;
+
+				case PWDPOLICY:
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_PWDPOLICY, LOGLOCATION, "修复密码策略");
+						res = CheckPwdPolicy(g_nacdirpath, TRUE, &pwdPolicyPolicy);
+					}
+					break;
+
+				case CHECKIEEXTENSIONS:
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "修复IE控件");
+						res = CheckIEExtensions(TRUE, &ieExtensionsPolicy, failItemIndex);
+					}
+					break;
+				case CHECKSYSTEMPATCH:
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "修复系统补丁");
+						res = InstallSystemPatch(systemPatchPolicyList, failItemIndex);
+					}
+					break;
+				case CHECKWALLPAPER:
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "修复桌面背景");
+						res = RepairDeskWallPaper();
+					}
+					break;
+				case CHECKCUSTOM:
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "修复自定义项");
+						res = RepairCustomCheck(failItemIndex);
+					}
+					break;
+				case NETMON:
+					{
+
+					}
+					break;
+				default:
+					break;
+				}
+			}
+			return res;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::RestoreFailItem Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::RestoreFailItem Exception");
+	}
+	return FALSE;
+}
+
+
+int SingServerPage::RestoreSpecialFailItem(IN int currSFitem,int failItemIndex,string otherinfo1,string otherinfo2)
+{
+	
+	if (currSFitem == COMPUTERNAME)
+	{
+		if(otherinfo1.size())
+		 SetComputerNameForSafeCheck(const_cast<char*>(otherinfo1.c_str()));
+	}
+	else if (currSFitem == WEAKPWD)
+	{
+		return m_checkpwd.RestoreWeakpwd(failItemIndex,"0",otherinfo2.c_str());
+	}
+	else if (currSFitem == NETWORKSTATE )
+	{
+		return m_network.RestoreFailItemByIndex(failItemIndex,atoi(otherinfo1.c_str()));
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "RestoreSpecialFailItem");
+	}
+	return 0;
+}
+/*************************************************
+Function Name: ShowFailMsgInfo
+Description: 显示警示信息
+Input and output:  
+      curritem:当前的安检项
+RetVal:
+**************************************************/
+void SingServerPage::ShowFailMsgInfo(IN int curritem)
+{
+    try
+    {
+        switch (curritem)
+        {
+        case PROCESS:
+            {
+                AddProcessFailMsg();
+            }
+            break;
+        case PORT:
+            {
+                AddPortFailMsg();
+            }
+            break;
+        case FIREWALL:
+        case GUEST:
+        case REMOTEDESK:
+        case SCREENSAVER:
+            {
+                AddFailMsgWithAction(curritem);
+            }
+            break;
+        case SERVICES:
+            {
+                AddServiceFailMsg();
+            }
+            break;
+        case SOFTWARE:
+            {
+                AddSoftwareFailMsg();
+            }
+            break;
+        case CHECKJUNKFILES:
+        case COMPUTERNAME:
+        case CHECKSYSTEMTIME:
+        case CHECKMAINPAGE:
+        case CHECKNETSHARE:
+        case CHECKDISKSPACE:
+        case PWDPOLICY:
+        case WEAKPWD:
+        case OSVERSION:
+        case CHECKIEEXTENSIONS:
+        case WSUSCONFIG:
+		case CHECKSYSTEMPATCH:
+        {
+            AddFailMsgWithoutAction(curritem);
+        }
+        break;
+        case NETWORKSTATE:
+            {
+              AddNetWorkFailMsg();
+            }
+            break;
+        case SFDOMAIN:
+            {
+                AddDomainFailMsg();
+            }
+            break;
+        case ANTIVIRUSCHECK:
+            {
+                AddAntivirusFailMsg();
+            }
+            break;
+		case ILLEGALINTERNET:
+			{
+				AddIllegalInternetFailMsg();
+			}
+			break;
+		case CHECKCUSTOM:
+			{
+				AddICustomCheckFailMsg();
+			}
+			break;
+		case NETMON:
+			{
+
+			}
+			break;
+        default:
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_PWDPOLICY, LOGLOCATION, "没有该模块");
+            break;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+		MessageBox(NULL,L"ShowFailMsgInfo exception",L"error",0);
+#endif
+         WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"ShowFailMsgInfo exception");
+    }
+}
+
+void SingServerPage::AddProcessFailMsg()
+{
+	try
+	{
+		list<PROCESSINFO>::iterator  failitemiter;
+		for (failitemiter = m_process.m_failprocInfo.begin( ); failitemiter !=m_process.m_failprocInfo.end( );  )
+		{
+			FAILMESSAGEBOXINFO failmsgbox;
+			memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+			PROCESSINFO failproc = *failitemiter;
+
+			if (strcmp(failproc.attriinfo.spromptinfo, "") != 0)
+			{
+				memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+				if (atoi(failproc.attriinfo.spolicyaction) == ALLOW)
+				{
+					_snprintf_s(failmsgbox.failmsg, _countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"%s进程需要运行;;%s",
+						failproc.sprocessname,failproc.attriinfo.spromptinfo);
+				}
+				else
+				{
+					_snprintf_s(failmsgbox.failmsg, _countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"%s进程需要关闭;;%s", 
+						failproc.sprocessname, failproc.attriinfo.spromptinfo);
+				}
+				failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+				m_failmsgbox.push_back(failmsgbox);
+			}
+			failitemiter++;
+		}//for (failitemiter = m_process.m_failprocInfo.begin( ); failitemiter !=m_process.m_failprocInfo.end( );  )
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddProcessFailMsg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddProcessFailMsg Exception");
+	}
+}
+
+void SingServerPage::AddPortFailMsg()
+{
+	try
+	{
+		for (int i=0; i<m_port.m_failportnum; i++)
+		{
+			if (strcmp(m_port.m_failportInfo[i].attriinfo.spromptinfo, "")!=0)
+			{
+				FAILMESSAGEBOXINFO failmsgbox;
+				memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+				memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+
+				if (atoi(m_port.m_failportInfo[i].attriinfo.spolicyaction)==ALLOW)
+				{
+					_snprintf_s(failmsgbox.failmsg,_countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"%s端口需要打开;;%s", m_port.m_failportInfo[i].iport,
+						m_port.m_failportInfo[i].attriinfo.spromptinfo);
+				}
+				else
+				{
+					_snprintf_s(failmsgbox.failmsg,_countof(failmsgbox.failmsg),_countof(failmsgbox.failmsg)-1,"%s端口需要关闭;;%s", m_port.m_failportInfo[i].iport, 
+						m_port.m_failportInfo[i].attriinfo.spromptinfo);
+				}
+
+				failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+				m_failmsgbox.push_back(failmsgbox);
+			}
+		}// for (int i=0; i<m_port.m_failportnum; i++)
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddPortFailMsg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddPortFailMsg Exception");
+	}
+}
+
+void SingServerPage::AddServiceFailMsg()
+{
+	try
+	{
+		for (int i=0; i < m_sv.m_failsvnum; i++)
+		{
+			if (strcmp(m_sv.m_failsvInfo[i].attriinfo.spromptinfo, "") != 0)
+			{
+				FAILMESSAGEBOXINFO failmsgbox;
+				memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+				memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+
+				if (atoi(m_sv.m_failsvInfo[i].attriinfo.spolicyaction) == ALLOW )
+				{
+					_snprintf_s(failmsgbox.failmsg,_countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"%s服务需要打开;;%s", m_sv.m_failsvInfo[i].Displayname, 
+						m_sv.m_failsvInfo[i].attriinfo.spromptinfo);
+				}
+				else
+				{
+					_snprintf_s(failmsgbox.failmsg,_countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1, "%s服务需要关闭;;%s", m_sv.m_failsvInfo[i].Displayname, 
+						m_sv.m_failsvInfo[i].attriinfo.spromptinfo);
+				}
+				failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+				m_failmsgbox.push_back(failmsgbox);
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddServiceFailMsg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddServiceFailMsg Exception");
+	}
+}
+
+void SingServerPage::AddSoftwareFailMsg()
+{
+	try
+	{
+		for (int i=0; i < m_sf.m_failsfnum; i++)
+		{
+			if (strcmp(m_sf.m_failsfInfo[i].attriinfo.spromptinfo, "")!=0)
+			{            
+				FAILMESSAGEBOXINFO failmsgbox;
+				memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+				memset(failmsgbox.failmsg, 0, sizeof(failmsgbox.failmsg));
+
+				if (atoi(m_sf.m_failsfInfo[i].attriinfo.spolicyaction) == ALLOW )
+				{
+					_snprintf_s(failmsgbox.failmsg, _countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1, "%s软件需要安装;;%s", m_sf.m_failsfInfo[i].softname, 
+						m_sf.m_failsfInfo[i].attriinfo.spromptinfo);
+				}
+				else
+				{
+					_snprintf_s(failmsgbox.failmsg,_countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"%s软件需要卸载;;%s", m_sf.m_failsfInfo[i].softname, 
+						m_sf.m_failsfInfo[i].attriinfo.spromptinfo);
+				}
+				failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+				m_failmsgbox.push_back(failmsgbox);
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddSoftwareFailMsg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddSoftwareFailMsg Exception");
+	}
+}
+
+void SingServerPage::AddFailMsgWithAction(IN int curritem)
+{
+	try
+	{
+		for (int i=0; i < m_failcnt;i++)
+		{
+			if (strcmp(m_checkitem.spromptinfo, "")!=0)
+			{
+				FAILMESSAGEBOXINFO failmsgbox;
+				memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+				memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+				char failsafecheckdes[MAX_PATH] = {0};
+
+				if (atoi(m_checkitem.spolicyaction)== ALLOW )
+				{
+					if (curritem == FIREWALL)
+					{
+						_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","防火墙需要打开");
+					}
+					else if (curritem == GUEST )
+					{
+						_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","Guest来宾需要打开");
+					}
+					else if (curritem == REMOTEDESK)
+					{
+						_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","远程桌面需要打开");
+					}
+					else if ( curritem == SCREENSAVER)
+					{
+						_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","屏幕保护需要打开");
+					}
+					else 
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "没有该模块");
+					}
+				}// if (atoi(m_checkitem.spolicyaction)== ALLOW )
+				else
+				{
+					if (curritem == FIREWALL)
+					{
+						_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","防火墙需要关闭");
+					}
+					else if (curritem == GUEST )
+					{
+						_snprintf_s(failsafecheckdes, _countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","Guest来宾需要关闭");
+					}
+					else if (curritem == REMOTEDESK)
+					{
+						_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","远程桌面需要关闭");
+					}
+					else if ( curritem == SCREENSAVER)
+					{
+						_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","屏幕保护需要关闭");
+					}
+					else 
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "没有该模块");
+					}
+				}
+
+				_snprintf_s(failmsgbox.failmsg,_countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"%s;;%s",
+					failsafecheckdes,m_checkitem.spromptinfo);
+
+				failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+				m_failmsgbox.push_back(failmsgbox);
+			}// if (strcmp(m_checkitem.spromptinfo, "")!=0)
+		}//for (int i=0; i < m_failcnt;i++)
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddFailMsgWithAction Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddFailMsgWithAction Exception");
+	}
+}
+
+void SingServerPage::AddFailMsgWithoutAction(IN int curritem)
+{
+	try
+	{
+		for (int i = 0; i < m_failcnt; i++)
+		{
+			if (strcmp(m_checkitem.spromptinfo, "") != 0)
+			{
+				FAILMESSAGEBOXINFO failmsgbox;
+				memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+				memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+				char failsafecheckdes[MAX_PATH] = {0};
+
+				if (curritem == FIREWALL)
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","垃圾文件超过设定的值需要清理");
+				}
+				else if (curritem == COMPUTERNAME)
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","计算机名称不符合管理员设定");
+				}
+				else if (curritem == CHECKSYSTEMTIME)
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","系统时间与服务器时间不同步");
+				}
+				else if (curritem == CHECKMAINPAGE)
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","IE主页不符合管理员要求");
+				}
+				else if (curritem == CHECKNETSHARE)
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","系统存在不符合要求的共享资源");
+				}
+				else if (curritem == CHECKDISKSPACE)
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","存在系统磁盘剩余空间不满足管理员要求");
+				}
+				else if (curritem == PWDPOLICY)
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","密码策略不满足管理员要求");
+				}
+				else if (curritem == CHECKIEEXTENSIONS)
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","IE控件不满足管理员要求");
+				}
+				else if (OSVERSION == curritem )
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","操作系统检查不符合策略要求");
+				}
+				else if (WEAKPWD == curritem )
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","弱口令检查不符合策略要求");
+				}
+				else if (WSUSCONFIG == curritem )
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","WSUS检查不符合策略要求");
+				}
+				else if (CHECKSYSTEMPATCH == curritem )
+				{
+					_snprintf_s(failsafecheckdes,_countof(failsafecheckdes), _countof(failsafecheckdes)-1,"%s","系统补丁不符合策略要求");
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,LOGLOCATION, "没有该模块");
+				}
+				_snprintf_s(failmsgbox.failmsg,_countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"%s;;%s",
+					failsafecheckdes,m_checkitem.spromptinfo);
+
+				failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+				m_failmsgbox.push_back(failmsgbox);
+			}//if (strcmp(m_checkitem.spromptinfo, "") != 0)
+		}// for (int i=0; i < m_failcnt; i++)
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddFailMsgWithoutAction Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddFailMsgWithoutAction Exception");
+	}
+}
+
+void SingServerPage::AddNetWorkFailMsg()
+{
+	try
+	{
+		if (m_network.m_netwkfailCnt>0)
+		{
+			if ( (m_network.m_inmodefail)&&(strcmp(m_network.m_netwkinfo.nkexterndata.attriinfoinmode.spromptinfo, "")!=0))
+			{
+				FAILMESSAGEBOXINFO failmsgbox;
+				memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+				memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+
+				if (atoi(m_network.m_netwkinfo.nkexterndata.attriinfoinmode.spolicyaction)==ALLOW)
+				{
+					_snprintf_s(failmsgbox.failmsg, _countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1, "拨号链接未开启;;%s", 
+						m_network.m_netwkinfo.nkexterndata.attriinfoinmode.spromptinfo);
+				}
+				else
+				{
+					_snprintf_s(failmsgbox.failmsg, _countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1, "拨号链接需要关闭;;%s",
+						m_network.m_netwkinfo.nkexterndata.attriinfoinmode.spromptinfo);
+				}
+
+				failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+				m_failmsgbox.push_back(failmsgbox);
+			}
+			if ((m_network.m_indbnkfail)&&(strcmp(m_network.m_netwkinfo.nkexterndata.attriinfodbnetwork.spromptinfo, "")!=0))
+			{
+				FAILMESSAGEBOXINFO failmsgbox;
+				memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+				memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+
+				if (atoi(m_network.m_netwkinfo.nkexterndata.attriinfodbnetwork.spolicyaction)==ALLOW)
+				{
+					_snprintf_s(failmsgbox.failmsg,_countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"存在禁用网卡;;%s", 
+						m_network.m_netwkinfo.nkexterndata.attriinfodbnetwork.spromptinfo);
+				}
+				else
+				{
+					_snprintf_s(failmsgbox.failmsg,_countof(failmsgbox.failmsg),_countof(failmsgbox.failmsg)-1,"存在双网卡;;%s",
+						m_network.m_netwkinfo.nkexterndata.attriinfodbnetwork.spromptinfo);
+				}
+
+				failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+				m_failmsgbox.push_back(failmsgbox);
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddNetWorkFailMsg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddNetWorkFailMsg Exception");
+	}
+}
+
+void SingServerPage::AddDomainFailMsg()
+{
+	try
+	{
+		list<XMLSFDOMAINFAILINFO>::iterator  failitemiter;
+		for (failitemiter = m_domainuser.m_faildomaininfo.begin( ); failitemiter !=m_domainuser.m_faildomaininfo.end( );  )
+		{
+			FAILMESSAGEBOXINFO failmsgbox;
+			memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+			XMLSFDOMAINFAILINFO failproc = *failitemiter;
+
+			if (strcmp(failproc.warningmsg, "") != 0)
+			{
+				memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+
+				_snprintf_s(failmsgbox.failmsg, _countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"域用户检查不符合管理员策略;;%s",failproc.warningmsg);
+
+				failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+				m_failmsgbox.push_back(failmsgbox);
+			}
+			failitemiter++;
+		}//for (failitemiter = m_process.m_failprocInfo.begin( ); failitemiter !=m_process.m_failprocInfo.end( );  )
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddDomainFailMsg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddDomainFailMsg Exception");
+	}
+}
+
+void SingServerPage::AddAntivirusFailMsg()
+{
+	try
+	{
+		list<ANTIVIRUSSTGFAILINFO>::iterator  failitemiter;
+		for (failitemiter = m_antivirus.m_failantiInfo.begin( ); failitemiter !=m_antivirus.m_failantiInfo.end( );  )
+		{
+			FAILMESSAGEBOXINFO failmsgbox;
+			memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+
+			ANTIVIRUSSTGFAILINFO failproc = *failitemiter;
+
+			if (strcmp(failproc.attriinfo.spromptinfo, "") != 0)
+			{
+				memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+
+				_snprintf_s(failmsgbox.failmsg, _countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"杀毒软件检查不符合管理员策略;;%s",
+					failproc.attriinfo.spromptinfo);
+
+				failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+				m_failmsgbox.push_back(failmsgbox);
+			}
+			failitemiter++;
+		}//for (failitemiter = m_antivirus.m_failantiInfo.begin( ); failitemiter !=m_antivirus.m_failantiInfo.end( );  )
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddAntivirusFailMsg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddAntivirusFailMsg Exception");
+	}
+}
+
+void SingServerPage::AddIllegalInternetFailMsg()
+{
+	try
+	{
+		for (int i=0; i < m_failcnt;i++)
+		{
+			if (strcmp(m_illegalInt.m_illegalIntConf.spromptinfo, "")!=0)
+			{
+				FAILMESSAGEBOXINFO failmsgbox;
+				memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+				memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+
+					_snprintf_s(failmsgbox.failmsg, _countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"违规外联;;%s",
+						m_illegalInt.m_illegalIntConf.spromptinfo);
+
+					failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+					m_failmsgbox.push_back(failmsgbox);
+			}
+		}//for (int i=0; i < m_failcnt;i++)
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddFailMsgWithAction Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddFailMsgWithAction Exception");
+	}
+}
+
+void SingServerPage::AddICustomCheckFailMsg()
+{
+	try
+	{
+		list<CHECKCUSTOMPOLICY>::iterator customIter;
+
+		for (customIter = g_checkCustomPolicyList.begin(); customIter != g_checkCustomPolicyList.end(); customIter++)
+		{
+			std::list<FORITEM>::iterator forItemIter;
+
+			for (forItemIter = customIter->forItemList.begin(); forItemIter != customIter->forItemList.end(); forItemIter++)
+			{
+				if (forItemIter->iIsFailed)
+				{
+					if (strlen(customIter->attriinfo.spromptinfo) > 0)
+					{
+						FAILMESSAGEBOXINFO failmsgbox;
+						memset(&failmsgbox,0,sizeof(FAILMESSAGEBOXINFO));
+						memset(failmsgbox.failmsg,0,sizeof(failmsgbox.failmsg));
+
+						_snprintf_s(failmsgbox.failmsg, _countof(failmsgbox.failmsg), _countof(failmsgbox.failmsg)-1,"自定义安检;;%s",
+							customIter->attriinfo.spromptinfo);
+
+						failmsgbox.outputlen = strlen(failmsgbox.failmsg);
+						m_failmsgbox.push_back(failmsgbox);
+					}
+				}
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SingServerPage::AddFailMsgWithAction Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SingServerPage::AddFailMsgWithAction Exception");
+	}
+}

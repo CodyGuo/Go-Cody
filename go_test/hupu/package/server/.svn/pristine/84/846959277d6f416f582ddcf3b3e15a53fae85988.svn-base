@@ -1,0 +1,107 @@
+#pragma once
+
+#include <Snmp.h>
+#pragma comment(lib,"snmpapi.lib")
+
+#include <map>
+using namespace std;
+
+//-----------------------------------------------------------------------
+//	From MSDN Help: http://msdn2.microsoft.com/en-us/library/aa378018(VS.85).aspx
+//
+//	The Microsoft SNMP service calls the SnmpExtensionInit function to initialize 
+//	the SNMP extension agent DLL. This function is an element of the SNMP Extension Agent API.
+//
+//	BOOL SnmpExtensionInit(
+//	  DWORD dwUptimeReference,                    // see NOTE below
+//	  HANDLE *phSubagentTrapEvent,                // trap event handle
+//	  AsnObjectIdentifier *pFirstSupportedRegion  // first MIB subtree
+//	);
+//-----------------------------------------------------------------------
+typedef BOOL (WINAPI *PFNSNMPEXTENSIONINIT)	(DWORD, HANDLE *, AsnObjectIdentifier *);
+
+//-----------------------------------------------------------------------
+//	From MSDN Help: http://msdn2.microsoft.com/en-us/library/aa378021.aspx
+//
+//	The Microsoft SNMP service calls the SnmpExtensionQuery function to resolve SNMP 
+//	requests that contain variables within one or more of the SNMP extension agent's 
+//	registered MIB subtrees. This function is an element of the SNMP Extension Agent API. 
+//
+//
+//	BOOL SnmpExtensionQuery(
+//	  BYTE bPduType,                  // SNMPv1 PDU request type
+//	  SnmpVarBindList *pVarBindList,  // pointer to variable bindings
+//	  AsnInteger32 *pErrorStatus,     // pointer to SNMPv1 error status
+//	  AsnInteger32 *pErrorIndex       // pointer to the error index
+//	);
+//-----------------------------------------------------------------------
+typedef BOOL (WINAPI *PFNSNMPEXTENSIONQUERY)(BYTE, SnmpVarBindList *, AsnInteger32 *, AsnInteger32 *);
+
+
+//===========================================================================
+// Summary:
+//     arpTable structure: Used to store ARP entries.
+//===========================================================================
+typedef struct
+{
+	unsigned long	Type;			// Type: 3:Dynamic, 4:Static
+	unsigned char	IPAddress[4];	// IP Address
+	unsigned char	MACAddress[6];	// MAC Address
+} arpTable;
+
+const int adaptercount = 10;
+typedef struct 
+{
+	int Index;
+	wchar_t description[MAX_PATH];
+}adapterDes;
+//===========================================================================
+// Summary:
+//     CARP class: ARP entries read and write.
+//     This class allows you to read, add, modify, and remove entries
+//     in ARP table, by SNMP.
+//===========================================================================
+class CARP
+{
+public:
+	CARP(void);
+	~CARP(void);
+
+	///////////////
+	adapterDes  adapterinfo[adaptercount];
+	//map<unsigned long,char*> arpDevice;
+	string GetARPDynamicData(char *param);
+	string InitDataAndGetARPDynamicData(char *param);
+			//-----------------------------------------------------------------------
+	// Summary:
+	//		Read ARP table for specific NIC interface.
+	// Parameters:
+	//		pTable			- Pointer to array of arpTable struct
+	//		TableLength		- Length of the array
+	//		AdapterIndex	- NIC Adapter index number
+	// Returns:
+	//		Number of read ARP entries
+	//-----------------------------------------------------------------------
+	int		GetEntries(arpTable* pTable, int TableLength, int AdapterIndex);
+
+	//-----------------------------------------------------------------------
+	// Summary:
+	//		Add/Modify/Remove ARP entry for specific NIC interface.
+	// Parameters:
+	//	IPAddress 		- Array of 4 BYTES, 4 octs of IP Address
+	//	MACAddress		- Array of 4 BYTES, 6 octs of MAC Address
+	//	Type			- Entry type (2:Remove, 3:Dynamic, 4:Static)
+	//	AdapterIndex	- NIC Adapter index number
+	// Returns:
+	//		TRUE if set successfully, FALSE otherwise.
+	//-----------------------------------------------------------------------
+	BOOL	EditEntry(unsigned char IPAddress[4], unsigned char MACAddress[6], unsigned long Type, int AdapterIndex);
+
+private:
+	HMODULE hMIBLibrary;// Handle for library: inetmib1.dll
+
+	PFNSNMPEXTENSIONINIT	pfnSnmpExtensionInit;	// Pointer to function: SnmpExtensionInit
+	PFNSNMPEXTENSIONQUERY	pfnSnmpExtensionQuery;	// Pointer to function: SnmpExtensionQuery
+	BOOL					bInitialized;			// Flag for success Initialize
+};
+

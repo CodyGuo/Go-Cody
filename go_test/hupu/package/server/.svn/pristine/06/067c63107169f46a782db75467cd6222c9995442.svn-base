@@ -1,0 +1,76 @@
+/******************************************************************************
+	*  版权所有（C）上海互普信息技术有限公司                 *
+	*  保留所有权利。                                                            *
+	******************************************************************************
+	*  作者 : zzhw
+	*  版本 : <当前版本号>
+	*****************************************************************************/
+
+#ifndef _CHECKSYSTEMPATCHS_H 
+#define _CHECKSYSTEMPATCHS_H 1
+
+#define MAXKBIDLEN 16
+#define MAXTIMEBUFLEN 20
+#define SYSTEM_PATCHS_TABLE_NAME "tstgsystempatch"
+#define SYSTEMPATCHS_CONTENT_TABLE_NAME "tstgsystempatchcontent"
+
+typedef struct _SYSTEMPATCHPOLICY
+{
+	long ipatchtype;
+	wchar_t m_wstrKBNumber[MAXKBIDLEN];
+	wchar_t m_wstrPatchTitle[MAXFIELDLEN];
+	wchar_t m_wstrdReleaseTime[MAXTIMEBUFLEN];
+	wchar_t m_wstrDownloadUrl[MAXFIELDLEN];
+	wchar_t m_wstrsSystemVersion[MAXFIELDLEN];
+
+}SYSTEMPATCHPOLICY, *PSYSTEMPATCHPOLICY;
+
+typedef struct _SYSTEMPATCHPOLICYLIST
+{
+	std::list<SYSTEMPATCHPOLICY> systemPatchPolicyList;
+
+}SYSTEMPATCHPOLICYLIST, *PSYSTEMPATCHPOLICYLIST;
+
+typedef BOOL(*pGetSystemPatch)(OUT std::list<std::string> &kbList);
+
+/************************************************************ 
+ Description: 从数据库中获取系统补丁策略
+ input: 
+ Return: 
+*************************************************************/
+int GetPatchDataFromDB(  IN wchar_t *pDirPath, 
+                            IN char *pUserId, 
+                            IN char* pUserType, 
+                            IN char *pCurrdata, 
+                            IN char *pMilliSecond, 
+                            IN char *pWeekday, 
+                            OUT SYSTEMPATCHPOLICYLIST &pSystemPatchPolicyList,
+                            OUT safecheckattr *pPatchAttriInfo);
+
+/************************************************************ 
+ Description: 补丁策略中排除已经安装的补丁（获取未安装的补丁）
+ input:  pSystemPatchPolicyList【下发的补丁策略】
+ Return: 
+*************************************************************/
+BOOL GetUninstallPatch(IN std::list<SYSTEMPATCHPOLICY> &systemPatchPolicyList);
+
+/************************************************************ 
+ Description:安装系统补丁
+ input:  pSystemPatchPolicyList【需要安装的补丁策略】
+ Return: 
+*************************************************************/
+BOOL InstallSystemPatch(IN SYSTEMPATCHPOLICYLIST &pSystemPatchPolicyList, int iRepairIndex);
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input:   
+ Return: 
+*************************************************************/
+bool SystemPatchShowMsg(IN int iCheckState,  
+						IN safecheckattr checkItem, 
+						IN SYSTEMPATCHPOLICYLIST &pSystemPatchPolicyList, 
+						OUT int* pFailNum,
+						OUT std::string& strErrorMsg,
+						IN LANGUAGETYPE language);
+
+#endif

@@ -1,0 +1,84 @@
+#pragma once
+
+#include "..\CommPub.h"
+#include "..\..\..\common\preheader.h"
+#include <list>
+using namespace std;
+
+
+const int SQLTABLEITEMLEN = 20;
+
+
+typedef struct _XMLEXTERNINFO
+{
+	char direction[SQLTABLEITEMLEN];
+	char speed[SQLTABLEITEMLEN];
+	char speedunit[SQLTABLEITEMLEN];
+	char total[SQLTABLEITEMLEN];
+	char totalunit[SQLTABLEITEMLEN];
+	char totalcycle[SQLTABLEITEMLEN];
+}XMLEXTERNINFO;
+
+typedef struct _STGRULEINFO
+{
+	char policyname[MAX_PATH];
+	char dmodifytime[MD5VALUELEN];
+	char startdate[MD5VALUELEN];
+	char enddate[MD5VALUELEN];
+	char sweekday[SQLTABLEITEMLEN*2];
+	char stimeperiod[MAX_PATH];
+	RuleInfo ruleinfo;
+	safecheckattr attriinfo;
+}STGRULEINFO;
+
+typedef struct _INIAPPANDKEY
+{
+	int stgid;
+	double totalpack;
+	int totalpackunit;
+	int packstate;
+	wchar_t md5value[MD5VALUELEN+1];
+}INIAPPANDKEY;
+
+
+class CNetMon
+{
+public:
+	CNetMon(void);
+	~CNetMon(void);
+public:
+	BOOL GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday);
+	string ExecNetMonItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess);
+	int  RestoreFailItem(int index);
+	void DeleteData();
+
+	//存储服务器端的xml数据时使用
+	void GetNetMonXmlConfig(char* xmlname,char* xmlvalue);
+	int SaveNetMonCntTodb(IN int policyid,IN sqlite3 *db,IN list<XMLNAMEANDVALUECON> thirditemattri);
+	XMLEXTERNINFO m_xmlexterninfo;
+
+	int m_totalNum;
+	int m_failItemNum;
+
+private:
+    void GetdbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, STGRULEINFO *dbrowdata);
+	void MergerdbStgInfo();
+	void SendLspDllStg(string servdate,BOOL  bupdatetozero);
+
+	void GetIniFailMsg();
+	string GetStgDesFromStdId(int stgid);
+
+	wstring GetStgMd5Value(char *userid,char* usertype,RuleInfo ruleinfo);
+	BOOL  bGetLastRecordStg(char *userid,char* usertype,string timedate);//判断是否需要清空策略信息
+
+	BOOL CalcbNeedAddUpPacket(int rulecycletype,string currtime,string packettime);//判断是否需要累计数据包，需要返回TRUE
+	//int CalcLastData(double ruledata,int ruledataunit,double useddata,int useddataunit,double* lastdata,int* lastdataunit);
+
+	int SqlExec(IN sqlite3 *db ,IN const char *sql);
+
+	RuleInfo m_RuleInfo[MAX_RULES];
+	list<STGRULEINFO> m_sqlselclist;
+    list<INIAPPANDKEY> m_inifileinfolist;
+	list<INIAPPANDKEY> m_sqlcalcmd5list;
+};
+

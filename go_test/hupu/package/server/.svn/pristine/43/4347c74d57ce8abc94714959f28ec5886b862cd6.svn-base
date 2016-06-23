@@ -1,0 +1,1173 @@
+/*************************************************
+File Name: checkpwd
+Author:  gcy
+Description:  弱口令检查
+          1)根据弱口令字典判断本地计算机是否使用了弱口令
+          2)若服务器端对该条策略配置了拒绝动作,首先查询拒绝的策略中是否配置弱口令字典
+             若配置弱口令字典,则不继承父亲的该弱口令字典
+             不存在弱口令字典表的拒绝什么也不执行
+          3)根据策略的优先级，是否检查禁用账户与是否记录日志,提示信息隶属于外层配置项，取优先级高的, 
+             例外用户和数据字典隶属于配置子项, 进行合并和继承
+Version:  0.0.1
+Data:  2015/1/26
+**************************************************/
+
+#include "StdAfx.h"
+#include "checkpwd.h"
+
+#include <LM.h>
+#pragma  comment(lib,"Netapi32.lib")
+
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+#include "SafeCheckFuntion.h"
+#include "Download.h"
+
+
+checkpwd::checkpwd(void)
+    :m_numcount(0),
+    m_numfailcount(0)
+{
+    InitData();
+}
+
+checkpwd::~checkpwd(void)
+{
+    InitData();
+
+}
+
+//查询是否有弱口令检查的安检项
+int checkpwd::GetDataFromDB(wchar_t  *dirpath, char *userid,char* usertype, char *currdata, char *millisecond, char *weekday)
+{
+    //从数据库中查询总的策略项和当前要开始检查的策略项及所有的安检结果
+    int ret = SQLITE_OK;
+    if (HP_openDB(dirpath) == HP_DB_OPENFAIL)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"打开数据库失败");
+        return HP_DB_OPENFAIL;
+    }
+    else
+    {
+        InitData();
+
+        //获取process数据
+        char sql[HP_C_SQLDATA]={'0'}; 
+        char sqlReal[HP_C_SQLDATA]={'0'};
+        char **pszResult='\0';
+        CHAR *szErrMsg='\0';
+        INT nRow = 0;
+        INT nCloumn = 0;
+
+       sprintf_s(sql,HP_C_SQLDATA,"SELECT %s,bCheckForbitUser,exceptionuser,weakpwddirectory FROM  (SELECT * FROM tstgweakpwd a, tstgweakpwdcontent b \
+                        WHERE (a.ipolicyauthid=b.ipolicyauthid) AND (a.iuserid=%d) AND (a.usertype = \'%s\')AND (a.dstartdate<=\'%s\') AND (a.denddate>=\'%s\') \
+                        AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority DESC) AS tb  \
+                         ORDER BY ipriority ASC ",HP_ATTRIBUTE_SQLNAME,atoi(userid),usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));		
+
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "查询弱口令策略的SQL语句:", sql);
+        Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+//		 EnterCriticalSection(&g_opdbcs);
+        if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+        {
+             WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "获取弱口令数据失败:", szErrMsg);
+	//		 LeaveCriticalSection(&g_opdbcs);
+            sqlite3_free_table(pszResult);
+            ret = sqlite3_close(g_db);
+            g_db = NULL;
+            return HP_DB_GETTABLEFAIL;
+        }
+        if ((nRow > 0) && (nCloumn > 0))
+        {	
+            for (int i=0;i<nRow;i++)
+            {
+                 WEKPWDDATAINFO tmpinfo;
+                memset(&tmpinfo,0,sizeof(WEKPWDDATAINFO));
+
+                for (int j=0; j < nCloumn; j++)
+                {
+                    GetdbColumndata(pszResult[j],pszResult[(i+1)*nCloumn+j],	&tmpinfo);
+                }//for (int j=0; j < nCloumn; j++)
+
+                m_totaldata.push_back(tmpinfo);
+
+            }//for (int i=0;i<nRow;i++)
+
+            //优先级最高的动作时拒绝的话不执行
+            list<WEKPWDDATAINFO>::iterator  execiter;
+            execiter =m_totaldata.begin();
+            m_numcount++;
+
+            WEKPWDDATAINFO lastdata;//上一次的弱口令数据
+            lastdata = *execiter;
+            if ( atoi(lastdata.bcheckforbituser) == 1 )
+            {
+                m_bcheckforbitUser= true;
+            }
+            else
+            {
+                m_bcheckforbitUser= false;
+            }
+
+            if ( atoi(lastdata .attriinfo.spolicyaction) == REFUSE )
+            {
+                m_numcount =0;//不执行该安检项
+                 WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "策略动作为拒绝,不执行该安检项");
+            }
+            else
+            {
+                m_execdata.push_back(lastdata);
+                execiter++;
+                for (;execiter != m_totaldata.end();++execiter)
+                {
+                    WEKPWDDATAINFO tmpdata;
+                    tmpdata = *execiter;
+                    if ( strcmp(tmpdata.attriinfo.spolicyaction,lastdata.attriinfo.spolicyaction) ==0 )
+                    {
+                        m_execdata.push_back(tmpdata);
+                        m_numcount++;
+                    }
+                }
+            }
+        }//if ((nRow > 0) && (nCloumn > 0))
+
+        sqlite3_free_table(pszResult);
+	//	LeaveCriticalSection(&g_opdbcs);
+    }
+    return HP_SUCCESS;
+}
+
+string checkpwd::ExecWeakPwdItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess)
+{
+    char tempheader[MAX_PATH]={"0"};
+    sprintf_s(tempheader,MAX_PATH,"%s;%s;%d;%d;1;%d;%s;",servertime,g_deviceid.c_str(),totalitem,
+        curritem,nextitem,mac);
+   
+    bool bIsSucces = true;
+    //拼接向服务器发送的xml
+    string xmlstring;
+
+    //从服务器端下载弱口令字典,判断哪些是弱口令
+    int Res = ReadDirecContFromServer();
+    if ( Res == HP_SUCCESS )
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"下载并读取弱口令字典成功");
+    else
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"下载并读取弱口令字典失败");
+
+    Res = GetLocalUserInfo(m_bcheckforbitUser);
+    if (Res == HP_SUCCESS)
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "获取用户信息成功");
+    else
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "获取用户信息失败");
+
+    list<WEKPWDDATAINFO>::iterator  execiter;
+    execiter = m_execdata.begin();
+    WEKPWDDATAINFO  tmpdbdata;
+    memset(&tmpdbdata, 0, sizeof(WEKPWDDATAINFO));
+    tmpdbdata = *execiter;
+
+    if (m_numcount>0)
+    {
+        std::list<USERACCOUNTINFO>::iterator useriter;
+        for ( useriter = m_useraccount.begin(); useriter != m_useraccount.end(); ++useriter )
+        {
+            USERACCOUNTINFO tmpuser;
+            memset(&tmpuser,0,sizeof(USERACCOUNTINFO));
+            tmpuser= *useriter;
+
+            if ( m_bhasgroupstg )
+            {
+                SetGroupStratage(0);
+            }
+
+            if ( tmpuser.accountstartstat== 0 )
+            {
+				if(!SetUserState(tmpuser.accountstr,1))
+                {
+                   WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"设置用户启用失败");
+                }
+            }
+            if ( tmpuser.accountpwdstat== 0 )
+            {
+				if ( !SetUserState(tmpuser.accountstr,3) )
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"设置取消用户密码过期失败");
+                }
+            }
+           
+            std::list<string>::iterator  pwditer;
+            for (pwditer = m_pwdContlist.begin(); pwditer != m_pwdContlist.end(); ++pwditer)
+            {
+                string pwdstr = *pwditer;
+				if ( UseUserNameAndPwdToLogOn(tmpuser.accountstr, pwdstr) == HP_SUCCESS )
+                {
+                    FAILACCONTINFO faildata;
+                    memset(&faildata,0,sizeof(FAILACCONTINFO));
+					faildata.accountstr = tmpuser.accountstr;
+					faildata.pwdstr = pwdstr;
+					faildata.fullname = tmpuser.fullname;
+					faildata.comment = tmpuser.comment;
+					faildata.failmsg = tmpdbdata.attriinfo.spromptinfo;
+                    m_failItem.push_back(faildata);
+
+                    m_numfailcount++;
+                    break;
+                }
+            }
+
+            if ( m_bhasgroupstg )
+            {
+                SetGroupStratage(1);
+            }
+
+            if ( tmpuser.accountstartstat == 0 )
+            {
+				if (!SetUserState(tmpuser.accountstr, 0))
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"设置用户禁用失败");
+                }
+            }
+            if ( tmpuser.accountpwdstat == 0 )
+            {
+				if (!SetUserState(tmpuser.accountstr,2))
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"设置用户密码过期失败");
+                }
+            }
+          
+        }
+    }//if (m_numcount>0)
+
+	int iFailItemIndex = 0;
+	string failmsg;
+	if ( m_numfailcount > 0 )
+	{
+		bIsSucces = false;
+		list<FAILACCONTINFO>::iterator failiter;
+		for ( failiter = m_failItem.begin(); failiter != m_failItem.end(); ++failiter )
+		{
+			FAILACCONTINFO faildata;
+			memset(&faildata,0,sizeof(FAILACCONTINFO));
+			faildata = *failiter;
+
+			failmsg += "<subitem checkItemId=\"";
+			failmsg += std::to_string(long long(iFailItemIndex));
+			failmsg += "\" checkItemAction=\"";
+			failmsg += tmpdbdata.attriinfo.spolicyaction;
+			failmsg += "\" userName=\"";
+			failmsg += faildata.accountstr;
+			failmsg += "\" detailName=\"";
+			failmsg += faildata.fullname;
+			failmsg += "\"  desc=\"";
+			failmsg += faildata.comment;
+			failmsg += "\"  faildes=\"";
+			failmsg += "用户";
+			failmsg += faildata.accountstr;
+			failmsg += "使用弱口令密码";
+			failmsg += "\"  name=\"";
+			failmsg += faildata.accountstr;
+			failmsg += "\" swarnname=\"";
+			failmsg += tmpdbdata.attriinfo.warningcont; 
+			failmsg += "\" iwarnlevel=\"";
+			failmsg += tmpdbdata.attriinfo.warninglevel; 
+			failmsg += "\" ilogrecord=\"";
+			failmsg += tmpdbdata.attriinfo.srcevent; 
+			failmsg +=  "\" />";
+			iFailItemIndex++;
+		}
+	}
+   
+    if(bIsSucces)
+    {
+		IsSuccess[WEAKPWD] = HP_SUCCESS;
+
+        xmlstring = SendSingleItemSafeCheckSuccess(tempheader);
+    }
+    else
+    {
+		IsSuccess[WEAKPWD] = HP_SF_SAFECHECKFAIL;
+
+        string Sendtmpheader =tempheader;
+        string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac><iman succflag =\"0\">";
+        string  xmltail ="</iman></nac>";
+        xmlstring = Sendtmpheader+xmlHeader+failmsg+xmltail;
+    }
+    return xmlstring;
+}
+
+int checkpwd::RestoreFailItem()
+{
+    return -1;
+}
+
+int checkpwd::RestoreWeakpwd(int userindex,string forbitstr,string userpwd)
+{
+	int index = 0;
+	list<FAILACCONTINFO>::iterator failiter;
+	for ( failiter = m_failItem.begin(); failiter != m_failItem.end(); ++failiter )
+	{
+		if (index == userindex)
+		{
+			FAILACCONTINFO tmpdata = *failiter;
+			if (atoi(forbitstr.c_str()))
+				ForbitUser(tmpdata.accountstr);
+			else
+				SetUserPwd(tmpdata.accountstr,userpwd);
+		}
+		index++;
+	}
+	m_failItem.begin();
+	return 0;
+}
+
+/*************************************************
+Function Name: GetLocalUserInfo
+Description: 获取本地的用户名称信息
+Input and output:  
+      bCheckForb   :是否检查禁用用户标识，TRUE表示检查禁用账户,
+                              FALSE表示不检查禁用账户
+      Output: HP_SUCCESS表示配置成功
+               HP_WSUS_GETCONFIGFAIL表示配置失败
+**************************************************/
+int checkpwd::GetLocalUserInfo(bool bCheckForb)
+{
+	int nRetCode = 0;
+	bool keepGoing = TRUE;
+	DWORD entriesRead = 0;
+	DWORD totalEntries = 0;
+	USER_INFO_2 * pInfo=NULL;
+	DWORD resumeHandle=0;
+	wchar_t nameBuf[UNLEN+1] = {L"0"};
+
+	wchar_t  serverName[100] = {L"0"};
+	lstrcpyW(serverName,L"");
+	while (keepGoing)
+	{
+		NET_API_STATUS ret =NetUserEnum(serverName,2,0,(LPBYTE*)&pInfo, sizeof(USER_INFO_2)*100, &entriesRead, &totalEntries, &resumeHandle);
+		keepGoing=(ret==ERROR_MORE_DATA);
+		if(ret==0||ret==ERROR_MORE_DATA)
+		{
+			DWORD i;
+			for(i=0;i<entriesRead;i++)
+			{
+				string username;
+				LPWSTR pName=(LPWSTR)pInfo[i].usri2_name;
+				if(pName==NULL)
+				{
+					lstrcpy(nameBuf,L"(no name!)");
+				}
+				else if (lstrlenW(pName)==0)
+				{
+					lstrcpy(nameBuf,L"(empty name!)");
+				}
+				else 
+				{
+					wstring UserName = pName;
+					username = ConvertUniToAnsi(UserName);
+
+					if (IsInExceptionUserList(username) != HP_SUCCESS)//不是例外用户
+					{
+						USERACCOUNTINFO tmpuser;
+						memset(&tmpuser,0,sizeof(USERACCOUNTINFO));
+						tmpuser.accountstr = username;
+						tmpuser.fullname = ConvertUniToAnsi(pInfo[i].usri2_full_name);
+						tmpuser.comment =ConvertUniToAnsi(pInfo[i].usri2_comment);
+
+						tmpuser.accountstartstat = 1;
+						tmpuser.accountpwdstat = 1;
+						DWORD dwflag = pInfo[i].usri2_flags&UF_PASSWORD_EXPIRED;
+						if (dwflag)
+						{
+							tmpuser.accountpwdstat = 0;
+						}
+						dwflag= pInfo[i].usri2_flags&UF_ACCOUNTDISABLE;
+						if (dwflag)
+						{
+							if (bCheckForb)
+							{
+								WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"添加禁用账户到用户列表",(char*)username.c_str());
+								tmpuser.accountstartstat = 0;
+								m_useraccount.push_back(tmpuser);
+							}
+							WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"账户已禁用");
+						}
+						else
+						{
+							m_useraccount.push_back(tmpuser);
+							WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"新添加账户",(char*)username.c_str());
+						}
+					}
+					else
+					{
+						WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"用户是例外用户",(char*)username.c_str());
+					}
+				}
+			}//for(i=0;i<entriesRead;i++)
+
+			if (pInfo != NULL)
+			{
+				NetApiBufferFree(pInfo);
+				pInfo = NULL;
+			}
+		}//if(ret==0||ret==ERROR_MORE_DATA)
+
+		if (pInfo != NULL)
+		{
+			NetApiBufferFree(pInfo);
+			pInfo = NULL;
+		}
+
+	} //while (keepGoing)
+
+	if ( m_useraccount.size()>0 )
+	{
+		RefuseLocalUserLogonStrategyList();
+	}
+
+	return nRetCode;
+}
+
+/*************************************************
+Function Name: UseUserNameAndPwdToLogOn
+Description:使用用户名和密码登陆
+Input and output:  
+      username   :用户名,取值不能为空
+     userpwd :用户密码,取值可以为空
+      Output: HP_SUCCESS表示使用该用户名和密码登陆成功
+               HP_WEAKPWD_NOTWEAK表示使用该用户名和密码登陆失败
+**************************************************/
+ int checkpwd::UseUserNameAndPwdToLogOn(string username,string userpwd)
+ {
+	 int res = HP_WEAKPWD_NOTWEAK;
+	 if(username.length()==0)
+        return res;
+
+	 wstring UserName = ConvertAnsiToUni(username);
+	 wstring UserPwd =  ConvertAnsiToUni(userpwd);
+
+     HANDLE hToken = NULL;
+
+     BOOL bLoggedOn = FALSE;
+	 if ( UserPwd.length() == 0 )
+     {
+		 bLoggedOn = ::LogonUser(UserName.c_str(),L".",NULL, 
+             LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &hToken);
+     }
+     else
+     {
+		 bLoggedOn = ::LogonUser(UserName.c_str(),L".",UserPwd.c_str(), 
+             LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &hToken);
+     }
+    
+     DWORD dwError = GetLastError();
+
+     if(bLoggedOn || dwError == 1327)
+     {
+         WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"用户登录成功");
+         res = HP_SUCCESS;
+     }
+     if ( (dwError == ERROR_PRIVILEGE_NOT_HELD)||(dwError == ERROR_ACCESS_DENIED))
+     {
+         wchar_t logmsg[MAX_PATH*2] = {L"0"};
+         _snwprintf_s(logmsg,MAX_PATH*2,MAX_PATH*2-1,L"用户名=%s,权限不够",UserName.c_str());
+         WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,logmsg);
+     }
+
+	 ::SecureZeroMemory((PVOID)UserPwd.c_str(),UserPwd.length());
+       if (hToken != NULL)
+       {
+           CloseHandle(hToken);
+           hToken = NULL;
+       }
+     return res;
+ }
+
+ void checkpwd::InitData()
+ {
+
+     m_bcheckforbitUser = true;
+
+      m_numcount = 0;
+
+     //策略失败的项数
+      m_numfailcount = 0;
+
+      list<USERACCOUNTINFO>::iterator useracctiter;
+      for (useracctiter = m_useraccount.begin( ); useracctiter != m_useraccount.end( );  )
+      {
+          m_useraccount.erase(useracctiter++);
+      }
+
+     list<string>::iterator  iter;
+     for (iter = m_pwdContlist.begin( ); iter != m_pwdContlist.end( );  )
+     {
+         m_pwdContlist.erase(iter++);
+     }
+     
+      list<FAILACCONTINFO>::iterator  failiter;
+      for (failiter = m_failItem.begin();failiter != m_failItem.end();)
+      {
+          m_failItem.erase(failiter++);
+      }
+
+      list<WEKPWDDATAINFO>::iterator dataiter;
+      for(dataiter = m_totaldata.begin();dataiter != m_totaldata.end();)
+      {
+          m_totaldata.erase(dataiter++);
+      }
+
+      for(dataiter = m_execdata.begin();dataiter != m_execdata.end();)
+      {
+          m_execdata.erase(dataiter++);
+      }
+
+       m_bhasgroupstg = false;
+
+       m_groupuserinfo=L"";
+ }
+
+ /*************************************************
+Function Name: 从服务器端下载字典表并读出字典表中的内容
+Description:ReadDirecContFromServer
+Input and output:  
+      username   :用户名,取值不能为空
+     userpwd :用户密码,取值不能为空
+      Output: HP_SUCCESS表示下载成功并读取文件中的内容
+               HP_WEAKPWD_GETDIRCCONTFAIL表示该函数调用失败
+**************************************************/
+ int checkpwd::ReadDirecContFromServer()
+ {
+     int res = HP_WEAKPWD_GETDIRCCONTFAIL;
+
+     list<WEKPWDDATAINFO>::iterator execiter;
+     for (execiter = m_execdata.begin();execiter != m_execdata.end(); ++execiter)
+     {
+         WEKPWDDATAINFO tmpexecdata;
+         memset(&tmpexecdata,0,sizeof(WEKPWDDATAINFO));
+         tmpexecdata = *execiter;
+		 if(tmpexecdata.pwddirectory.size()>0)
+		 {
+			 CDownload  dwfile((char*)tmpexecdata.pwddirectory.c_str(),tmpexecdata.pwddirectory.length());
+             char localfilepath[MAX_PATH] = {0};
+             dwfile.StartDownLoad(localfilepath,sizeof(localfilepath));
+             if(PathFileExistsA(localfilepath))
+             {
+                 res = HP_SUCCESS;
+               if(ReadWeakpwdDirectoryFile(localfilepath) != HP_SUCCESS)
+               {
+                   WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOFTWARE,LOGLOCATION,"读取弱口令字典表失败");
+               }
+             }
+             else
+             {
+                 WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOFTWARE,LOGLOCATION,"下载文件失败");
+             }
+		 }
+		
+     }//for (execiter = m_execdata.begin();execiter != m_execdata.end(); ++execiter)
+
+     return res;
+ }
+
+ //根据数据库中的字段转化为结构体字段
+void checkpwd::GetdbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, WEKPWDDATAINFO *dbrowdata)
+ {
+     if( strcmp(dbcolumnname, "ipriority")==0 )
+     {			
+         memset(dbrowdata->attriinfo.ipriority, 0, sizeof(dbrowdata->attriinfo.ipriority));
+         Convert(dbcolumnvalue, dbrowdata->attriinfo.ipriority, sizeof(dbrowdata->attriinfo.ipriority),CP_UTF8, CP_ACP);					
+     }
+     else if(strcmp(dbcolumnname, "spolicyaction")==0)
+     {			
+         memset(dbrowdata->attriinfo.spolicyaction,0,sizeof(dbrowdata->attriinfo.spolicyaction));
+         Convert(dbcolumnvalue,dbrowdata->attriinfo.spolicyaction,sizeof(dbrowdata->attriinfo.spolicyaction),CP_UTF8,CP_ACP);					
+     }
+     else if(strcmp(dbcolumnname, "spromptinfo")==0)
+     {
+         memset(dbrowdata->attriinfo.spromptinfo,0,sizeof(dbrowdata->attriinfo.spromptinfo));
+         Convert(dbcolumnvalue,dbrowdata->attriinfo.spromptinfo,sizeof(dbrowdata->attriinfo.spromptinfo),CP_UTF8,CP_ACP);					
+     }
+     else  if(strcmp(dbcolumnname, "warningcont")==0)
+     {
+         memset(dbrowdata->attriinfo.warningcont,0,sizeof(dbrowdata->attriinfo.warningcont));
+         Convert(dbcolumnvalue,dbrowdata->attriinfo.warningcont,sizeof(dbrowdata->attriinfo.warningcont),CP_UTF8,CP_ACP);					
+     }	
+     else  if(strcmp(dbcolumnname,"warninglevel")==0)
+     {
+         memset(dbrowdata->attriinfo.warninglevel,0,sizeof(dbrowdata->attriinfo.warninglevel));
+         Convert(dbcolumnvalue,dbrowdata->attriinfo.warninglevel,sizeof(dbrowdata->attriinfo.warninglevel),CP_UTF8,CP_ACP);					
+     }	
+     else  if(strcmp(dbcolumnname,"srcevent")==0)
+     {
+         memset(dbrowdata->attriinfo.srcevent,0,sizeof(dbrowdata->attriinfo.srcevent));
+         Convert(dbcolumnvalue,dbrowdata->attriinfo.srcevent,sizeof(dbrowdata->attriinfo.srcevent),CP_UTF8,CP_ACP);					
+     }
+     else if(strcmp(dbcolumnname,"bCheckForbitUser")==0)
+     {
+         memset(dbrowdata->bcheckforbituser,0,sizeof(dbrowdata->bcheckforbituser));
+         Convert(dbcolumnvalue,dbrowdata->bcheckforbituser,sizeof(dbrowdata->bcheckforbituser),CP_UTF8,CP_ACP);					
+     }
+     else if(strcmp(dbcolumnname,"exceptionuser")==0)
+     {
+		 dbrowdata->exceptionuser = ConvertSrcToDst(dbcolumnvalue,CP_UTF8,CP_ACP);		
+     }
+
+     else if(strcmp(dbcolumnname,"weakpwddirectory")==0)
+     {
+		 dbrowdata->pwddirectory = ConvertSrcToDst(dbcolumnvalue,CP_UTF8,CP_ACP);			
+     }	
+     else
+     {
+         WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"没有该字段");
+     }
+ }
+
+
+int checkpwd::ReadWeakpwdDirectoryFile(char* filepath)
+{
+    int res = -1;
+
+    FILE  *iFile = NULL;
+    iFile= _fsopen(filepath,"rb",_SH_DENYNO);
+    if (iFile != NULL)
+    {
+        res = HP_SUCCESS;
+
+        fseek(iFile , 0 ,SEEK_END);
+        int len = ftell(iFile);
+        char *buffer = new char[len+1];
+        memset(buffer , 0, len+1);
+
+        fseek(iFile , 0 , SEEK_SET);
+        fread_s(buffer,len+1,1,len,iFile);
+        int index = 0;
+        char subpwd[50]={0};
+
+        int i = 0;
+        for (i=0;i<len;i++)
+        {
+            if ((buffer[i] == '\r' && buffer[i+1] == '\n')||( index >=49 ))
+            {
+                string temppwd = subpwd;
+                if ( temppwd.size() == 0 )
+                {
+                    temppwd="空";
+                }
+                m_pwdContlist.push_back(temppwd);
+                memset(subpwd,0,sizeof(subpwd));
+                index = 0;
+                i=i++;
+            }
+            else
+            {
+                subpwd[index]=buffer[i];
+                index++;
+            }
+        }
+        if ( i == len )
+        {
+            subpwd[index]=buffer[i];
+            string temppwd = subpwd;
+            if ( temppwd.size() == 0 )
+            {
+                temppwd="空";
+            }
+            m_pwdContlist.push_back(temppwd);
+            memset(subpwd,0,sizeof(subpwd));
+            index = 0;
+        }
+
+        if (buffer != NULL )
+        {
+            delete[]  buffer;
+            buffer = NULL;
+        }
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOFTWARE,LOGLOCATION,"打开文件失败!");
+    }
+    if (iFile != NULL)
+    {
+        fclose(iFile);
+        iFile = NULL;
+    }
+    return res;
+}
+
+ /*************************************************
+Function Name: GetExceptionUserList
+Description:判断用户是否属于例外用户
+Input and output:  
+      username   :用户名,取值不能为空
+      Output: HP_SUCCESS表示属于例外用户
+               HP_WEAKPWD_NOTEXCEPTION表示不属于例外用户
+**************************************************/
+int checkpwd::IsInExceptionUserList(string username)
+{
+    int Res = HP_WEAKPWD_NOTEXCEPTION;
+    list<WEKPWDDATAINFO>::iterator execiter;
+    for (execiter = m_execdata.begin();execiter != m_execdata.end(); ++execiter)
+    {
+        WEKPWDDATAINFO tmpexecdata;
+        memset(&tmpexecdata,0,sizeof(WEKPWDDATAINFO));
+        tmpexecdata = *execiter;
+		if(tmpexecdata.exceptionuser == username )
+		{
+			Res = HP_SUCCESS;
+			break;
+		}
+    }
+    return Res;
+}
+
+ /*************************************************
+Function Name: RefuseLocalUserLogonStrategyList
+Description:获取拒绝本地用户登录的组策略的用户列表
+Input and output:  
+          HP_SUCCESS
+          HP_WEAKPWD_NOTEXCEPTION
+**************************************************/
+int checkpwd::RefuseLocalUserLogonStrategyList()
+{
+    int res = HP_WEAKPWD_NOTEXCEPTION;
+
+    char inffilepath[MAX_PATH] = {0};
+    sprintf_s(inffilepath, MAX_PATH,"%s\\refuselogonuser.inf", g_nacdirpath);
+
+    char batfilepath[MAX_PATH] = {0};
+    sprintf_s(batfilepath, MAX_PATH, "%s\\refuselogonuser.bat", g_nacdirpath);
+
+    char batcontent[MAX_PATH*2] = {0};
+    sprintf_s(batcontent, MAX_PATH*2,"secedit /export /cfg %s ",inffilepath);
+
+    FILE *pfile =NULL;
+    pfile = _fsopen(batfilepath, "w", _SH_DENYNO);
+    if (pfile == NULL)
+    {
+        return res;
+    }
+    fwrite(batcontent, 1, strlen(batcontent), pfile);
+    fflush(pfile);
+    if (pfile != NULL)
+    {
+        fclose(pfile);
+        pfile = NULL;
+    }
+     ::WinExec(batfilepath, SW_HIDE);
+
+    for (int i=0; i < 10; i++)
+    {
+        if (PathFileExistsA(inffilepath))
+        {
+            break;
+        }
+        else
+        {
+            Sleep(100);
+        }
+    }
+   
+    //判断文件中是否有SeDenyInteractiveLogonRight
+   if (PathFileExistsA(inffilepath))
+   {
+
+       HANDLE hfile = CreateFileA( inffilepath,
+           GENERIC_READ|GENERIC_WRITE,
+           FILE_SHARE_READ|FILE_SHARE_WRITE,
+           NULL,
+           OPEN_EXISTING,
+           FILE_ATTRIBUTE_NORMAL,
+           NULL);
+
+       DWORD dwsize = GetFileSize(hfile,NULL);
+
+       if(dwsize==INVALID_FILE_SIZE)
+       {
+           CloseHandle(hfile);
+           hfile=NULL;
+           WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "读取inf文件失败");
+           return res;
+       }
+
+       DWORD dwsizeLow = GetFileSize(hfile, NULL);
+
+       if((dwsizeLow == INVALID_FILE_SIZE)&&(GetLastError() != NO_ERROR))
+       {
+           CloseHandle(hfile);
+           hfile = NULL;
+       }
+
+       CloseHandle(hfile);
+       hfile=NULL;
+
+       if (dwsizeLow == 0)
+       {
+           WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"获取inf文件大小失败");
+
+           if (PathFileExistsA(batfilepath))
+           {
+               DeleteFileA(batfilepath);
+           }
+
+           return res;
+       }
+     
+       FILE *pfile=NULL;
+       pfile = _fsopen(inffilepath,"rb",_SH_DENYNO);
+       if (pfile != NULL)
+       {
+           fseek(pfile,SEEK_SET,0);
+           wchar_t *readbuff = new wchar_t[dwsizeLow+1];
+           memset(readbuff,0,(dwsizeLow+1)*sizeof(wchar_t));
+           fread_s(readbuff,dwsizeLow*sizeof(wchar_t),sizeof(wchar_t),dwsizeLow,pfile);
+
+           wstring readcontstr = readbuff;
+          int pos = readcontstr.find(L"SeDenyInteractiveLogonRight",0);
+          if (pos != wstring::npos)
+          {
+              WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"存在SeDenyInteractiveLogonRight用户");
+              int userpos = readcontstr.find(L"\r\n",pos);
+              wstring denyinteractiveuser = readcontstr.substr(pos, userpos-pos);
+
+              m_bhasgroupstg = true;
+              m_groupuserinfo = denyinteractiveuser;
+
+              WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, (wchar_t*)denyinteractiveuser.c_str());
+          }
+          else
+          {
+              WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"不存在SeDenyInteractiveLogonRight用户");
+          }
+           if (readbuff != NULL)
+           {
+                delete[] readbuff;
+                readbuff = NULL;
+           }
+          
+       }
+
+       if (pfile != NULL)
+       {
+           fclose(pfile);
+           pfile = NULL;
+       }
+
+       if (PathFileExistsA(batfilepath))
+       {
+           DeleteFileA(batfilepath);
+       }
+       if (PathFileExistsA(inffilepath))
+       {
+           DeleteFileA(inffilepath);
+       }
+
+   }
+   return HP_SUCCESS;
+}
+
+int checkpwd::GetUserState(IN string username,OUT DWORD &dFlag)
+{
+	if(username.size()==0)
+		return 0;
+
+    LPUSER_INFO_1 pBuf = NULL;
+    LPUSER_INFO_1 pTmpBuf;
+    DWORD dwLevel = 1;
+    DWORD dwPrefMaxLen = MAX_PREFERRED_LENGTH;
+    DWORD dwEntriesRead = 0;
+    DWORD dwTotalEntries = 0;
+    DWORD dwResumeHandle = 0;
+    DWORD i;
+    DWORD dwTotalCount = 0;
+    NET_API_STATUS nStatus;
+    LPTSTR pszServerName = NULL;
+    //
+    // Call the NetUserEnum function, specifying level 0; 
+    //   enumerate global user account types only.
+    //
+    do // begin do
+    {
+        nStatus = NetUserEnum((LPCWSTR) pszServerName,
+            dwLevel,
+            FILTER_NORMAL_ACCOUNT, // global users
+            (LPBYTE*)&pBuf,
+            dwPrefMaxLen,
+            &dwEntriesRead,
+            &dwTotalEntries,
+            &dwResumeHandle);
+        //
+        // If the call succeeds,
+        //
+        if ((nStatus == NERR_Success) || (nStatus == ERROR_MORE_DATA))
+        {
+            if ((pTmpBuf = pBuf) != NULL)
+            {
+                //
+                // Loop through the entries.
+                //
+                for (i = 0; (i < dwEntriesRead); i++)
+                {
+                    assert(pTmpBuf != NULL);
+
+                    if (pTmpBuf == NULL)
+                    {
+                        break;
+                    }
+					wstring UserName = ConvertAnsiToUni(username);
+                
+					if (_wcsnicmp(pTmpBuf->usri1_name, UserName.c_str(), UserName.length())==0)
+                    {
+                        if (pTmpBuf->usri1_flags & UF_ACCOUNTDISABLE) 
+                        {
+                            dFlag = pTmpBuf->usri1_flags;
+                            if (pBuf != NULL)
+                            {
+                                NetApiBufferFree(pBuf);
+                                pBuf = NULL;
+                            }
+                            return DISABLE;
+                        }
+                        else
+                        {
+                            dFlag = pTmpBuf->usri1_flags;
+                            if (pBuf != NULL)
+                            {
+                                NetApiBufferFree(pBuf);
+                                pBuf = NULL;
+                            }
+                            return ENABLE;
+                        }
+                    }	
+
+                    pTmpBuf++;
+                    dwTotalCount++;
+                }
+            }
+        }	
+
+        //
+        // Free the allocated buffer.
+        //
+        if (pBuf != NULL)
+        {
+            NetApiBufferFree(pBuf);
+            pBuf = NULL;
+        }
+    }
+
+    while (nStatus == ERROR_MORE_DATA); // end do
+
+    if (pBuf != NULL)
+        NetApiBufferFree(pBuf);
+
+    return UNKNOWNSTATE;
+}
+
+ /*************************************************
+Function Name:SetUserState
+Description: 设置用户的状态
+Input and output:  
+        iflag: 0表示禁用用户
+                1表示启用用户
+                2表示取消下次登录需要修改密码
+                3表示设置下次登录需要密码
+RetVal:
+        TRUE表示设置成功
+        FALSE表示失败
+**************************************************/
+BOOL checkpwd::SetUserState(IN string username, IN int iflag)                   
+{  
+    DWORD dwLevel = 1008;
+    USER_INFO_1008 ui;
+    NET_API_STATUS nStatus;
+
+    DWORD dflag=0;
+    GetUserState(username,dflag);
+
+    switch (iflag)
+    {
+    case 0:
+        {
+            ui.usri1008_flags = dflag | UF_ACCOUNTDISABLE;
+        }
+        break;
+    case 1:
+        {
+            ui.usri1008_flags = dflag & ~UF_ACCOUNTDISABLE;
+        }
+        break;
+    case 2:
+        {
+            ui.usri1008_flags = dflag& (~UF_DONT_EXPIRE_PASSWD)|UF_PASSWORD_EXPIRED;
+        }
+        break;
+    case 3:
+        {
+            ui.usri1008_flags = dflag & (~UF_PASSWORD_EXPIRED)| UF_DONT_EXPIRE_PASSWD;
+        }
+        break;
+    default:
+        break;
+    }
+
+	wstring UserName = ConvertAnsiToUni(username);
+    nStatus = NetUserSetInfo(NULL,
+		UserName.c_str(),
+         dwLevel,
+         (LPBYTE)&ui,
+          NULL);
+
+    if (nStatus == NERR_Success)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_SERVICE, LOGLOCATION, "NetUserSetInfo Success");
+        return TRUE;
+    }		
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_SERVICE, LOGLOCATION, "NetUserSetInfo fail", nStatus);
+        return FALSE;
+    }
+}
+
+/*************************************************
+Function Name:SetGroupStratage
+Description: 设置组策略
+Input and output:  
+        iflag: 0表示取消禁用本地账户登录
+                1表示设置禁用本地账户登录
+RetVal:
+        TRUE表示设置成功
+        FALSE表示失败
+**************************************************/
+BOOL checkpwd::SetGroupStratage(int iflag)
+{
+    BOOL res = FALSE;
+    char inffilepath[MAX_PATH] = {0};
+    sprintf_s(inffilepath,MAX_PATH,"%s\\setrefuselogonuser.inf",g_nacdirpath);
+
+    errno_t err;
+    FILE *inffile = NULL;
+    if ( err = fopen_s(&inffile, inffilepath, "w+, ccs=UNICODE") == 0)
+    {
+        char  headinfo[MAX_PATH] = {"0"};
+        sprintf_s(headinfo,MAX_PATH,"[Unicode]\r\nUnicode=yes\r\n[Version]\r\nsignature=\"$CHICAGO$\"\r\nRevision=1\r\n\
+            [Privilege Rights]\r\n");
+        fwrite(headinfo, strlen(headinfo),1,inffile);
+        if ( iflag == 0)
+        {
+            char cancelrefuseuser[MAX_PATH] = {"SeDenyInteractiveLogonRight = \r\n"};
+            fwrite(cancelrefuseuser,strlen(cancelrefuseuser),1,inffile);
+        }
+        else
+        {
+            char groupuser[MAX_PATH*2] = {0};
+            ConvertW2A(m_groupuserinfo.c_str(),groupuser,MAX_PATH*2);
+            fwrite(groupuser, strlen(groupuser), 1, inffile);
+        }
+        if (inffile != NULL)
+        {
+            fclose(inffile);
+            inffile = NULL;
+        }
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"创建inf文件失败");
+        return res;
+    }
+
+    char batfilepath[MAX_PATH] = {0};
+    sprintf_s(batfilepath,MAX_PATH,"%s\\setrefuselogonuser.bat",g_nacdirpath);
+
+    char dbfilepath[MAX_PATH] = {0};
+    sprintf_s(dbfilepath,MAX_PATH,"%s\\secedit.sdb",g_nacdirpath);
+
+    FILE *batfile = NULL;
+    if (err = fopen_s(&batfile, batfilepath, "w+") == 0 )
+    {
+        
+        char writecont[MAX_PATH*2] = {"0"};
+        sprintf_s(writecont,MAX_PATH*2,"secedit /configure /db %s /cfg %s",dbfilepath,inffilepath);
+        fwrite(writecont, strlen(writecont), sizeof(char), batfile);
+        if (batfile != NULL)
+        {
+            fclose(batfile);
+            batfile = NULL;
+        }
+         ::WinExec(batfilepath, SW_HIDE);
+         res = TRUE;
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "创建bat文件失败");
+        return res;
+    }
+
+    if (PathFileExistsA(batfilepath))
+    {
+        DeleteFileA(batfilepath);
+    }
+    if (PathFileExistsA(inffilepath))
+    {
+        DeleteFileA(inffilepath);
+    }
+    if (PathFileExistsA(dbfilepath))
+    {
+        DeleteFileA(dbfilepath);
+    }
+    return res;
+}
+
+BOOL checkpwd::SetUserPwd(string username,string userpwd)
+{
+	wstring UserName = ConvertAnsiToUni(username);
+	wstring UserPwd = ConvertAnsiToUni(userpwd);
+
+	DWORD dwLevel = 1003;
+	USER_INFO_1003   ui_1003;
+	NET_API_STATUS nStatus;
+	ui_1003.usri1003_password = (LPWSTR)UserPwd.c_str() ; 
+	nStatus = NetUserSetInfo(NULL ,UserName.c_str(),dwLevel,(LPBYTE)&ui_1003,NULL);
+	if (nStatus == NERR_Success)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_SERVICE, LOGLOCATION, L"password has been changed,Account:", (wchar_t*)UserName.c_str());
+	}
+	else
+	{
+		wchar_t  szBuf[MAX_PATH] = {L"0"};
+		LPVOID lpMsgBuf;
+		FormatMessage (
+			FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
+			NULL,
+			nStatus,
+			MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+			(LPWSTR) &lpMsgBuf,
+			0, NULL );
+
+		wsprintf(szBuf,L"%s",lpMsgBuf);
+		LocalFree(lpMsgBuf);
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,szBuf);
+	}
+	return 0;
+}
+
+int checkpwd::ForbitUser(string username)
+{
+	wstring UserName = ConvertAnsiToUni(username);
+	DWORD dwLevel = 1008;
+	USER_INFO_1008 ui;
+	NET_API_STATUS nStatus;
+	ui.usri1008_flags = UF_SCRIPT | UF_ACCOUNTDISABLE;
+
+	nStatus = NetUserSetInfo(NULL,
+		UserName.c_str(),
+		dwLevel,
+		(LPBYTE)&ui,
+		NULL);
+
+	if (nStatus == NERR_Success)
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"User has been disabled,account:",(char*)username.c_str());
+	else
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"A system error has occurred,account:",(char*)username.c_str());
+	return 0;
+}

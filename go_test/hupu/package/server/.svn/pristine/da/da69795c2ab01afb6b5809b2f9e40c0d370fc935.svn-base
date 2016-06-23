@@ -1,0 +1,152 @@
+#ifndef __FILTER__H
+#define __FILTER__H
+
+
+////////////////////////////////////////////////////////////////////////////
+//                        Per-Open Filter Functions                       //
+////////////////////////////////////////////////////////////////////////////
+NTSTATUS
+    FltDevIoControl(
+    IN PDEVICE_OBJECT    pDeviceObject,
+    IN PIRP              pIrp
+    );
+
+
+VOID
+    FltOnInitOpenContext(
+    IN POPEN_CONTEXT pOpenContext
+    );
+
+VOID
+    FltOnDeinitOpenContext(
+    IN POPEN_CONTEXT pOpenContext
+    );
+
+////////////////////////////////////////////////////////////////////////////
+//                      Per-Adapter Filter Functions                      //
+////////////////////////////////////////////////////////////////////////////
+VOID
+    FltOnInitAdapter(
+    IN PADAPT  pAdapt
+    );
+
+VOID
+    FltOnDeinitAdapter(
+    IN PADAPT  pAdapt
+    );
+
+////////////////////////////////////////////////////////////////////////////
+//                        Send Packet Filter Functions                    //
+////////////////////////////////////////////////////////////////////////////
+
+//
+// Send Filter "Action" Bitmap
+// ---------------------------
+// There may be additional actions defined in the future. Actions can be
+// or-ed together in some situations.
+//
+
+
+#define  SND_FLT_SIMPLE_PASSTHRU    0x00000000
+#define  SND_FLT_BLOCK_PACKET       0x00000001
+
+ULONG
+    FltFilterSendPacket(
+    IN PADAPT         pAdapt,
+    IN	PNDIS_PACKET   pSendPacket,
+    IN BOOLEAN        DispatchLevel  // TRUE -> IRQL == DISPATCH_LEVEL
+    );
+
+////////////////////////////////////////////////////////////////////////////
+//                      Receive Packet Filter Functions                   //
+////////////////////////////////////////////////////////////////////////////
+
+//
+// Receive Filter "Action" Bitmap
+// ------------------------------
+// There may be additional actions defined in the future. Actions can be
+// or-ed together in some situations.
+//
+#define  RCV_FLT_SIMPLE_PASSTHRU    0x00000001
+#define  RCV_FLT_BLOCK_PACKET       0x00000002
+
+ULONG
+    FltFilterReceivePacket(
+    IN PADAPT         pAdapt,
+    IN	PNDIS_PACKET   pReceivedPacket
+    );
+
+ULONG
+    FltFilterReceive(
+    IN PADAPT         pAdapt,
+    IN NDIS_HANDLE    MacReceiveContext,
+    IN PVOID          HeaderBuffer,
+    IN UINT           HeaderBufferSize,
+    IN PVOID          LookAheadBuffer,
+    IN UINT           LookAheadBufferSize,
+    IN UINT           PacketSize
+    );
+
+////////////////////////////////////////////////////////////////////////////
+//                            Utility Functions                           //
+////////////////////////////////////////////////////////////////////////////
+
+VOID
+    FltReadOnPacket(
+    IN PNDIS_PACKET Packet,
+    IN PVOID lpBuffer,
+    IN ULONG nNumberOfBytesToRead,
+    IN ULONG nOffset,                // Byte Offset, Starting With MAC Header
+    OUT PULONG lpNumberOfBytesRead
+    );
+
+typedef
+    int
+    (*BSEARCH_CMP_FCN)(
+    const PVOID pSearchKey,
+    const PVOID pElement
+    );
+
+PVOID bsearch(
+    const PVOID pSearchKey,
+    const PVOID pArrayBase,
+    ULONG nNumElements,
+    ULONG nBytesPerElement,
+    BSEARCH_CMP_FCN compare
+    );
+
+PVOID bsearchLocalIp(
+	const PVOID pSearchKey,
+	const PVOID pArrayBase,
+	ULONG nNumElements,
+	ULONG nBytesPerElement,
+	BSEARCH_CMP_FCN compare
+	);
+
+#define htons(a)     RtlUshortByteSwap(a)
+#define ntohs(a)     RtlUshortByteSwap(a)
+
+#define htonl(a)     RtlUlongByteSwap(a)
+#define ntohl(a)     RtlUlongByteSwap(a)
+
+
+extern pGlobal pGBSYS;
+
+void 
+    CopyPacket2Buffer(
+    IN PNDIS_PACKET pPacket,
+    IN OUT PUCHAR pBuff,
+    IN OUT PUINT pLength
+    );
+
+
+NTSTATUS CopyData(IN PNDIS_PACKET Packet);
+
+VOID         ThreadPacketLogger();
+NTSTATUS	 InitThreadPacketLogger();
+
+VOID CurCapIPTime(PTIME_FIELDS pTime);
+
+#endif
+
+

@@ -1,0 +1,22 @@
+#ifndef GETHARDDISKINFO_H_
+#define GETHARDDISKINFO_H_ 1
+
+typedef struct _HARDDISKNFO
+{
+	int iDevIndex;
+	int iIsSystemDisk;
+	double dwTotalSize;
+	double dwUsedSize;
+	std::string strDevId;
+	std::string strModel;
+	std::string strSerialNumber;
+	std::string strManufacturer;
+}HARDDISKNFO, *PHARDDISKNFO;
+
+extern unsigned int g_iHardDiskNum;
+extern BOOL bUpdateHardDiskFlag;
+
+void GetHardDiskInfo(OUT std::string &strHardDiskInfo, OUT unsigned int *piHardDiskNum);
+DWORD  __stdcall UpdateDevThread(LPVOID lParameter);
+
+#endif 

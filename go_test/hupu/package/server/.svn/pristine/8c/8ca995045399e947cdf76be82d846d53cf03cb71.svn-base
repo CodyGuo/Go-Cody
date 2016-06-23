@@ -1,0 +1,36 @@
+#pragma once  
+
+#ifndef _WMICLASS_H  
+#define _WMICLASS_H 1
+
+#include <atlbase.h>  
+#include <afxpriv.h>  
+#include <WbemIdl.h>  
+#pragma comment(lib,"WbemUuid.lib") 
+
+#define MAX_COLUMN_INFO 16
+
+class CWmiClass  
+{  
+public:  
+	CWmiClass(void);  
+	~CWmiClass(void);  
+
+public:  
+	HRESULT InitWmi();    
+	HRESULT ReleaseWmi(); 
+
+	BOOL GetSingleItemInfo(CString, CString, CString&);
+	BOOL GetGroupItemInfo(CString, CString[], int, CString[][MAX_COLUMN_INFO], int&);
+
+private:  
+	void VariantToString(const LPVARIANT, CString&) const;
+
+private:  
+	IEnumWbemClassObject* m_pEnumClsObj;  
+	IWbemClassObject* m_pWbemClsObj;  
+	IWbemServices* m_pWbemSvc;  
+	IWbemLocator* m_pWbemLoc;  
+};  
+
+#endif

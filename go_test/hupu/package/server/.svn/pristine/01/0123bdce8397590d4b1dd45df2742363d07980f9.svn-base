@@ -1,0 +1,125 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : 
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef DEBUGINFO_H_
+#define DEBUGINFO_H_ 1
+
+#include <fstream>
+
+#define  MAX_MODULE_NUM 25
+
+#define  MAX_WRITE_BUF 128
+
+enum LOG_ERROR_CODE
+{
+    LOG_NOERROR=0,
+    LOG_CRITICALSECTION,
+    LOG_WLOG,
+};
+
+typedef enum LEVEL_TYPE
+{
+    //不打印Log
+    LEVEL_NONE = 0,
+
+    //打印出错日志
+    LEVEL_RELEASE,
+
+    //打印详细信息日志
+    LEVEL_DEBUG
+
+}_LEVEL_TYPE;
+
+typedef enum LEVEL_MODULE
+{
+    //没有模块的信息
+    MODULE_NOMODULE = 0,
+
+    //打印安检项中的进程的日志
+    MODULE_PROCESS = 1,
+
+    //打印安检项中的端口日志
+    MODULE_PORT = 2,
+
+    //打印安检项中的放火墙日志
+    MODULE_FIREWALL = 3,
+
+    //打印安检项中的GUEST来宾日志
+    MODULE_GUEST = 4,
+
+    //打印安检项中的远程桌面的日志
+    MODULE_REMOTEDESK = 5,
+
+    //打印安检项中的屏幕保护的日志
+    MODULE_SCREENSAVER = 6,
+
+    //打印安检项中的系统服务日志
+    MODULE_SERVICE = 7,
+
+    //打印安检项中的软件信息日志
+    MODULE_SOFTWARE = 8,
+
+    //打印安检项中的垃圾文件检查
+    MODULE_JUNKFILES = 9,
+
+    //打印安检项中计算机名称检查日志
+    MODULE_COMPUTERNAEM = 10,
+
+    //打印安检项中系统时间检查日志
+    MODULE_SYSTEMTIME = 11,
+
+    //打印安检项中主页检查日志
+    MODULE_MAINPAGE = 12,
+
+    //打印安检项中域用户信息日志
+    MODULE_DOMAIN = 13,
+
+    //打印网络共享资源日志
+    MODULE_NETSHARE = 14,
+
+    //打印磁盘空间检查日志
+    MODULE_DISKSPACE = 15,
+
+    //打印密码策略检查日志
+    MODULE_PWDPOLICY = 16,
+
+    //打印安检项中的数据库操作日志
+    MODULE_OPDB = 17,
+
+    //打印通讯信息的日志
+    MODULE_SOCKETINFO = 18,
+
+    //打印抓包程序的日志
+    MODULE_SNIFFER = 19,
+
+    //打印防火墙信息的日志
+    MODULE_FTP = 20,
+
+    //打印网络状态的日志
+    MODULE_NETWORK = 21,
+
+    //打印IE控件检查日志
+    MODULE_IEEXTENSIONS = 22,
+
+	//系统补丁检查日志
+	MODULE_SYSTEMPATCH = 23,
+
+    //打印所有模块信息的日志
+    MODULE_ALL = 24,
+
+}_LEVEL_MODULE;
+
+extern const char* logininames[MAX_MODULE_NUM];
+
+bool isShouldWriteLog(LEVEL_TYPE level, LEVEL_MODULE module, char* filepath);
+
+void WriteDebugInfomation(LEVEL_TYPE level, LEVEL_MODULE module, char * filename, int linenum, char *functname, char *WriteString);
+
+void WriteDebugInfomation(LEVEL_TYPE level, LEVEL_MODULE module,char * filename,int linenum,char *functname,wchar_t *WriteString);
+
+#endif

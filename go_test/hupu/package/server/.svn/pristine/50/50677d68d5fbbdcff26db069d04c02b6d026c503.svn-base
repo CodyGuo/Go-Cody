@@ -1,0 +1,22 @@
+#pragma once
+class CUserInfo
+{
+public:
+	CUserInfo(void);
+	~CUserInfo(void);
+
+public:
+
+	//selecttype = 0表示查询当前登录的用户;1表示查询自动登录的用户;inusertype:
+	int  GetUserNameAndPassWordFromDB(wchar_t *dbPath,int selecttype,SERVREGISTERUSERTYPE servenabletype,USERINFO *dbuserinfo);
+
+	int GetUserNameAndPwdFromService(char *xmlbuff,USERINFO *userinfo);
+
+	 int  SaveUserNameAndPassWordToDB(wchar_t *dbPath,USERINFO userinfo);
+
+    //取消用户的自动登录资格,在注销用户时使用
+	BOOL DispualifiedUserAutoLogIn(wchar_t*  dbPath,int userid,int usertype);
+
+};
+
+

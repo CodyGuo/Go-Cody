@@ -1,0 +1,1463 @@
+#pragma once 
+
+#pragma warning(push, 3)
+#include <Windows.h>
+#pragma warning(pop) 
+#pragma warning(push, 4)
+
+#ifndef WT_EXECUTEINPERSISTENTIOTHREAD
+#pragma message("You are not using the latest Platform SDK header/library ")
+#pragma message("files. This may prevent the project from building correctly.")
+#endif
+
+#include "sqlite3.h"
+#pragma comment(lib,"sqlite3.lib")
+
+#include <map>
+#include <list>
+using namespace std;
+
+#include "xml\tinyxml.h"
+
+//定义数字最大长度
+#define MAX_NUMBER_LEN 32
+
+#define WM_SHOWTASK (WM_USER +100)
+#define UM_NETWORKCHANGE (WM_USER +101)
+#define UM_DEVICEFORBIT (WM_USER+102)
+ #define UM_DOMAINIDENTIFYTIP  (WM_USER+103)
+#define  WM_TIPLINKEVENT (WM_USER+104)
+#define WM_LOCALUSERLOGIN (WM_USER+105)
+#define WM_UNINSTALLCLIENT (WM_USER+106)
+#define WM_LANGCHANGE (WM_USER+107)
+ #define WM_DOAMINENDDIALOG  (WM_USER+108)
+ #define WM_DOAMINDELAYOFFLINE  (WM_USER+109)
+#define WM_DOMAINIDENTIFYTERMINATE  (WM_USER+110)
+#define WM_NETMON (WM_USER+111)
+#define WM_SFSTGCHANGE (WM_USER+112)
+
+#define HPMACINITVALUE "00-00-00-00-00-00"
+#define HP_OFFICIAL_WEBSITE "www.hupu.cn" 
+#define SERVER_SUCCESS_STR "SUCCESS"
+#define SERVER_FAILURE_STR "FAILURE"
+#define HPIMANSERVICE_EXE_NAME "HpImanService.exe"
+#define HPIDMNAC_EXE_NAME "hpIdmNac.exe"
+
+//判断接收网卡事件的时间间隔，该时间间隔中的消息视为一个网卡消息
+const unsigned int HP_NETWORKEVENT_TIMEVAL = 5000;
+
+const unsigned  int HP_C_BUFFTOSMALL = 1;
+
+const unsigned int HP_C_OFFSETVALUE = 1000;
+
+const int HP_C_SENDSTRHEADER = sizeof(short int)+sizeof(short int)+sizeof(int);
+
+const DWORD HP_C_DEFAULT_TIMEOUT = 100L;
+
+const  DWORD  HP_C_TIMERVAL = 1000; 
+
+//socket写入时的等待时间
+const  DWORD  HP_C_SELECTMODETIMEOUT = 600000; 
+
+//压缩文件的大小
+const long long  HP_C_MAX_COMPRESSLEN = 2048*2000;
+
+//用户相关字符串长度
+const int HP_C_USERCONTENTLEN = 50;
+
+//sql语句长度
+const unsigned int HP_C_SQLDATA = 1024;
+
+//发送socket的数据的长度
+const unsigned int HP_C_SENDLEN = 32768;
+
+//接收的socket的数据的长度
+const unsigned int HP_C_RECVLEN = 32768;
+
+//ip的最长长度
+const unsigned int HP_C_IPLEN = 16;
+
+//mac的最长长度
+const unsigned int HP_C_MACLEN = 18;
+
+const wchar_t HP_C_CHECKRESULTPATH[] = L"checkResultShow.jsp?devicemac=";
+
+//客户端程序版本
+const char HP_C_PROGRAMVERSION[] = "0.0.0.1";
+
+//网卡事件的标识
+const char HP_C_NETWORKCHANGEINDEX[] = {"NETWORKCHANGE:"};
+
+//主程序
+const char HP_C_MAINPROCESS[] = {""};
+
+//加载webbrowser程序
+const  wchar_t  HP_C_WEBBROWSER[] = {L"hpregister.exe"};
+
+//CAutoFindService初始ip地址
+const  wchar_t   HP_C_INITFINDSERVIP[] = {L"127.0.0.1"};
+
+//策略数据库相关
+const char HP_PROCESS_TABLE[]= {"tstgprocess"};
+
+const char HP_PORT_TABLE[]= {"tstgport"};
+
+const char HP_FIREWALL_TABLE[] = {"tstgfirewall"};
+
+const char HP_GUEST_TABLE[] = {"tstgguest"};
+
+const char HP_REMOTEDESK_TABLE[] = {"tstgremotedesk"};
+
+const char HP_SCREENSAVER_TABLE[] = {"tstgscreen"};
+
+const char HP_SERVICES_TABLE[] = {"tstgservice"};
+
+const char HP_SOFTWARE_TABLE[] = {"tstgsoftware"};
+
+const char HP_PROCESSCONT_TABLE[] = {"tstgprocesscontent"};
+
+const char HP_PORTCONT_TABLE[] = {"tstgportcontent"};
+
+const char HP_SERVICESCONT_TABLE[] = {"tstgservicecontent"};
+
+const char HP_SOFTWARECONT_TABLE[] = {"tstgsoftwarecontent"};
+
+const char HP_COMPUTERNAME_TABLE[] = {"tstgcomputername"};
+
+const char HP_DOMAINUSER_TABLE[] = {"tstgdomain"};
+
+const char HP_DOMAINCONT_TABLE[] = {"tstgdomaincontent"};
+
+const char HP_NETWORK_TABLE[] = {"tstgnetworkstate"};
+
+const char HP_OSVERSION_TABLE[] = {"tstgoscheck"};
+
+const char HP_OSVERSIONCONT_TABLE[] = {"tstgoscheckcontent"};
+
+const char HP_WSUS_TABLE[] = {"tstgwsusconfig"};
+
+const char HP_WEAKPWD_TABLE[] = {"tstgweakpwd"};
+
+const char HP_WEAKPWDCONT_TABLE[] = {"tstgweakpwdcontent"};
+
+const char HP_ANTIVIRUS_TABLE[] = {"tstgantivirus"};
+
+const char HP_ANTIVIRUSCONT_TABLE[] = {"tstgantiviruscontent"};
+
+const char HP_ILLEGALINTERNET_TABLE[] = {"tstgillegalinternet"};
+
+const char HP_NETMON_TABLE[] = {"tstgnetmon"};
+
+const char HP_NETMONCONT_TABLE[] = {"tstgnetmoncont"};
+
+const char HP_INSERT_TABLEITEM[] = {"ipolicyauthid,spolicyname,dmodifytime,sstarttime,sendtime,dstartdate,"
+	     "denddate,iintervaldays,spolicyaction,ipriority,istate,stimeperiod,sweekday,spromptitle,spromptinfo,"
+		 "warningcont,warninglevel,srcevent,iuserid,usertype"};
+
+const char HP_INSERT_TABLEVALUE[]={"\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                    "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\""};
+
+const char HP_INSERTSCREEN_TABLEITEM[] = {"ipolicyauthid,spolicyname,dmodifytime,sstarttime,sendtime,dstartdate,"
+	    "denddate,iintervaldays,spolicyaction,ipriority,istate,stimeperiod,sweekday,spromptitle,spromptinfo,warningcont,"
+	    "warninglevel,srcevent,iuserid,usertype,iscreentimeout,srecoverusepwd"};
+
+const char HP_INSERTCOMPUTERNAME_TABLEITEM[] = {"ipolicyauthid,spolicyname,dmodifytime,sstarttime,sendtime,dstartdate,"
+    "denddate,iintervaldays,spolicyaction,ipriority,istate,stimeperiod,sweekday,spromptitle,spromptinfo,warningcont,"
+    "warninglevel,srcevent,iuserid,usertype,regexcont,regexdes"};
+
+const char HP_INSERTPORT_TABLEITEM[] = {"ipolicyauthid,spolicyname,dmodifytime,sstarttime,sendtime,dstartdate,denddate,"
+	     "iintervaldays,spolicyaction,ipriority,istate,stimeperiod,sweekday,spromptitle,spromptinfo,warningcont,warninglevel,"
+		  "srcevent,iuserid,usertype,sexceptionprocess"};
+
+const char HP_INSERTMETWORK_TABLEITEM[] = {"ipolicyauthid,spolicyname,dmodifytime,sstarttime,sendtime,dstartdate,"
+    "denddate,iintervaldays,spolicyaction,ipriority,istate,stimeperiod,sweekday,spromptitle,spromptinfo,warningcont,"
+    "warninglevel,srcevent,iuserid,usertype,connectinmodem,connectdoubleadapt,exceptadapt"};
+
+//要查询的属性字段
+const char  HP_ATTRIBUTE_SQLNAME[] = {"spolicyaction,ipriority,spromptinfo,warningcont,warninglevel, srcevent"};
+
+const char HP_SELECTSINGPAGE_TABLE[] = {"SELECT spolicyaction,ipriority,spromptinfo,warningcont,warninglevel, srcevent FROM  \'%s\' "
+    "WHERE  (iuserid=\'%s\') AND (usertype=\'%s\') AND  (dstartdate<=\'%s\') AND (denddate>=\'%s\') AND (%ld>sstarttime) AND (%ld<sendtime) "
+    "AND (sweekday LIKE  \"%%%d%%\") ORDER BY ipriority ASC "};
+
+const char HP_SELECTSCREEN_TABLE[] = {"SELECT spolicyaction,ipriority,spromptinfo,iscreentimeout,srecoverusepwd,warningcont,"
+    "warninglevel,srcevent FROM  %s a WHERE  (a.iuserid=\'%s\') AND (usertype=\'%s\') AND (dstartdate<=\'%s\') AND (denddate>=\'%s\') "
+    "AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority ASC"};
+
+const char HP_SELECTCOMPUTERNAME_TABLE[] = {"SELECT spolicyaction,ipriority,spromptinfo,regexcont,regexdes,warningcont,"
+    "warninglevel,srcevent FROM  %s a WHERE  (a.iuserid=\'%s\') AND (usertype=\'%s\') AND (dstartdate<=\'%s\') AND (denddate>=\'%s\') "
+    "AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority ASC"};
+
+
+const char  buildestablish[] = {"0"};
+
+const char modifyestablish[] = {"1"};
+
+//////Error Code
+const unsigned int HP_SUCCESS = 0;
+
+const unsigned  int HP_PORT_NOIPROUTETABLE = 1000;
+
+const unsigned int HP_PORT_IPROUTETABLEZERO = 1001;
+
+const unsigned int HP_PROCESS_OPENPROCFAIL = 1002;
+
+const unsigned int HP_XML_LOADXMLFAILED = 1003;
+
+const unsigned int HP_MSG_WEIDUNDONOTEXEC = 1004;
+
+const unsigned int HP_TTL_SETTTLVALUEFAILED = 1005;
+
+const unsigned int HP_TTL_GETTTLVALUEFAILED = 1006;
+
+const unsigned int HP_MSG_GETMACFAIL = 1007;
+
+const unsigned int HP_PROCESS_PROCINFOFAIL = 1010;
+
+const unsigned int HP_PORT_CHECKPORTFAIL = 1011;
+
+//压缩相关
+const unsigned int HP_COMPRESS_OPENFILEFAIL  = 1012;
+
+const unsigned int HP_COMPRESS_COMPFAIL = 1013; 
+
+//域相关
+const  unsigned int HP_DOMAIN_OPENREGFAIL = 1014;
+
+const  unsigned int HP_DOMAIN_GETREGFAIL = 1015;
+
+const  unsigned int HP_DOMAIN_NOTUSER = 1016;
+
+const unsigned int HP_DOMAIN_GETDOMAINREGFAIL = 1017;
+
+const unsigned int HP_DOMAIN_NOTDOMAINUSER = 1018;
+
+const unsigned int HP_DOMAIN_SETCOMPDOMAINFAIL = 1019;
+
+const unsigned int HP_DOMAIN_UNJOINDOMAINFAIL = 1020;
+
+const unsigned int HP_DOMAIN_GETCOMPDOMAINFAIL = 1021;
+
+const unsigned int HP_DOMAIN_BELONGDOMAINUSERIN = 1022;
+
+//即不属于白名单也不属于黑名单
+const unsigned int HP_DOMAIN_BELONGDOMAINUSEROUT = 1023;
+
+//域中黑名单用户
+const unsigned int HP_DOMAIN_BELONGDOMAINBLACK = 1024;
+
+//域中白名单用户
+const unsigned int HP_DOMAIN_BELONGDOMAINWHITE= 1025;
+
+//计算机没有加入域，属于超强认证用户
+const unsigned int HP_DOMAIN_NOTDOMAINWHITE = 1026;
+
+//计算机没有加入域，属于黑名单认证用户
+const unsigned int HP_DOMAIN_NOTDOMAINBLACK = 1027;
+
+const unsigned int HP_NETWORK_SAFECHECKFAIL = 1030;
+
+const unsigned int HP_NETWORK_NOTINMODEM = 1031;
+
+const unsigned int HP_NETWORK_INMODEMFAIL = 1032;
+
+const unsigned int HP_NETWORK_INPROXY = 1033;
+
+const unsigned int HP_NETWORK_GETADAPTERFAIL = 1034;
+
+const unsigned int HP_NETWORK_NOTDOUBLEADAPT = 1035;
+
+const unsigned int HP_NETWORK_TERMINATEMODEMFAIL = 1036;
+
+const unsigned int HP_NETWORK_TERMINATEDOUBLEADAPTFAIL = 1037;
+
+const unsigned int HP_NETWORK_GETFBDNKFAIL = 1038;
+
+const unsigned int HP_NETWORK_ENBLENETWORKFAIL = 1039;
+
+const unsigned int HP_WEAKPWD_NOTWEAK = 1040;
+
+//数据库获取失败
+const unsigned int HP_DB_LOADFAIL = 3000;
+
+//数据库操作失败
+const unsigned int HP_DB_OPFAIL = 3001;    
+
+//数据库操作失败
+const unsigned int HP_DB_NOUSER = 3002;
+
+//打开数据库失败
+const unsigned int HP_DB_OPENFAIL = 3003;
+
+//获取表数据失败
+const unsigned int  HP_DB_GETTABLEFAIL = 3004; 
+
+//获取服务器端客户端的版本信息失败
+const unsigned int HP_MSG_SERVICEVERINFOERR  = 5001;
+
+//本地客户端不需要更新
+const unsigned int HP_MSG_NONEEDUPDATE = 5002;
+
+//客户端连接多个控制器
+const unsigned int HP_MSG_CONNECTMULASC = 5003;
+
+const unsigned int HP_PROCESS_NOTHISPROC = 5004;
+
+const unsigned int HP_MSG_SOCKETCLOSEFAIL = 5005;
+
+const unsigned int HP_MSG_SENDDATAFAIL = 5006;
+
+const unsigned int HP_XML_GETPROCESSSQLFAIL = 5007;
+
+const unsigned int HP_XML_GETPORTSQLFAIL = 5008;
+
+const unsigned int HP_XML_GETSERVICESQLFAIL = 5009;
+
+const unsigned int HP_XML_GETSOFTWARESQLFAIL = 5010;
+
+const unsigned int HP_SF_SAFECHECKFAIL = 5011;
+
+const unsigned int HP_SF_REPAIRESAFECHECKFAIL = 5012;
+
+//Http相关
+const unsigned int HP_HTTP_RETRYTIMES = 1;
+
+//Initial 10 KB temporary buffer, double if it is not enough.
+const unsigned int HP_HTTP_BUFFERSIZE = 10240; 
+
+//安检属性字段长度
+const unsigned int HP_SF_ATTRBUFLEN = 20;
+
+const unsigned int HP_SF_CONFIGLEN = 50;
+
+const char DRIVERPACKETLOG[] = {"C:\\hppacketlog.txt"};
+
+//默认的服务端的时间戳
+const char INITIALSERVERTIME[] = {"0000000000000"};
+
+//socket class use
+typedef  void (CALLBACK *fnDataCallBackFunc)(int iflag, char *Msg, int Len);
+typedef  void (CALLBACK *fnSocrevCallBackFunc)(const LPBYTE lpBuffer, DWORD dwCount);
+typedef  void (CALLBACK *fnDisConCallBackFunc)(int iflag);
+
+const int NATREGSUCCTTLVALUE = 200;
+
+const int SOCK_TCP = 0;
+const int SOCK_UDP  = 1;
+
+typedef struct RECVMSG
+{
+    short int Flag; //标志位
+    short int ReServe;//保留位
+    int TotalLen;
+	char Msg[1];
+}_RECVMSG;
+
+typedef enum _COMMUNICATIONPROTOCOLFLAG
+{
+	//客户端发送心跳
+	CLIENT_SEND_HEARBEAT_PACKET_FLAG = 1,       
+	 
+	//向服务器发送ARP信息
+	CLIENT_SEND_ARPINFO_FLAG = 999,    
+
+	//客户端建立长连接（确认）
+	CONNECTED_SERVER_FLAG = 1001,
+
+	//获取客户端版本 
+	CLIENT_VERSION_FLAG = 1002,
+
+	//客户端获取重定向地址
+	CLIENT_DIRECTION_ADDRESS_FLAG = 1003,
+
+	//客户端设备注册
+	CLINET_DEVICE_REG_FLAG = 1004,
+
+	//客户端获取设备认证信息
+	CLIENT_GET_DEVICE_AUTH_INFO_FLAG = 1005, 
+
+	//客户端获取认证流程策略
+	CLIENT_GET_AUTH_POLICY_FLAG = 1006,
+
+	//客户端请求时间戳
+	CLIENT_GET_TIMESTAMP_FLAG = 1007,
+
+	//客户端请求系统安检策略
+	CLIENT_GET_SYSTEMCHECK_POLICY_FLAG =1008,
+
+	//客户端回传安检结果
+	CLIENT_SEND_CHECKRESULT_FLAG = 1009,
+
+	//客户端请求上下线 
+	CLIENT_REQUST_ONLINE_FLAG  = 1010,
+
+	//服务器通知客户端改变状态:1011+1000
+	SERVER_NOTICE_CLIENT_CHANGESTATE_FLAG = 1011, 
+
+	//客户端在线卸载程序 
+	CLIENT_ONLINE_UNINSTALL_FLAG = 1012,
+
+	//客户端登录用户
+	CLIENT_LOGNO_USRE_FLAG = 1013,
+
+	//服务器通知客户端用户登录
+	SERVER_NOTICE_CLIENT_USER_LOGNO_FLAG = 1015,
+
+	//服务器驱动客户端开始安检
+	SERVER_NOTICE_CLIENT_START_CHECK_FLAG = 1016,
+
+	//服务器驱动客户端开始自动修复
+	SERVER_NOTICE_CLIENT_AUTO_REPAIR_FLAG = 1017,
+
+	//服务器请求设备信息
+	SERVER_REQUST_DEVICEINFO_FLAG = 1018,
+
+	//客户端请求警报策略
+	CLIENT_REQUST_ALARM_POLICY_FLAG  = 1019,
+
+	//客户端上传警报日志:连接建立，连接断开，用户注销和卸载事件
+	CLIENT_SEND_ALARM_EVENTINFO_FLAG  = 1020,
+
+	//向服务器发送客户端系统重启、用户注销
+	CLIENT_SEND_SYSTEM_EVENTINFO_FLAG  = 1021,
+
+	//客户端异常日志上传
+	CLIENT_LOGFILE_UPLOAD_FLAG = 1022,
+
+	//客户端请求开启或者关闭Debug开关
+	SERVER_SEND_DEBUG_ON_OR_OFF_FLAG = 1023, 
+
+    //服务器通知客户端nat状态
+    SERVER_SEND_NAT_INDEX = 1024,
+
+	//服务器通知客户端准入技术
+	SERVER_SEND_NAC_TECHNOLOGY = 1027,
+
+	//客户端请求AD域服务器集合
+	CLIENT_GET_ADDOMAININFO,
+
+	//客户端上传当前的语言
+	CLIENT_SEND_LOCALLANGUAGE,
+  
+	//手动修复中服务器通知客户端进行修复某一项
+	SERVICE_NOTIFY_REPAIRESFITEM = 1033,
+
+	//小助手上传网卡信息列表:网卡列表中除去当前正在使用的socket的ip
+	CLIENT_SEND_NETWORKLIST,
+
+	//客户端上传域用户验证时的信息-记录日志时使用
+	CLIENT_SEND_DOMAINIDENTIFYINFO,
+
+}COMMUNICATIONPROTOCOLFLAG;
+
+//通讯结果中特殊值的处理
+typedef enum EXCEPSOCKETREQUEST
+{
+     //获取到NAT设置
+    GETNATSETTING = 5001, 
+
+    //抓包获取UUID
+    GETUUIDSETTING = 5002,
+
+    //抓包程序失败退出
+    FINDSERVERTHREADFAIL = 5003, 
+
+    //获取控制器mac
+    GETASCMAC = 5004,
+
+    //向服务器发送ARP信息
+    SENDARPINITINFO = 5005,
+
+    SHOWWEBPAGE= 5006,
+
+	//根的认证流程策略是否开启用户或者来宾认证
+	ROOTCERTIFICATION,
+
+	//已上线用户开启定时安检
+	ONLINEUSERSTARTSFOMTIMER,
+
+    //获取变化的策略信息
+    GETCHANGSTGINFO = 5010,        
+
+    //本地用户登陆
+    LOCALLOGON = 5011, 
+
+	//服务器IP变更
+	SERVER_IP_CHANGED_FLAG = 5013,
+
+    //成功上传token值
+    UPLOADWEBTOKENSUCCESS = 5014,
+
+    //获取到静默模式配置
+    GETSILENCECONFIG = 5015,
+
+}_EXCEPSOCKETREQUEST;
+
+#import <MSXML3.dll>  named_guids 
+
+//NAT环境设置
+typedef enum NATTYPE
+{
+    //不是NAT环境
+    NOTINNAT = 0, 
+
+     //是NAT环境
+    INNAT = 1,    
+
+}_NATTYPE;
+
+//用户自动登录标识
+typedef enum LOGONTYPE
+{
+    //不是自动登录
+    NOTAUTOLOGON = 0,  
+
+     //是自动登录
+    AUTOLOGON = 1,        
+
+}_LOGONTYPE;
+
+//当前的设备状态
+typedef enum CLIENTSTATE
+{
+    //未认证或认证未通过
+    LOGOFF= 0,       
+
+    //认证通过
+    LOGON= 1,
+
+	//认证未通过隔离区
+	 LOGOFFISOLATION = 2,  
+	
+	//认证通过隔离区
+	LOGONISOLATION = 3,
+
+    //控制器逃生或禁用
+    ASCESCAPEORDISABLE = 4,
+
+    //控制器与服务器连接断开
+    ASCLOGOFF = 5, 	
+
+	//关键项隔离区
+	KEYISOLATION = 6,
+
+	//离线或与服务器断开
+	OFFLINE , 
+
+    //客户端处于无状态状态
+    STATELESS ,   
+
+}_CLIENTSTATE;
+
+//用户来源
+typedef enum USERCOMEFROM
+{
+    //本地用户自动登录
+    USERAUTOLOGON = 4,            
+
+    //服务器通知客户端用户
+    USERFROMSERVER = 5,    
+
+    //客户端右键菜单登录
+    USERFROMRIGHTMENU = 6,          
+
+	//服务器端获取设备状态是下发的用户
+	USERFROMDEVICESTATE,
+
+}_USERCOMEFROM;
+
+typedef struct  USERINFO
+{
+    //服务器分配的用户ID,0时表示为根用户,其他为>0的值
+    int userid;
+
+    //当前用户是否为客户端自动登录用户:取值为NOTAUTOLOGON或者AUTOLOGON
+    int autologon;
+
+    //是否记住密码:0为不记住密码,1为记住密码
+    int remberpwd;
+
+    //用户类型：0临时用户,1员工,2来宾用户
+    int usertype;
+
+    //用户名
+    string username;
+
+    //用户密码
+    string userpwd;
+
+	//用户的域名(默认为0,否则为对应的域id)
+	string userdomain;
+
+    //用户来源类型
+    int usercomfrom;
+
+}_USERINFO;
+
+//用户类型分类
+typedef enum USERTYPE
+{
+    //临时用户
+    TEMPUSER = 0,            
+
+    //普通用户
+    USER = 1,    
+
+    //来宾用户
+    GUESTUSER = 2,          
+
+    //未知用户类型
+    UNKNOWUSER = 3,   
+
+}_USERTYPE;
+
+//认证流程中开启的用户认证类型
+typedef enum _SERVREGISTERUSERTYPE 
+{
+	ENABLENOOEN=0,//用户认证和来宾认证均没有开启
+	ENABLEUSER ,//只开启了用户认证
+	ENABLEGUEST,//只开启了来宾认证
+	ENABLETOTLE//用户和来宾均开启
+}SERVREGISTERUSERTYPE;
+
+//策略动作类型
+typedef enum STGACTIONTYPE
+{
+    //策略动作为允许
+    ALLOW = 1,
+
+    //策略动作为拒绝
+    REFUSE = 2,
+
+}_STGACTIONTYPE;
+
+//安检项的当前状态
+typedef enum SAFECHECKITEMSTATE
+{
+    //安检项是开启状态
+    ENABLE = 1,
+
+    //安检项是关闭状态
+    DISABLE = 2,
+
+    //安检项是未知状态
+    UNKNOWNSTATE = 3,
+
+}_SAFECHECKITEMSTATE;
+
+//是否需要定时安检
+typedef enum SAFECHECKONTIMER
+{
+    //不需要定时安检
+    DISABLEONTIMER = 0,
+
+    //需要定时安检
+    ENABLEONTIMER = 1,
+
+    //什么也不处理
+    NOHANDLE = 2,
+
+}_SAFECHECKONTIMER;
+
+typedef enum UNINSTALLINDEX
+{
+    //不需要处理程序
+    NOUNINSTALL = 0,
+
+    //卸载整个程序
+    UNINSTALL = 1,
+
+    //重启当前主程序
+    RESTART = 2, 
+
+	//切换用户
+	USERCHANGE = 3, 
+
+}_UNINSTALLINDEX;
+
+typedef enum NATTYPECHANGE
+{
+    //忽略
+    NATIGNORE =0,
+    //允许
+    NATALLOW =1,
+    //禁止
+    NATFORBIT =2,
+}_NATTYPECHANGE;
+
+typedef enum MSXML_VERSION
+{
+	MSXML_UNKNOWN	= 00,
+	MSXML26 		= 26,
+	MSXML30 		= 30,
+	MSXML40 		= 40,
+	MSXML50 		= 50,
+	MSXML60 		= 60,
+} _MSXML_VERSION;
+
+
+typedef enum LEVEL_TYPE
+{
+    //不打印Log
+    LEVEL_NONE = 0,
+
+    //打印出错日志
+    LEVEL_RELEASE,
+
+    //打印详细信息日志
+    LEVEL_DEBUG
+
+}_LEVEL_TYPE;
+
+
+typedef enum LEVEL_MODULE
+{
+    //没有模块的信息
+    MODULE_NOMODULE = 0,
+
+    //打印安检项中的进程的日志
+    MODULE_PROCESS = 1,
+
+    //打印安检项中的端口日志
+    MODULE_PORT,
+
+    //打印安检项中的放火墙日志
+    MODULE_FIREWALL,
+
+    //打印安检项中的GUEST来宾日志
+    MODULE_GUEST,
+
+    //打印安检项中的远程桌面的日志
+    MODULE_REMOTEDESK,
+
+    //打印安检项中的屏幕保护的日志
+    MODULE_SCREENSAVER,
+
+    //打印安检项中的系统服务日志
+    MODULE_SERVICE,
+
+    //打印安检项中的软件信息日志
+    MODULE_SOFTWARE,
+
+    //打印安检项中的垃圾文件检查
+    MODULE_JUNKFILES,
+
+    //打印安检项中计算机名称检查日志
+    MODULE_COMPUTERNAEM,
+
+    //打印安检项中系统时间检查日志
+    MODULE_SYSTEMTIME,
+
+    //打印安检项中主页检查日志
+    MODULE_MAINPAGE,
+
+    //打印安检项中域用户信息日志
+    MODULE_DOMAIN,
+
+    //打印网络共享资源日志
+    MODULE_NETSHARE,
+
+    //打印磁盘空间检查日志
+    MODULE_DISKSPACE,
+
+	//打印密码策略检查日志
+	MODULE_PWDPOLICY,
+
+    //打印安检项中的数据库操作日志
+    MODULE_OPDB,
+
+    //打印通讯信息的日志
+    MODULE_SOCKETINFO,
+
+    //打印抓包程序的日志
+    MODULE_SNIFFER,
+
+    //打印防火墙信息的日志
+    MODULE_FTP,
+
+    //打印网络状态的日志
+    MODULE_NETWORK,
+
+    //打印IE控件检查日志
+    MODULE_IEEXTENSIONS,
+
+	//打印IE控件检查日志
+	MODULE_SYSTEMPATCH,
+
+    //违规外联
+    MODULE_ILLEGALINTERNET,
+
+	//桌面背景检查
+	MODULE_DESkWALLPAPER,
+
+	//自定义安检
+	MODULE_CHECKCUSTOM,
+
+	//硬件资产
+	MODULE_HARDWAREMANAGE,
+
+    //打印所有模块信息的日志
+    MODULE_ALL,
+
+}_LEVEL_MODULE;
+
+//定义是否属于禁用设备入网的设备类型
+typedef enum _SERVERFORBITDEVICE
+{
+	//设备认证状态为已认证服务器设置允许设备入网
+	LOGONWITHENBLEDEVICE=1,
+
+	//设备认证状态为未认证服务器设置允许设备入网
+	LOGOFFWITHENBLEDEVICE,
+
+	//设备认证状态为已认证服务器设置禁用设备入网
+	LOGONWITHNOENBLEDEVICE,
+
+	//设备认证状态为未认证服务器设置禁用设备入网
+	LOGOFFWITHNOENBLEDEVICE,
+
+}SERVERFORBITDEVICE;
+
+typedef struct
+{
+    //连接状态
+	DWORD dwState;      
+
+    //本地地址
+	DWORD dwLocalAddr;  
+
+    //本地端口
+	DWORD dwLocalPort;  
+
+    //远程地址
+	DWORD dwRemoteAddr; 
+
+    //远程端口
+	DWORD dwRemotePort; 
+
+    //进程标识
+	DWORD dwProcessId;  
+
+}MIB_TCPEXROW,*PMIB_TCPEXROW;
+
+typedef struct
+{
+    //本地地址
+	DWORD dwLocalAddr;  
+
+    //本地端口
+	DWORD dwLocalPort;  
+
+    //进程标识
+	DWORD dwProcessId;  
+
+}MIB_UDPEXROW,*PMIB_UDPEXROW;
+
+typedef struct
+{
+     //连接状态
+	DWORD dwState;     
+
+    //本地地址
+	DWORD dwLocalAddr;  
+
+    //本地端口
+	DWORD dwLocalPort;  
+
+    //远程地址
+	DWORD dwRemoteAddr; 
+
+    //远程端口
+	DWORD dwRemotePort; 
+
+    //进程标识
+	DWORD dwProcessId;  
+
+    //待定标识
+	DWORD Unknown;      
+
+}MIB_TCPEXROW_VISTA,*PMIB_TCPEXROW_VISTA;
+
+const int ANY_SIZE = 1;
+
+typedef struct
+{
+	DWORD dwNumEntries;
+	MIB_TCPEXROW table[ANY_SIZE];
+}MIB_TCPEXTABLE,*PMIB_TCPEXTABLE;
+
+
+typedef struct
+{
+	DWORD dwNumEntries;
+	MIB_TCPEXROW_VISTA table[ANY_SIZE];
+}MIB_TCPEXTABLE_VISTA,*PMIB_TCPEXTABLE_VISTA;
+
+
+typedef struct
+{
+	DWORD dwNumEntries;
+	MIB_UDPEXROW table[ANY_SIZE];
+}MIB_UDPEXTABLE,*PMIB_UDPEXTABLE;
+
+ typedef DWORD (WINAPI *PFNAllocateAndGetTcpExTableFromStack)(
+	PMIB_TCPEXTABLE *pTcpTabel,bool bOrder,HANDLE heap,DWORD zero,DWORD flags);
+
+ typedef DWORD (WINAPI *PFNAllocateAndGetUdpExTableFromStack)(
+	PMIB_UDPEXTABLE *pUdpTable,bool bOrder,HANDLE heap,DWORD zero,DWORD flags);
+
+typedef DWORD (WINAPI *PFNInternalGetTcpTable2)(PMIB_TCPEXTABLE_VISTA *pTcpTable_Vista,
+	HANDLE heap,DWORD flags);
+
+typedef DWORD (WINAPI *PFNInternalGetUdpTableWithOwnerPid)(
+	PMIB_UDPEXTABLE *pUdpTable,HANDLE heap,DWORD flags);
+
+
+////////////策略相关
+////////////////////////////////////
+//第一项表示是必须运行进程检查
+//第二项表示已开启的端口的检查
+//第三项表示防火墙检测
+//第四项表示Guest来宾检测
+//第五项表示远程桌面检查
+//第六项表示屏幕保护检查
+//第七项表示系统服务检查
+//第八项表示安装软件检查
+//第九项表示垃圾文件检查
+//第十项表示计算机名称检查
+//第十一项表示系统时间检查
+//第十二项表示IE主页检查
+//第十三项表示域用户检查
+//第十四项表示共享文件检查
+//第十五项表示网络连接状态检查
+//第十六项表示磁盘使用检查
+//第十七个表示密码策略检查
+//第十八项表示操作系统检查
+//第十九项表示WSUS配置检查
+//第二十项表示弱口令检查
+//第二十一项IE控件检查
+//第二十二项杀毒软件检查
+//第二十三项补丁检查
+//第二十四项违规外联检查
+//第二十五项桌面背景检查
+//第二十六项自定义安项检查
+//第二十七项流量控制检查
+///////////////////////////////////
+typedef  enum SafeCheckItemIndex
+{
+	PROCESS = 1, 
+	PORT = 2,
+	FIREWALL = 3,
+	GUEST = 4,
+	REMOTEDESK = 5,
+	SCREENSAVER = 6,
+	SERVICES = 7,
+	SOFTWARE = 8,
+    CHECKJUNKFILES = 9,
+    COMPUTERNAME = 10,
+    CHECKSYSTEMTIME =11,
+    CHECKMAINPAGE = 12,
+    SFDOMAIN = 13,
+    CHECKNETSHARE = 14,
+    NETWORKSTATE = 15,
+    CHECKDISKSPACE = 16,
+    PWDPOLICY = 17,
+    OSVERSION = 18,
+    WSUSCONFIG = 19,
+    WEAKPWD = 20,
+    CHECKIEEXTENSIONS = 21,
+    ANTIVIRUSCHECK = 22,
+	CHECKSYSTEMPATCH = 23,
+	ILLEGALINTERNET = 24,
+	CHECKWALLPAPER = 25,
+	CHECKCUSTOM= 26,
+	NETMON,
+	LASTNUMBER,
+};
+
+typedef enum _SFSAFECHECKTYPE
+{
+	//Web通知进行安检
+   WEBNOTIFYSFCHECK=0,
+   //小助手自动认证安检
+   CLIENTAUTOONLINESFCHECK,
+   //小助手定时安检
+   CLIENTONTIMERSFCHECK,
+}SFSAFECHECKTYPE;
+
+typedef enum REQSERVICETIMETYPE
+{
+    //定时安检
+    SFONTIMER = 1,
+
+    //同步服务器和客户端时间
+    SYNCSERVTIME = 2,
+
+    //自动认证并上线的时间戳
+    AUTOLOGONTIME =3,
+
+	//违规外联开始执行时服务器时间
+	REALTIMESAFECHECKTIME = 4,
+
+	//同步服务器时间
+	SYNCHRONIZATIONTIME=5,
+
+	//域用户定时验证
+	IDENTIFYDOMAINONTIMER,
+
+}_REQSERVICETIMETYPE;
+
+//系统安检开启定时安检的单位
+typedef enum  _SAFECHECKONTIMEUNIT
+{
+    SFMINUTE = 1,//分钟
+    SFHOUR,//小时
+    SFDAY,//天
+}SAFECHECKONTIMEUNIT;
+
+//显示警告信息的线程
+typedef  struct  WARNINDEX
+{
+    int index;//安检项下标(端口，进程之类)
+    int safechecknum;//第几个整个系统安检
+}_WARNINDEX;
+
+//socket接收到的数据++
+typedef  struct  SOCKETDATA
+{
+    DWORD datacount;
+    char recvdata[1];
+}_SOCKETDATA;
+
+typedef struct XMLNAMEANDVALUE
+{
+	char name[MAX_PATH];
+	char value[MAX_PATH];
+}_XMLNAMEANDVALUE;
+
+typedef struct XMLNAMEANDVALUECON
+{
+    //单个安检项内容的配置项大小
+    int contsize;
+    char name[MAX_PATH];
+    char value[MAX_PATH*2];
+
+}_XMLNAMEANDVALUECON;
+
+
+//公共使用的安检项的配置
+typedef struct SAFECHECKSERVERCO
+{
+    //策略id号
+    char ipolicyauthid[MAX_NUMBER_LEN];
+
+    //策略名称
+    char spolicyname[MAX_PATH];   
+
+    //修改时间
+    char dmodifytime[HP_SF_CONFIGLEN];  
+
+    //开始时间
+    char sstarttime[HP_SF_CONFIGLEN];              
+
+    //结束时间
+    char sendtime[HP_SF_CONFIGLEN];		
+
+    //开始日期
+    char dstartdate[HP_SF_CONFIGLEN];           
+
+    //截止日期
+    char denddate[HP_SF_CONFIGLEN];			
+
+    //间隔时间
+    char iintervaldays[HP_SF_CONFIGLEN];				
+
+    //策略动作
+    char spolicyaction[MAX_NUMBER_LEN];      
+
+    //优先级
+    char ipriority[MAX_NUMBER_LEN];							
+
+    //是否删除标志
+    char istate[MAX_NUMBER_LEN];              
+
+    //时间段 
+    char stimeperiod[MAX_PATH];       
+
+    //周
+    char sweekday[HP_SF_CONFIGLEN];            
+
+    //提示标题
+    char spromptitle[MAX_PATH];   
+
+    //提醒内容
+    char spromptinfo[256];                   
+
+    //警报级别
+    char warninglevel[HP_SF_ATTRBUFLEN];                 
+
+    //警示信息
+    char warningcont[MAX_PATH];       
+
+    //原始事件记录
+    char srcevent[HP_SF_ATTRBUFLEN];   
+
+}_SAFECHECKSERVERCONFIG,serverconfig;
+
+//公共使用的安检项的属性
+typedef struct SAFECHECKSAMEATTRIBUTE
+{
+    //策略动作
+    char spolicyaction[MAX_NUMBER_LEN];
+
+    //策略优先级
+    char ipriority[MAX_NUMBER_LEN];
+
+    //警示信息
+    char spromptinfo[MAX_PATH]; 
+
+    //警报级别
+    char warninglevel[HP_SF_ATTRBUFLEN];                 
+
+    //警示信息
+    char warningcont[MAX_PATH];       
+
+    //原始事件记录
+    char srcevent[HP_SF_ATTRBUFLEN];    
+
+}_SAFECHECKSAMEATTRIBUTE,safecheckattr;
+
+
+//服务器端设置的进程内容
+typedef struct XMLSTGPROCESSCONTENT
+{
+	char icheckprocessid[MAX_NUMBER_LEN];
+	char ipolicyauthid[MAX_NUMBER_LEN];                                               
+	char sprocessname[MAX_PATH];                                              
+	char sprocessdescribable[MAX_PATH];                                              
+	char srepairmethod[HP_SF_CONFIGLEN];													
+	char srepairpath[MAX_PATH];                                               
+	char srepairparam[HP_SF_CONFIGLEN];													
+	char dmodifytime[HP_SF_CONFIGLEN];														
+	char smustorforbid[HP_SF_CONFIGLEN];                                                      
+	char istate[HP_SF_CONFIGLEN];       
+
+}_XMLSTGPROCESSCONTENT;
+
+//从数据库中查询的要执行的进程的信息
+typedef struct PROCESSINFO
+{
+	char sprocessname[MAX_PATH];
+	char sprocessdescribable[MAX_PATH];
+	char srepairmethod[HP_SF_CONFIGLEN];
+	char srepairpath[MAX_PATH];
+	char srepairparam[HP_SF_CONFIGLEN];
+	safecheckattr attriinfo;
+}_PROCESSINFO;
+
+
+//服务器端设置的端口内容
+typedef struct XMLSTGPORTCONTENT
+{
+    char icheckportid[MAX_NUMBER_LEN];
+    char ipolicyauthid[MAX_NUMBER_LEN];                                                  
+    char iport[HP_C_USERCONTENTLEN];																	 
+    char sporttype[HP_C_USERCONTENTLEN];
+    char sportremark[MAX_PATH];
+    char sifselfdefined[HP_C_USERCONTENTLEN];
+    char dmodifytime[HP_C_USERCONTENTLEN];
+    char istate[HP_C_USERCONTENTLEN];
+    char excepproc[MAX_PATH];
+}_XMLSTGPORTCONTENT;
+
+typedef struct XMLPORTINFO
+{
+    char iport[HP_C_USERCONTENTLEN];
+    char sporttype[HP_C_USERCONTENTLEN];
+    char excepproc[MAX_PATH];
+    char sexceptionprocess[MAX_PATH];
+	safecheckattr attriinfo;
+}_XMLPORTINFO;
+
+
+//从数据库查询的系统服务的信息
+typedef struct XMLSERVICECONTENT
+{
+	char servicename[MAX_PATH];
+	char Displayname[MAX_PATH];
+	safecheckattr attriinfo;
+
+}_XMLSERVICECONTENT;
+
+typedef struct XMLSOFTWARECONTENT
+{
+    char softname[MAX_PATH];
+    char descrip[MAX_PATH];
+    char sfrepairmethod[HP_C_USERCONTENTLEN];
+    char sfrepairpath[MAX_PATH];
+    char sfrepairparam[HP_C_USERCONTENTLEN];
+   safecheckattr attriinfo;
+}_XMLSOFTWARECONTENT;
+
+typedef struct _DOMAINEXTERNCONFIGDATA
+{
+	//2015/10/27添加
+	//判断是否需要弹出域用户验证框
+	char identifydlg[HP_C_USERCONTENTLEN];
+	//弹窗的超时时间
+	char dlgtimeouttime[HP_C_USERCONTENTLEN];
+	//弹窗的超时时间
+	char dlgtimeoutunit[HP_C_USERCONTENTLEN];
+	//域用户验证周期
+	char identifyperiod[HP_C_USERCONTENTLEN];
+	//域用户验证周期单位
+	char  identifyperiodunit[HP_C_USERCONTENTLEN];
+	//剩余多长时间开始提示
+	char advnotifytime[HP_C_USERCONTENTLEN];
+	//剩余多长时间开始提示单位
+	char advnotifytimeunit[HP_C_USERCONTENTLEN];
+	//剩余时间内的提示次数
+	char offlinetipNum[HP_C_USERCONTENTLEN];
+	//剩余时间内的提示信息
+	char offlineTip[MAX_PATH];
+}DOMAINEXTERNCONFIGDATA,domainexternconf;
+
+//域用户验证定时安检延时下线
+typedef  struct  _DOMAINIDENDELAYOFFLINE
+{
+    unsigned long totaldelaytime;//以毫秒为单位，定时使用
+    unsigned long frequency;//以毫秒为单位，定时使用
+    unsigned long lastdelaytime;//剩余的使用时间(在dlg上显示使用,以分钟为单位)
+    int tipnum;//提示次数
+    int alreadytipnum;//剩余的提示次数
+    wchar_t servTipInfo[MAX_PATH];
+}DOMAINIDENDELAYOFFLINE;
+
+//执行时的域用户安检信息
+typedef struct XMLSFDOMAINEXEC
+{
+	int domainid;
+	//域名
+	char domainname[MAX_PATH];
+	//修复路径
+	char repairpath[MAX_PATH];
+	//修复参数
+	char repairparam[HP_C_USERCONTENTLEN];
+	//域服务器ip
+	char servip[HP_C_USERCONTENTLEN];
+	//域服务器备用服务器ip列表,以逗号分割
+	char secserviplist[MAX_PATH];
+	//白名单用户
+	char whitelistuser[MAX_PATH];
+	//黑名单用户
+	char blacklistuser[MAX_PATH];
+    //域服务器显示名称
+	char domainserv[MAX_PATH];
+	//自定义失败描述信息
+	char customfailDes[MAX_PATH];
+	//与服务器相关属性
+	safecheckattr attriinfo;
+	//含有域用户验证时的信息
+	domainexternconf identifyconf;
+
+}_XMLSFDOMAINEXEC;
+
+ //网络连接状态检查
+typedef struct XMLNETWORKEXTERNDATA
+{
+    //拨号链接
+    char connectinmodem[HP_C_USERCONTENTLEN];
+
+    //双网卡行为
+    char connectdoubleadapt[HP_C_USERCONTENTLEN];
+
+    //例外网卡信息
+    char exceptadapt[MAX_PATH];
+
+    //拨号链接的配置信息
+    safecheckattr attriinfoinmode;
+
+    //双网卡的配置信息
+    safecheckattr attriinfodbnetwork;
+
+}_XMLNETWORKEXTERNDATA;
+
+typedef struct XMLNETWORKEXEC
+{
+    //网络连接状态检查中的新加字段
+    XMLNETWORKEXTERNDATA nkexterndata;
+
+    //与服务器相关属性
+    safecheckattr attriinfo;
+
+}_XMLNETWORKEXEC;
+
+//WSUS自动更新中的新增配置
+typedef struct XMLWSUSCONFIGEXTERNDATA
+{
+    //自动更新类型
+    char updatetype[HP_C_USERCONTENTLEN];
+    //自动更新的星期
+    char updateday[HP_C_USERCONTENTLEN];
+    //自动更新小时设置
+    char updatehour[HP_C_USERCONTENTLEN];
+    //自动更新服务器设置
+    char serverurl[MAX_PATH];
+    //自动更新完成后是否重启
+    char reboot[HP_C_USERCONTENTLEN];
+    //是否开启自动更新频率
+    char enblefreq[HP_C_USERCONTENTLEN];
+    //设置频率时间
+    char freqtime[HP_C_USERCONTENTLEN];
+}_XMLWSUSCONFIGEXTERNDATA;
+
+//杀毒软件检查中的新增配置
+typedef struct XMLANTIVIRUSEXTERNDATA
+{
+    //未安装杀毒软件时的修复选择:0表示使用安装包进行修复,1表示使用网页进行引导修复
+    char gninstrepairflag[MAX_NUMBER_LEN];
+    //未安装杀毒软件时的安装包的修复路径
+    char gninstpath[MAX_PATH]; 
+        //未安装杀毒软件时的安装包的修复参数
+    char gninstparam[HP_C_USERCONTENTLEN];
+    //未安装杀毒软件时使用网页进行引导的url路径
+    char gninsthandrep[MAX_PATH];
+    //杀毒软件版本不符合要求的修复选择:0表示使用安装包进行修复,1表示使用网页进行引导修复
+    char  gsoftverflag[HP_C_USERCONTENTLEN];
+    //杀毒软件版本不符合要求的修复路径
+    char gsoftverpath[MAX_PATH];
+    //杀毒软件版本不符合要求的修复参数
+    char gsoftverparam[HP_C_USERCONTENTLEN];
+    //杀毒软件版本不符合要求时的网页进行引导的url路径
+    char gsoftverhandrep[MAX_PATH];
+    //病毒库版本不符合要求的修复选择:0表示使用安装包进行修复,1表示使用网页进行引导修复
+    char glibverflag[HP_C_USERCONTENTLEN];
+    //病毒库版本不符合要求的修复路径
+    char glibverpath[MAX_PATH];
+    //病毒库版本不符合要求的修复参数
+    char glibverparam[HP_C_USERCONTENTLEN];
+    //病毒库版本不符合要求时的网页进行引导的url路径
+    char glibverhandlerep[MAX_PATH];
+}_XMLANTIVIRUSEXTERNDATA;
+
+
+typedef struct STARTENDTIME   //起止时间段
+{
+	char SourTime[20];
+	int iBegin;
+	int iEnd;
+}_STARTENDTIME;
+
+//认证流程策略结构体
+typedef   struct  CERTIFICATIONPROCESS
+{
+    //策略id
+	char stgid[MAX_NUMBER_LEN];
+
+    //用户id号
+    char userid[MAX_NUMBER_LEN];
+
+	int usertype;
+
+    //用户认证（用户登录）
+	int usercertification; 
+
+	//是否开启来宾认证
+	int iGuestCertification; 
+
+    //动态表单（用户动态表单，值为0和1）
+	int userdynamicforms;                     
+
+    //设备注册（是否开启（0，1）
+	int devicecertification;     
+
+    //（设备注册审核||设备修改审核 ） 值为0，1 
+	int deviceinfoaudit;                      
+
+    //动态表单（设备动态表单，值为0和1）
+	int devicedynamicForms;   
+
+    //是否需要安装客户端  
+	int installhelp;                  
+
+    //是否系统安检
+	int  systemsafecheck;  
+
+    //安检频率（定时安检）
+	int frequency ;                          
+
+   //安检频率单位(1分钟,2小时,3天)
+     int frequeryunit;
+
+    //应用认证（值为0和1）
+	int  applicationAuthen;
+
+    //网络应用检测（值为0，1）
+	char   networkAppCheck[MAX_NUMBER_LEN];           
+
+    //客户端是否静默提示:1表示静默提示，0表示不静默
+    int tipmsgsilent;
+
+	//卸载时是否需要卸载码:0表示卸载时需要验证码,1表示卸载时不需要验证码
+	int  noUninstallCode;
+
+	//服务器配置是否禁用设备入网:0表示未开启设备认证,即设备不能入网，1表示允许设备认证入网
+	int enbleDeviceToRegister;
+
+	//当设备禁止入网时的提示信息
+	char enbleDeviceMsg[MAX_PATH*3];
+
+    //是否显示域用户认证下拉选项:0不显示,1显示
+     int istartdomainregist;
+
+	//是否自动修复的判断:0未开启 1开启
+	int iAutoRepari;
+
+	//是否自动认证上线的判断：0未开启自动认证 1开启自动认证
+	int  iAutoRegisterOnline;
+
+	//是否在域用户认证的登录下拉列表中显示默认值
+	 int showdefaultindomain;
+
+	 //是否使用域服务器显示名称:否的话使用域名进行显示
+	 int usedomainservname;
+
+}_CERTIFICATIONPROCESS;
+
+typedef struct _SERVERADDOMAIN
+{
+	int domainid;//域服务器id值
+	string domainname;//域名称
+	string domainservname;//域服务器名称
+}SERVERADDOMAIN;
+
+
+typedef struct _DELAYOFFLINETIP
+{
+	int idenperiod;//验证周期
+	int idenperiodunit;//验证周期单位
+	int advnotifytime;//剩余多长时间提示
+	int advnotifytimeunit;//剩余多长时间提示单位
+	int tipnum;//提示次数
+	int identdlgtime;//验证窗口显示时间
+	int identdlgtimeunit;//验证窗口显示时间单位
+	int lastlen;//下一个结构体的长度(在传递消息时使用)
+    int ontimeornot;//是否是定时安检
+	char tiptext[MAX_PATH];//气泡提示
+	char whilteuser[MAX_PATH];
+	char blackuser[MAX_PATH];
+	char servsftimeval[HP_C_USERCONTENTLEN];//服务器时间戳
+	char swarnname[MAX_PATH];
+	char warninglevel[HP_C_USERCONTENTLEN];
+	char srcevent[HP_C_USERCONTENTLEN];
+	char username[MAX_PATH];
+	char userdomain[MAX_PATH];
+}DELAYOFFLINETIP;
+
+typedef struct _PROCESSDETINFO
+{
+	string procname;
+	string starttime;
+	string memused;
+	string procpath;
+}PROCESSDETINFO;

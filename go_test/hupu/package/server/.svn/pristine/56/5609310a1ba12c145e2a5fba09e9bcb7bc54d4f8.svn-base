@@ -1,0 +1,151 @@
+#ifndef HANDLERECVDATA_H
+#define HANDLERECVDATA_H 1
+
+#include "EstablishSocket.h"
+
+#define ACCESS_NETWORK_POLICY_FILE_NAME "networkpolicy.dat"
+
+/************************************************************
+Description: 通过HTTP获取客户端版本
+input: pServerIp[服务器IP]
+       iOutBufLen[pGetBuf长度]
+       pGetBuf[返回数据]
+Return: NULL
+*************************************************************/
+BOOL HttpGetVersion(IN wchar_t* pServerIp, IN size_t iOutBufLen,OUT char* pGetBuf);
+
+/************************************************************
+Description: 链接服务器并提交小助手版本
+input: pCurPath[当前路径]
+       pMsgTmp[消息体]
+       es[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void ConnectedServer(IN wchar_t* pCurPath, IN char* pMsgTmp, IN CEstablishSocket *es);
+
+/************************************************************
+Description: 处理接收到的客户端版本信息
+input: pMsg[消息体]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void HandleClientVersionMsg(IN char* pMsg, IN CEstablishSocket *pEs);
+
+/************************************************************
+Description: 设备信息注册
+input: pMsg[消息体]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void DeviceInfoReg(IN char* pMsg, DWORD totalLen, IN CEstablishSocket *pEs);
+
+/************************************************************
+Description: 获取重定向Url
+input: pMsg[消息体]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void GetDirectionUrl(IN char* pMsg, IN CEstablishSocket *pEs);
+
+/************************************************************
+Description: 处理用户信息
+input: pMsg[消息体]
+       pCurPath[当前路径]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void HandleUserInfo(IN char* pMsg, IN wchar_t* pCurPath, IN CEstablishSocket *pEs);
+
+
+/************************************************************
+Description: 处理设备认证消息
+input: pMsg[消息体]
+       dwTotalLen[消息长度]
+       iAuthId[认证身份]
+	   iUserId[用户ID]
+        tipinfo[客户端冒气泡显示的提示信息]
+Return: NULL
+*************************************************************/
+void HandleDeviceAuthInfo(IN CEstablishSocket *pEs,IN char* pMsg, OUT int* piStateFlag, OUT int* piIdentityAuth, OUT int* piUserId, 
+    OUT int* piNatType,OUT  string &clientonlinetime,OUT string &strTipInfo);
+
+/************************************************************
+Description: 处理客户端状态
+input: pMsg[消息体]
+       dwTotalLen[消息长度]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void HandleClientState(IN char* pMsg, IN DWORD dwTotalLen, IN CEstablishSocket *pEs);
+
+/************************************************************
+Description: 解析下发的可访问的网络字符串
+input: pMsg[消息体]
+       dwTotalLen[消息长度]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void ParseNetworkStr(IN wstring& wstrSource, IN char* pCurPath);
+
+/************************************************************
+Description: 处理修复检查项
+input: pMsg[消息体]
+       dwTotalLen[消息长度]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void HandleAtuoFixCheckItem(IN char* pMsg, IN DWORD dwTotalLen, IN CEstablishSocket *pEs);
+
+/************************************************************
+Description: 处理卸载信息
+input: pMsg[消息体]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void HandleUninstallInfo(IN char* pMsg, IN CEstablishSocket *pEs);
+
+
+/************************************************************
+Description: 处理修复检查项
+input: pMsg[消息体]
+       dwTotalLen[消息体长度]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void GetSafeCheckItem(IN char* pMsg, IN DWORD dwTotalLen, IN CEstablishSocket *pEs);
+
+/************************************************************
+Description: 通知修复检查项
+input: pMsg[消息体]
+       pCurPath[当前路径]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void OnTimerSafeCheckCheckItem(IN SFSAFECHECKTYPE sfchecktype,IN char* pMsg, IN char* pCurPath, IN CEstablishSocket *pEs);
+
+/************************************************************
+Description: 处理小助手运行报警服务端发送的消息
+input: pMsg[消息体]
+       pCurPath[当前路径]
+Return: NULL
+*************************************************************/
+void HandleAssitRunAlarm(IN char* pMsg, IN wchar_t* pCurPath);
+
+/************************************************************
+Description: 处理准入技术通知
+input: pMsg[消息体]
+       pCurPath[当前路径]
+Return: NULL
+*************************************************************/
+void HandleNacTechNotify(IN char* pMsg, IN string strIniFilePath, IN CEstablishSocket *pEs);
+
+/************************************************************
+Description: 向服务器发送设备信息
+Return: NULL
+*************************************************************/
+void SendDeviceInfoToSer(IN char* ascmac);
+
+//同步服务器端的时间
+void SyncServerCurrentTime();
+
+#endif

@@ -1,0 +1,9 @@
+#pragma once
+class MultiServerPage
+{
+public:
+    MultiServerPage(void);
+    ~MultiServerPage(void);
+
+};
+

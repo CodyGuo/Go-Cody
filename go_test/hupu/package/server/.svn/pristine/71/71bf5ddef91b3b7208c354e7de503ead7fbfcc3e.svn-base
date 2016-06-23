@@ -1,0 +1,1000 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "..\GetLangValue.h"
+#include "CheckIEExtensions.h"
+#include "..\DebugInfo.h"
+#include "..\GlobalDate.h"
+#include "..\GlobalFunction.h"
+#include "..\CommPub.h"
+#include "..\strconvert.h"
+#include "SafeCheckFuntion.h"
+
+#include <tchar.h>
+#include <shlwapi.h>
+#pragma comment(lib, "shlwapi.lib")
+
+/************************************************************
+Function Name: SaveNetShareExceptDir
+Description: 拼接ie控件检查的sql语句
+Input and output:  
+          policyId: 自定义的策略id号
+          pDb: 数据库句柄
+          thirditemattri: thirditem中的xml数据
+          pOsc: OpStgClass类对象
+RetVal:成功返回HP_SUCCESS
+       失败返回HP_DB_OPFAIL
+*************************************************************/
+int SaveIEExtensionsContentTable(IN int policyId, IN sqlite3 *pDb, IN list<XMLNAMEANDVALUECON> thirditemattri, IN OpStgClass *pOsc)
+{
+    try
+    {
+        list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+        int ret = 0;
+        char sql[HP_C_SQLDATA]={"0"};
+        char sqlReal[HP_C_SQLDATA]={"0"};
+        int itemcnt = 0;
+        char itemValue[MAXBUFLEN] = {0};
+        IEEXTENSIONSCONTENT ieExtensionsContent;
+
+        ieExtensionsContent.m_iPolicyauthid = policyId;
+
+        for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+        {
+            memset(itemValue, 0, sizeof(itemValue));
+
+            if (strcmp((*thirditemiter).name, "ipolicyauthid")==0)
+            {
+                if ((*thirditemiter).value)
+                {
+                    ieExtensionsContent.m_iPolicyauthid = atoi((*thirditemiter).value);
+                }
+                itemcnt++;
+            }
+
+            else if (strcmp((*thirditemiter).name, "scontrolname")==0)
+            {
+                Convert((*thirditemiter).value, itemValue, sizeof(itemValue), CP_UTF8, CP_ACP);
+                ieExtensionsContent.m_strExtensionName = itemValue;
+                itemcnt++;
+            }
+
+            else if (strcmp((*thirditemiter).name, "srepairmethod")==0)
+            {
+                if ((*thirditemiter).value)
+                {
+                    ieExtensionsContent.m_iRepairmethod = atoi((*thirditemiter).value);
+                }
+                itemcnt++;
+            }
+            else if (strcmp((*thirditemiter).name, "srepairpath")==0)
+            {
+                Convert((*thirditemiter).value, itemValue, sizeof(itemValue), CP_UTF8, CP_ACP);
+                ieExtensionsContent.m_strRepairpath = itemValue;
+                itemcnt++;
+            }
+            else if (strcmp((*thirditemiter).name, "srepairparam")==0)
+            {
+                Convert((*thirditemiter).value, itemValue, sizeof(itemValue), CP_UTF8, CP_ACP);
+                ieExtensionsContent.m_strRepairparam = itemValue;
+                itemcnt++;
+            }
+
+            if (itemcnt == (*thirditemiter).contsize)
+            {
+                sprintf_s(  sql,
+                    HP_C_SQLDATA,
+                    "INSERT INTO %s(ipolicyauthid, sextensionname, irepairmethod, srepairpath, srepairparam) VALUES(%d, \'%s\', %d, \'%s\', \'%s\')",
+                    IE_EXTENSIONS_CONTENT_TABLE_NAME,
+                    policyId,
+                    (char*)ieExtensionsContent.m_strExtensionName.c_str(),
+                    ieExtensionsContent.m_iRepairmethod, 
+                    (char*)ieExtensionsContent.m_strRepairpath.c_str(),
+                    (char*)ieExtensionsContent.m_strRepairparam.c_str());	
+
+                Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);	
+                ret = pOsc->SqlExec(pDb, sqlReal);
+
+                if (ret != 0)
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "SqlExec 执行失败,数据库回滚");
+                    sprintf_s(sql, HP_C_SQLDATA, "ROLLBACK");	
+                    Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+                    ret = pOsc->SqlExec(pDb, sqlReal);
+                    return HP_DB_OPFAIL;
+                }
+                itemcnt = 0;
+            }
+
+            thirditemattri.erase(thirditemiter++);
+
+            if (thirditemattri.empty())
+            {
+                break;
+            }
+        }
+        return HP_SUCCESS;
+    }
+    catch(...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL, L"SaveIEExtensionsContentTable Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "SaveIEExtensionsContentTable Exception");
+    } 
+
+    return HP_DB_OPFAIL;
+}
+
+void UpdataExtensionInfoList(IN OUT list<EXTENSIONINFO>& extensionInfoList, IN EXTENSIONINFO extensionInfo)
+{
+	list<EXTENSIONINFO>::iterator iter;
+	BOOL bExist = FALSE;
+
+	for (iter = extensionInfoList.begin(); iter != extensionInfoList.end(); iter++)
+	{
+		if (lstrcmpiA(iter->m_strExtensionName, extensionInfo.m_strExtensionName) == 0)
+		{
+			if (StrIStr((string)iter->m_strExtensionClsid, (string)extensionInfo.m_strExtensionClsid) == string::npos)
+			{
+				strncat_s(iter->m_strExtensionClsid, CLSID_NAME_LEN*3, extensionInfo.m_strExtensionClsid, CLSID_NAME_LEN);
+			}
+			bExist = TRUE;
+			break;
+		}
+	}
+
+	if (!bExist)
+	{
+		extensionInfoList.push_back(extensionInfo);
+	}
+}
+
+void GetExtensionStatusFromReg(IN HKEY hKey, IN char* pSubKey, IN list<IEEXTENSIONSCONTENT>& ieExtensionContentVector, IN REGSAM samDesired, OUT PIEEXTENSIONSPOLICY pIeExtensionsPolicy)
+{
+	CHAR* lpInprocServer32Key = "InprocServer32";    
+	HKEY hkClsid = NULL;         
+	HKEY hkClsidSub = NULL;
+	HKEY hkInproc = NULL;
+	LONG lReturn = !ERROR_SUCCESS;           
+	std::string strBuffer = "";
+	std::string strMidReg = ""; 
+	DWORD index = 0;
+	CHAR szKeyName[MAXBUFLEN] = {0};       
+	CHAR szBuffer[MAXBUFLEN] = {0};
+	DWORD dwKeyLen = MAXBUFLEN;
+	DWORD dwNameLen = MAXBUFLEN;
+	DWORD dwType = REG_BINARY|REG_DWORD|REG_EXPAND_SZ|REG_MULTI_SZ|REG_NONE|REG_SZ;
+
+	lReturn = RegOpenKeyExA(hKey, pSubKey, 0, samDesired, &hkClsid);
+
+	if (lReturn == ERROR_SUCCESS)
+	{
+		while (ERROR_NO_MORE_ITEMS != RegEnumKeyExA(hkClsid, index, szKeyName, &dwKeyLen, 0, NULL, NULL, NULL))
+		{
+			index++;
+			strBuffer = szKeyName;
+
+			if (!strBuffer.empty())
+			{
+				strMidReg = (string)pSubKey;
+				strMidReg += "\\";
+				strMidReg += strBuffer; 
+
+				if ( RegOpenKeyExA(hKey, strMidReg.c_str(), 0, samDesired, &hkClsidSub) == ERROR_SUCCESS) 
+				{ 
+					dwNameLen = MAXBUFLEN;
+					strBuffer.clear();
+					memset(szBuffer, 0, MAXBUFLEN);
+
+					if ( RegQueryValueExA(hkClsidSub, "", 0, &dwType, (LPBYTE)szBuffer, &dwNameLen) == ERROR_SUCCESS && strlen(szBuffer) > 0)
+					{
+						list<IEEXTENSIONSCONTENT>::iterator iter;
+
+						strMidReg += "\\";
+						strMidReg += lpInprocServer32Key; 
+
+						for (iter = ieExtensionContentVector.begin(); 
+							iter != ieExtensionContentVector.end(); )
+						{
+							if (lstrcmpiA(iter->m_strExtensionName.c_str(), szBuffer) == 0 )
+							{   
+								if (iter->m_iControlflag == MUST_INSTALL_EXTENSION_FLAG)
+								{
+									if (RegOpenKeyExA(hKey, strMidReg.c_str(), 0, samDesired, &hkInproc) == ERROR_SUCCESS)
+									{
+										RegCloseKey(hkInproc);
+										if (CheckIEExtensionsIsDisable(szKeyName))
+										{
+											EXTENSIONINFO needEnabledExtension;
+
+											strncpy_s(needEnabledExtension.m_strExtensionClsid, CLSID_NAME_LEN, szKeyName, CLSID_NAME_LEN);
+											strncpy_s(needEnabledExtension.m_strExtensionName, MAX_BUF_LEN, iter->m_strExtensionName.c_str(), MAX_BUF_LEN);
+											UpdataExtensionInfoList(pIeExtensionsPolicy->needEnabledExtension, needEnabledExtension);
+										} 
+										else
+										{
+											EXTENSIONINFO installedExtension;
+
+											strncpy_s(installedExtension.m_strExtensionClsid, CLSID_NAME_LEN, szKeyName, CLSID_NAME_LEN);
+											strncpy_s(installedExtension.m_strExtensionName, MAX_BUF_LEN, iter->m_strExtensionName.c_str(), MAX_BUF_LEN);
+											UpdataExtensionInfoList(pIeExtensionsPolicy->installedExtension, installedExtension);
+										}
+									}
+								}
+								else if (iter->m_iControlflag == PROHIBIT_INSTALL_EXTENSION_FLAG)
+								{
+									EXTENSIONINFO needUninstallExtension;
+
+									strncpy_s(needUninstallExtension.m_strExtensionClsid, CLSID_NAME_LEN, szKeyName, CLSID_NAME_LEN);
+									strncpy_s(needUninstallExtension.m_strExtensionName, MAX_BUF_LEN, iter->m_strExtensionName.c_str(), MAX_BUF_LEN);
+									UpdataExtensionInfoList(pIeExtensionsPolicy->needUninstallExtension, needUninstallExtension);
+								}           
+
+								break;
+							}
+							iter++;
+						}
+					}
+					RegCloseKey(hkClsidSub);
+				}
+				dwKeyLen = 255;
+				memset(szKeyName, 0, 255);
+			}
+		}
+		RegCloseKey(hkClsid);
+	}
+	else
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, _T("打开注册表失败!"), NULL, MB_ICONWARNING);
+#endif
+	}
+}
+
+void MergeExtensionsList(IN list<IEEXTENSIONSCONTENT>& ieExtensionContentList, OUT PIEEXTENSIONSPOLICY pIeExtensionsPolicy)
+{
+	list<IEEXTENSIONSCONTENT>::iterator iter;
+
+	for (iter = ieExtensionContentList.begin(); iter != ieExtensionContentList.end();)
+	{
+		list<EXTENSIONINFO>::iterator needUninstallIter;
+		list<EXTENSIONINFO>::iterator needEnablelIter;
+		list<EXTENSIONINFO>::iterator installedIter;
+		BOOL bErase = FALSE;
+
+		for (needUninstallIter = pIeExtensionsPolicy->needUninstallExtension.begin(); needUninstallIter != pIeExtensionsPolicy->needUninstallExtension.end(); needUninstallIter++)
+		{
+			if (lstrcmpiA(iter->m_strExtensionName.c_str(), needUninstallIter->m_strExtensionName) == 0 )
+			{
+				bErase = TRUE;
+				ieExtensionContentList.erase(iter++);
+				if (ieExtensionContentList.empty())
+				{ 
+					return;
+				}
+				break;
+			}
+		}
+
+		if (bErase)
+		{
+			continue;
+		}
+
+		for (needEnablelIter = pIeExtensionsPolicy->needEnabledExtension.begin(); needEnablelIter != pIeExtensionsPolicy->needEnabledExtension.end(); needEnablelIter++)
+		{
+			if (lstrcmpiA(iter->m_strExtensionName.c_str(), needEnablelIter->m_strExtensionName) == 0 )
+			{
+				bErase = TRUE;
+				ieExtensionContentList.erase(iter++);
+				if (ieExtensionContentList.empty())
+				{
+					return;
+				}
+				break;
+			}
+		}
+
+		if (bErase)
+		{
+			continue;
+		}
+
+		for (installedIter = pIeExtensionsPolicy->installedExtension.begin(); installedIter != pIeExtensionsPolicy->installedExtension.end(); installedIter++)
+		{
+			if (lstrcmpiA(iter->m_strExtensionName.c_str(), installedIter->m_strExtensionName) == 0 )
+			{
+				bErase = TRUE;
+				ieExtensionContentList.erase(iter++);
+				if (ieExtensionContentList.empty())
+				{
+					return;
+				}
+				break;
+			}
+		}
+
+		if (bErase)
+		{
+			continue;
+		}
+		else
+		{
+			iter++;
+		}
+	}
+}
+
+/************************************************************
+ Description: 获取配置禁止、允许安装的控件CLSID
+ input: ieExtensionContentVector[配置加载项容器]， pIeExtensionsPolicy[检查加载项策略]
+ Return: void
+*************************************************************/
+void GetExtensionsInfo(IN list<IEEXTENSIONSCONTENT>& ieExtensionContentVector, 
+                       OUT PIEEXTENSIONSPOLICY pIeExtensionsPolicy)
+{ 
+    try
+    {
+		list<IEEXTENSIONSCONTENT>::iterator iter;
+
+		GetExtensionStatusFromReg(HKEY_CLASSES_ROOT, "CLSID", ieExtensionContentVector, KEY_READ, pIeExtensionsPolicy);
+		GetExtensionStatusFromReg(HKEY_LOCAL_MACHINE, "SOFTWARE\\Classes\\CLSID", ieExtensionContentVector, KEY_READ, pIeExtensionsPolicy);
+
+       if (IsWin64Os())
+       {
+		   GetExtensionStatusFromReg(HKEY_CLASSES_ROOT, "CLSID", ieExtensionContentVector, KEY_READ|KEY_WOW64_64KEY, pIeExtensionsPolicy);
+		   GetExtensionStatusFromReg(HKEY_LOCAL_MACHINE, "SOFTWARE\\Classes\\CLSID", ieExtensionContentVector, KEY_READ|KEY_WOW64_64KEY, pIeExtensionsPolicy);
+       }
+	   MergeExtensionsList(ieExtensionContentVector, pIeExtensionsPolicy);
+
+        for (iter = ieExtensionContentVector.begin(); 
+            iter != ieExtensionContentVector.end();)
+        {
+            if (iter->m_iControlflag == MUST_INSTALL_EXTENSION_FLAG)
+            {
+                MUSTINSTALLEXTENSIONINFOPOLICY mustInstallExtension;
+
+				strncpy_s(mustInstallExtension.extensionInfo.m_strExtensionClsid, CLSID_NAME_LEN, "", CLSID_NAME_LEN);
+				strncpy_s(mustInstallExtension.extensionInfo.m_strExtensionName, MAX_BUF_LEN, iter->m_strExtensionName.c_str(), MAX_BUF_LEN);
+                mustInstallExtension.m_iRepairmethod = iter->m_iRepairmethod;
+				strncpy_s(mustInstallExtension.m_strRepairPath, MAX_BUF_LEN, iter->m_strRepairpath.c_str(), MAX_BUF_LEN);
+				strncpy_s(mustInstallExtension.m_strRepairCmd, MIDDLE_BUF_LEN, iter->m_strRepairparam.c_str(), MIDDLE_BUF_LEN);
+                pIeExtensionsPolicy->mustInstallExtensionVector.push_back(mustInstallExtension);
+            }
+
+            ieExtensionContentVector.erase(iter++);
+            if (ieExtensionContentVector.empty())
+            {
+                break;
+            }
+        }
+    }
+    catch(...)
+    {
+
+#ifdef _DEBUG
+        MessageBox(NULL, L"GetExtensionsInfo Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "GetExtensionsInfo Exception");
+    } 
+} 
+
+/************************************************************ 
+ Description: 从数据库中获取IE控件策略
+ input: 
+ Return: 
+*************************************************************/
+int GetIeExtensionsDataFromDB(  IN wchar_t *pDirPath, 
+                            IN char *pUserId, 
+                            IN char* pUserType, 
+                            IN char *pCurrdata, 
+                            IN char *pMilliSecond, 
+                            IN char *pWeekday, 
+                            OUT PIEEXTENSIONSPOLICY pIeExtensionsPolicy,
+                            OUT safecheckattr *pExtensionsAttriInfo)
+{
+    int iResult = HP_DB_GETTABLEFAIL;
+
+    try
+    {
+        int ret = !SQLITE_OK;
+
+        if (HP_openDB(pDirPath) == HP_DB_OPENFAIL)
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_NETSHARE, LOGLOCATION, "打开数据库失败");
+            return HP_DB_OPENFAIL;
+        }
+        else
+        {
+            char sql[HP_C_SQLDATA]={'0'}; 
+            char **pszResult='\0';
+            CHAR *szErrMsg='\0';
+            INT nRow = 0;
+            INT nCloumn = 0;
+
+            list<IEEXTENSIONSCONTENT> ieExtensionContentVector;
+            IEEXTENSIONSCONTENT ieExtensionContent;
+            char itemValue[MAXBUFLEN*2] = {0};
+
+            ieExtensionContentVector.clear();
+
+            sprintf_s(sql,
+                    HP_C_SQLDATA,
+                    "SELECT %s, sextensionname, irepairmethod, srepairpath, srepairparam FROM (SELECT * FROM %s a, %s b WHERE (a.ipolicyauthid=b.ipolicyauthid) AND (a.iuserid=%d) \
+                    AND (a.usertype = \'%s\')AND (a.dstartdate<=\'%s\') AND (a.denddate >= \'%s\') AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\") ORDER \
+                    BY a.ipriority ASC)  AS tb  GROUP BY tb.sextensionname ORDER BY ipriority ASC ", 
+                    HP_ATTRIBUTE_SQLNAME, IE_EXTENSIONS_TABLE_NAME, IE_EXTENSIONS_CONTENT_TABLE_NAME, atoi(pUserId), pUserType, pCurrdata, pCurrdata, atol(pMilliSecond), atol(pMilliSecond), atoi(pWeekday));	
+
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_NETSHARE, LOGLOCATION, "查询IE控件策略的SQL语句:", sql);
+
+            ret = sqlite3_get_table(g_db, sql, &pszResult, &nRow, &nCloumn, &szErrMsg);
+
+            if(SQLITE_OK != ret)
+            {
+                sqlite3_free_table(pszResult);
+                ret = sqlite3_close(g_db);
+                g_db = NULL;
+                return HP_DB_GETTABLEFAIL;
+            }
+
+            memset(pExtensionsAttriInfo, 0, sizeof(safecheckattr));
+
+            if ((nRow > 0) && (nCloumn > 0))
+            {	
+                for (int i=0; i < nRow; i++)
+                {
+                    for (int j = 0; j < nCloumn; j++)
+                    {
+                        if(strcmp(pszResult[j], "ipriority") == 0)
+                        {			
+                            Convert(pszResult[(i+1)*nCloumn+j], pExtensionsAttriInfo->ipriority, sizeof(pExtensionsAttriInfo->ipriority), CP_UTF8, CP_ACP);					
+                        }
+                        else if(strcmp(pszResult[j], "spolicyaction") == 0)
+                        {			
+                            Convert(pszResult[(i+1)*nCloumn+j], pExtensionsAttriInfo->spolicyaction, sizeof(pExtensionsAttriInfo->spolicyaction), CP_UTF8, CP_ACP);					
+                        }
+                        else if(strcmp(pszResult[j], "spromptinfo") == 0)
+                        {
+                            Convert(pszResult[(i+1)*nCloumn+j], pExtensionsAttriInfo->spromptinfo, sizeof(pExtensionsAttriInfo->spromptinfo), CP_UTF8, CP_ACP);					
+                        }
+                        else  if(strcmp(pszResult[j], "warningcont") == 0)
+                        {
+                            Convert(pszResult[(i+1)*nCloumn+j], pExtensionsAttriInfo->warningcont, sizeof(pExtensionsAttriInfo->warningcont), CP_UTF8, CP_ACP);					
+                        }	
+                        else  if(strcmp(pszResult[j],"warninglevel") == 0)
+                        {
+                            Convert(pszResult[(i+1)*nCloumn+j], pExtensionsAttriInfo->warninglevel, sizeof(pExtensionsAttriInfo->warninglevel), CP_UTF8, CP_ACP);					
+                        }	
+                        else  if(strcmp(pszResult[j], "srcevent") == 0)
+                        {
+                            Convert(pszResult[(i+1)*nCloumn+j], pExtensionsAttriInfo->srcevent, sizeof(pExtensionsAttriInfo->srcevent), CP_UTF8, CP_ACP);					
+                        } 
+
+                        memset(itemValue, 0, sizeof(itemValue));
+
+                        if (strcmp(pszResult[j], "spolicyaction")==0)
+                        {
+                            if (pszResult[(i+1)*nCloumn+j])
+                            {
+                                ieExtensionContent.m_iControlflag = atoi(pszResult[(i+1)*nCloumn+j]);
+                            }
+                        }
+                        else if (strcmp(pszResult[j], "sextensionname")==0)
+                        {
+                            Convert(pszResult[(i+1)*nCloumn+j], itemValue, sizeof(itemValue), CP_UTF8, CP_ACP);	
+                            ieExtensionContent.m_strExtensionName = itemValue;
+                        }
+                        else if (strcmp(pszResult[j], "irepairmethod")==0)
+                        {
+                            if(pszResult[(i+1)*nCloumn+j])
+                            {
+                                ieExtensionContent.m_iRepairmethod = atoi(pszResult[(i+1)*nCloumn+j]);
+                            }
+                        }
+                        else if (strcmp(pszResult[j], "srepairpath")==0)
+                        {
+                            Convert(pszResult[(i+1)*nCloumn+j], itemValue, sizeof(itemValue), CP_UTF8, CP_ACP);		
+
+                            ieExtensionContent.m_strRepairpath = itemValue;
+                        }
+                        else if (strcmp(pszResult[j], "srepairparam")==0)
+                        {
+                            Convert(pszResult[(i+1)*nCloumn+j], itemValue, sizeof(itemValue), CP_UTF8, CP_ACP);		
+                            ieExtensionContent.m_strRepairparam = itemValue;
+                        } 
+
+                        if (j == (nCloumn-1))
+                        {
+                            ieExtensionContentVector.push_back(ieExtensionContent);
+                            continue;
+                        }
+                    }
+                }
+                iResult = HP_SUCCESS;
+            }
+            sqlite3_free_table(pszResult);
+
+            pIeExtensionsPolicy->mustInstallExtensionVector.clear();
+            pIeExtensionsPolicy->needEnabledExtension.clear();
+            pIeExtensionsPolicy->needUninstallExtension.clear();
+
+            if (!ieExtensionContentVector.empty())
+            {
+                GetExtensionsInfo(ieExtensionContentVector, pIeExtensionsPolicy);
+            }
+        }
+        return iResult;
+    }
+    catch (CMemoryException* e)
+    {
+        e->ReportError();
+    }
+    catch (CFileException* e)
+    {
+        e->ReportError();
+    }
+    catch (CException* e)
+    {
+        e->ReportError();
+    }
+    catch (...)
+    {
+
+#ifdef _DEBUG
+        MessageBox(NULL, L"GetIeExtensionsDataFromDB Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "GetIeExtensionsDataFromDB Exception");
+    }
+
+    return iResult;
+
+}
+
+/************************************************************ 
+ Description: 拼接返回错误信息
+ input: 
+ Return: 
+*************************************************************/
+std::string SpliceErrorMsg(IN safecheckattr checkItem, IN std::string& strErrorMsg, IN std::string strIeExtensionName, IN string strFailIndex)
+{
+    std::string strRetBuf = "";
+
+	strRetBuf = "<subitem checkItemId=\"";
+	strRetBuf += strFailIndex;
+	strRetBuf += "\" checkItemAction=\"";
+    strRetBuf += checkItem.spolicyaction;
+    strRetBuf += "\" faildes=\"";
+    strRetBuf += strErrorMsg;
+    strRetBuf += "\" name=\"";
+	strRetBuf += strIeExtensionName;
+    strRetBuf += "\" swarnname=\"";
+    strRetBuf += checkItem.warningcont;
+    strRetBuf += "\" iwarnlevel=\"";
+    strRetBuf += checkItem.warninglevel;
+    strRetBuf += "\" ilogrecord=\"";
+    strRetBuf += checkItem.srcevent;
+    strRetBuf += "\" />";
+
+    return strRetBuf;
+}
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input: 
+ Return: 
+*************************************************************/
+bool IEExtensionsRetShowMsg(IN int iCheckState, IN safecheckattr checkItem, IN PIEEXTENSIONSPOLICY pIeExtensionsPolicy, OUT int* pFailNum, IN LANGUAGETYPE language, OUT std::string& strErrorMsg)
+{
+    bool ret = true;
+
+    try
+    {
+        std::string mustInstallMsg("");
+        std::string needEnabledMsg("");
+        std::string needUninstallMsg("");
+
+        if (iCheckState)
+        {
+            (*pFailNum)++;
+            ret = false;
+
+			string strFailIndex("");
+			int iFailIndex = 0;
+			string strRmbFlag = WCharToAnsi(L"￥");
+
+            if(!pIeExtensionsPolicy->mustInstallExtensionVector.empty())
+            {
+                list<MUSTINSTALLEXTENSIONINFOPOLICY>::iterator iter;
+                std::string mustInstallErrorMsg("");
+				
+                for (iter = pIeExtensionsPolicy->mustInstallExtensionVector.begin(); 
+                    iter != pIeExtensionsPolicy->mustInstallExtensionVector.end(); 
+                    iter++)
+                {
+					vector<string> vecLangMsg;
+
+					if (GetLangVectorByKeyA(language, 
+						IEEXTENSION_APPNAME, 
+						pSfIEExtensionKeyStr[SF_IEEXTENSION_MUSTINSTALL], 
+						pSfIEExtensionKeyStr[SF_IEEXTENSION_MUSTINSTALL], 
+						MAX_BUF_LEN,
+						2,
+						&vecLangMsg))
+					{
+						string strNameItem = "";
+
+						mustInstallErrorMsg = vecLangMsg[0];
+						mustInstallErrorMsg += (string)iter->extensionInfo.m_strExtensionName;
+						mustInstallErrorMsg += vecLangMsg[1];
+						strFailIndex = std::to_string((_ULonglong)iFailIndex);
+
+						strNameItem = (string)iter->extensionInfo.m_strExtensionName;
+						strNameItem += strRmbFlag;
+						strNameItem += "0";
+						strNameItem += strRmbFlag;
+						strNameItem += "0";
+
+						mustInstallMsg += SpliceErrorMsg(checkItem, mustInstallErrorMsg, strNameItem, strFailIndex);
+						iFailIndex++;
+						mustInstallErrorMsg = "";
+					}
+                }
+            }
+
+			if(!pIeExtensionsPolicy->needUninstallExtension.empty())
+			{
+				list<EXTENSIONINFO>::iterator iter;
+				std::string needUninstallErrorMsg("");
+
+				for (iter = pIeExtensionsPolicy->needUninstallExtension.begin(); 
+					iter != pIeExtensionsPolicy->needUninstallExtension.end(); 
+					iter++)
+				{
+					vector<string> vecLangMsg;
+
+					if (GetLangVectorByKeyA(language, 
+						IEEXTENSION_APPNAME, 
+						pSfIEExtensionKeyStr[SF_IEEXTENSION_NEEDUNINSTALL], 
+						pSfIEExtensionKeyStr[SF_IEEXTENSION_NEEDUNINSTALL], 
+						MAX_BUF_LEN,
+						2,
+						&vecLangMsg))
+					{
+						string strNameItem = "";
+
+						needUninstallErrorMsg = vecLangMsg[0];
+						needUninstallErrorMsg += (string)iter->m_strExtensionName;
+						needUninstallErrorMsg += vecLangMsg[1];
+						strFailIndex = std::to_string((_ULonglong)iFailIndex);
+
+						strNameItem = (string)iter->m_strExtensionName;
+						strNameItem += strRmbFlag;
+						strNameItem += "1";
+						strNameItem += strRmbFlag;
+						strNameItem += "0";
+
+						needUninstallMsg += SpliceErrorMsg(checkItem, needUninstallErrorMsg, strNameItem, strFailIndex);
+						iFailIndex++;
+						needUninstallErrorMsg = "";
+					}
+				}
+			}
+
+            if(!pIeExtensionsPolicy->needEnabledExtension.empty())
+            {
+                list<EXTENSIONINFO>::iterator iter;
+                std::string needEnabledErrorMsg("");
+
+                for (iter = pIeExtensionsPolicy->needEnabledExtension.begin(); 
+                    iter != pIeExtensionsPolicy->needEnabledExtension.end(); 
+                    iter++)
+                {
+					vector<string> vecLangMsg;
+
+					if (GetLangVectorByKeyA(language, 
+						IEEXTENSION_APPNAME, 
+						pSfIEExtensionKeyStr[SF_IEEXTENSION_NEEDENABLE], 
+						pSfIEExtensionKeyStr[SF_IEEXTENSION_NEEDENABLE], 
+						MAX_BUF_LEN,
+						2,
+						&vecLangMsg))
+					{
+						string strNameItem = "";
+
+						needEnabledErrorMsg = vecLangMsg[0];
+						needEnabledErrorMsg += (string)iter->m_strExtensionName;
+						needEnabledErrorMsg += vecLangMsg[1];
+						strFailIndex = std::to_string((_ULonglong)iFailIndex);
+
+						strNameItem = (string)iter->m_strExtensionName;
+						strNameItem += strRmbFlag;
+						strNameItem += "1";
+						strNameItem += strRmbFlag;
+						strNameItem += "0";
+
+						needEnabledMsg += SpliceErrorMsg(checkItem, needEnabledErrorMsg, strNameItem, strFailIndex);
+						iFailIndex++;
+						needEnabledErrorMsg = "";
+					}       
+                }
+            }
+
+			strErrorMsg = mustInstallMsg;
+			strErrorMsg += needUninstallMsg;
+			strErrorMsg += needEnabledMsg;
+
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_IEEXTENSIONS, LOGLOCATION, (char*)strErrorMsg.c_str());
+        }
+    }
+    catch(...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL, L"IEExtensionsRetShowMsg Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "IEExtensionsRetShowMsg Exception");
+    } 
+
+    return ret;
+}
+
+ /************************************************************
+ Description: 卸载加载项
+ input: 
+ Return: 
+*************************************************************/
+ LONG UninstallExtension(IN char* pClsid)
+ {
+     string lpSubKey = "CLSID";    
+     LONG lReturn = !ERROR_SUCCESS;      
+     HKEY hkResult = NULL;  
+
+     lReturn = RegOpenKeyExA(HKEY_CLASSES_ROOT, lpSubKey.c_str(), 0, KEY_ALL_ACCESS , &hkResult);
+
+     if (lReturn == ERROR_SUCCESS) 
+     {
+         lReturn = SHDeleteKeyA(hkResult, pClsid);
+      
+         if (lReturn != ERROR_SUCCESS)
+         {
+             return lReturn;
+         }
+         else
+         {
+             OutputDebugStringA("IE控件卸载成功!\n");
+         }
+     }
+     else
+     {
+         return lReturn;
+     }
+
+     if (IsWin64Os()) 
+     {
+         lReturn = RegOpenKeyExA(HKEY_CLASSES_ROOT, lpSubKey.c_str(), 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hkResult);
+
+         if (lReturn == ERROR_SUCCESS)
+         {
+             lReturn = SHDeleteKeyA(hkResult, pClsid);
+         }
+     }
+
+     return lReturn;
+ }
+
+ /************************************************************ 
+ Description: 检查IE控件是否被禁用
+ input: strExtensionClsid[IE控件Clsid]
+ Return: TRUE[检查IE控件被禁用]
+         FALSE[检查IE控件没有被禁用];
+*************************************************************/
+int CheckIEExtensionsIsDisable(IN char* pIeExtensionClsid)
+{
+    EXTENSIONCLSID extensionClsid;
+    int ret = FALSE;
+    HINSTANCE hSystemCheckDll = NULL;
+    HWND hwnd = NULL;
+    char systemCheckDllPath[MAX_PATH] = {0};
+
+    extensionClsid.m_iFlag = IEEXTENSIONS_DISABLE_FLAG;
+    strncpy_s(extensionClsid.m_strClsid, CLSID_NAME_LEN, pIeExtensionClsid, CLSID_NAME_LEN);
+
+    if (StartRegExePro(2000))
+    {
+        sprintf_s(systemCheckDllPath, "%s\\%s", g_nacdirpath, SYSTEMCHECKDLLNAME);
+        hSystemCheckDll = LoadLibraryA(systemCheckDllPath); 
+
+        if (hSystemCheckDll == NULL)
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_IEEXTENSIONS, LOGLOCATION, "SystemCheck.Dll文件加载失败");
+            return ret;
+        }
+
+        pSetIEExtensionsPolicy fSetIEExtensionsPolicy = NULL;
+        fSetIEExtensionsPolicy = (pSetIEExtensionsPolicy)GetProcAddress(hSystemCheckDll, "SetIEExtensionsPolicy");
+        if (fSetIEExtensionsPolicy == NULL)
+        {
+			FreeLibrary(hSystemCheckDll);
+            return ret;
+        }
+
+        fSetIEExtensionsPolicy(extensionClsid);
+
+        hwnd = ::FindWindow(NULL, L"身份认证/安全检测");
+        if (hwnd)
+        {
+            ret = ::SendMessage(hwnd, WM_CHECKIEEXTENSIONS_MSG, 0, 0);
+        }
+
+        FreeLibrary(hSystemCheckDll);
+    }
+
+    return ret;
+}
+
+ /************************************************************ 
+ Description: 启用禁用的IE控件
+ input: strExtensionClsid[IE控件Clsid]
+ Return: TRUE[启用成功]
+         FALSE[启用失败];
+*************************************************************/
+int EnableIEExtensions(IN char* pIeExtensionClsid)
+{
+    EXTENSIONCLSID extensionClsid;
+    int ret = FALSE;
+    HINSTANCE hSystemCheckDll = NULL;
+    HWND hwnd = NULL;
+    char systemCheckDllPath[MAX_PATH] = {0};
+
+    extensionClsid.m_iFlag = IEEXTENSIONS_ENABLE_FLAG;
+    strncpy_s(extensionClsid.m_strClsid, CLSID_NAME_LEN, pIeExtensionClsid, CLSID_NAME_LEN);
+
+    if (StartRegExePro(2000))
+    {
+        sprintf_s(systemCheckDllPath, "%s\\%s", g_nacdirpath, SYSTEMCHECKDLLNAME);
+        hSystemCheckDll = LoadLibraryA(systemCheckDllPath); 
+
+        if (hSystemCheckDll == NULL)
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_IEEXTENSIONS, LOGLOCATION, "SystemCheck.Dll文件加载失败");
+            return ret;
+        }
+
+        pSetIEExtensionsPolicy fSetIEExtensionsPolicy = NULL;
+        fSetIEExtensionsPolicy = (pSetIEExtensionsPolicy)GetProcAddress(hSystemCheckDll, "SetIEExtensionsPolicy");
+        if (fSetIEExtensionsPolicy == NULL)
+        {
+            return ret;
+        }
+
+        fSetIEExtensionsPolicy(extensionClsid);
+
+        hwnd = ::FindWindow(NULL, L"身份认证/安全检测");
+        if (hwnd)
+        {
+            ret = ::SendMessage(hwnd, WM_CHECKIEEXTENSIONS_MSG, 0, 0);
+        }
+
+        FreeLibrary(hSystemCheckDll);
+    }
+
+    return ret;
+}
+
+/************************************************************ 
+ Description: 检查IE控件或修复
+ input: fixFlag[修复标志]
+        ieExtensionsPolicy[控件策略]
+ Return: TRUE(1)[检查IE控件不符合要求或修复成功]
+         FALSE(0)[检查IE控件符合要求或修复失败];
+*************************************************************/
+int CheckIEExtensions(IN int fixFlag, IN PIEEXTENSIONSPOLICY pIeExtensionsPolicy, int iRepairIndex)
+{
+    int ret = FALSE;
+
+    try
+    {
+        if (fixFlag)
+        {
+            list<EXTENSIONINFO>::iterator needEnabledExtensionIter;
+            list<EXTENSIONINFO>::iterator needDisabledExtensionIter;
+            list<MUSTINSTALLEXTENSIONINFOPOLICY>::iterator needInstallExtensionIter;
+			int iCount = 0;
+
+			for (needInstallExtensionIter = pIeExtensionsPolicy->mustInstallExtensionVector.begin(); 
+				needInstallExtensionIter != pIeExtensionsPolicy->mustInstallExtensionVector.end(); )
+			{      
+				if (iRepairIndex == INFINITE || iRepairIndex == iCount)
+				{
+					string strDownloadFilePath = "";
+					bool downloadRes = false;
+					char tempPath[MAX_PATH] = {0};
+					string strRepairPath = (string)needInstallExtensionIter->m_strRepairPath;
+					int iPos = strRepairPath.find("softwareName=");
+
+					if (iPos == string::npos)
+					{
+						needInstallExtensionIter++;
+						iCount++;
+						continue;
+					}
+
+					GetTempPathA(MAX_PATH, tempPath);           
+					strDownloadFilePath = strRepairPath.substr(iPos+strlen("softwareName="));
+					strcat(tempPath, strDownloadFilePath.c_str());
+
+					downloadRes = DownLoadFileFromUrl(g_ServerIp, needInstallExtensionIter->m_strRepairPath, tempPath, false, true);
+
+					if(!downloadRes)
+						DeleteFileA(tempPath);
+
+					if(PathFileExistsA(tempPath))
+					{
+						if(LaunchAppIntoDifferentSession(tempPath, needInstallExtensionIter->m_strRepairCmd))
+						{
+							pIeExtensionsPolicy->mustInstallExtensionVector.erase(needInstallExtensionIter++);
+							iCount++;
+							continue;
+						}
+					}
+				}
+				iCount++;
+				needInstallExtensionIter++;
+			} 
+
+			for (needDisabledExtensionIter = pIeExtensionsPolicy->needUninstallExtension.begin(); 
+				needDisabledExtensionIter != pIeExtensionsPolicy->needUninstallExtension.end(); )
+			{
+				if (iRepairIndex == INFINITE || iRepairIndex == iCount)
+				{
+					if (UninstallExtension(needDisabledExtensionIter->m_strExtensionClsid))
+					{
+						pIeExtensionsPolicy->needUninstallExtension.erase(needDisabledExtensionIter++);
+						iCount++;
+						continue;
+					}
+				}
+				iCount++;
+				needDisabledExtensionIter++;
+			}
+
+            for (needEnabledExtensionIter = pIeExtensionsPolicy->needEnabledExtension.begin(); 
+                needEnabledExtensionIter != pIeExtensionsPolicy->needEnabledExtension.end(); )
+            {
+				if (iRepairIndex == INFINITE || iRepairIndex == iCount)
+				{
+					if (EnableIEExtensions(needEnabledExtensionIter->m_strExtensionClsid))
+					{
+						pIeExtensionsPolicy->needEnabledExtension.erase(needEnabledExtensionIter++);
+						iCount++;
+						continue;
+					}
+				}
+				iCount++;
+                needEnabledExtensionIter++;
+            }
+        }
+
+        if (!pIeExtensionsPolicy->needEnabledExtension.empty() ||
+            !pIeExtensionsPolicy->needUninstallExtension.empty() ||
+            !pIeExtensionsPolicy->mustInstallExtensionVector.empty())
+        {
+            ret = TRUE;
+        }
+    }
+    catch(...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL, L"CheckIEExtensions Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "CheckIEExtensions Exception");
+    } 
+
+    return ret;
+}

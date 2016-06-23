@@ -1,0 +1,45 @@
+#include "StdAfx.h"
+#include "Job.h"
+
+
+long CJob::lastUsedID=0;
+
+
+CJob::CJob(void)
+{
+	this->m_ID=InterlockedIncrement(&lastUsedID);
+	this->m_autoDeleteFlag = TRUE;
+	this->m_priority=5;
+	this->m_Completed = FALSE;
+}
+
+
+CJob::~CJob(void)
+{
+
+}
+
+BOOL CJob::AutoDelete()
+{
+	return m_autoDeleteFlag;
+}
+
+void CJob::setAutoDelete(BOOL autoDeleteFlag)
+{
+	m_autoDeleteFlag = autoDeleteFlag;
+}
+
+long CJob::getID()
+{
+	return this->m_ID;
+}
+
+int CJob::getPriority()
+{
+	return this->m_ID;
+}
+
+void CJob::setPriority(int priority)
+{
+	 this->m_priority=priority;
+}

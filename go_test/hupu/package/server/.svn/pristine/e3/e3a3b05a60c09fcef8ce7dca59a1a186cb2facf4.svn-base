@@ -1,0 +1,37 @@
+#pragma once
+
+#include "ProcessInfo.h"
+
+
+class Port
+{
+public:
+	Port(void);
+	~Port(void);
+public:
+	///////策略动作合并之后
+	int m_portCnt;      ///////当前执行的端口个数
+	XMLPORTINFO  *m_portInfo; //////执行的策略信息
+
+	int m_failportnum;  //////失败的端口项
+	XMLPORTINFO *m_failportInfo;
+	/////////策略数据
+	int GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday);
+	string ExecPortItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int *IsPortSuccess);
+	int  RestoreFailItem(int index);
+
+	void DeleteData();
+private:
+	///////策略动作合并之前的策略统计
+	int m_totalCnt;  //// 总个数
+	XMLPORTINFO  *m_totolportInfo;//端口信息
+
+    //合并例外进程项
+    void mergeExceptProcess(IN int index,IN int currindex);
+    //判断一个进程id号为processid的进程是否为例外进程
+    bool IsInexceptProcess(IN int index,IN DWORD processid,OUT PROCESSDETINFO* procinfo);
+
+	string GetFailDescription(int ifailindex,BOOL bUdp,XMLPORTINFO failportinfo,PROCESSDETINFO procinfo);
+
+};
+

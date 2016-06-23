@@ -1,0 +1,28 @@
+#pragma once
+
+#include "..\CommPub.h"
+
+class MultiServerPage
+{
+public:
+    MultiServerPage(void);
+    ~MultiServerPage(void);
+
+	//从数据库中查询安检数据
+	int GetDataFromDB(IN wchar_t  *dirpath,IN char *userid,IN char* usertype,IN char* itemtype,IN char *currdata,IN char *millisecond,IN char *weekday);
+
+	//执行安检项
+	string ExecSafeCheckItem(IN char *servertime,IN char* mac,IN int totalitem,IN int curritem,IN int nextitem,IN int  *exeresult);
+
+	//修复安检项
+	int RestoreFailItem(IN int curritem);
+
+private:
+
+    //进程项信息
+	PROCESSINFO *m_processinfo;
+
+	//进程总项
+	list<PROCESSINFO> m_totalproclist;
+};
+

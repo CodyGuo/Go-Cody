@@ -1,0 +1,77 @@
+#include "DuilibConfig.h"
+
+#include "UserInfo.h"
+#include "DebugInfo.h"
+#include "GUISetting.h"
+
+class CLogOn : public CWindowWnd, public INotifyUI, public IMessageFilterUI
+{
+public:
+	CLogOn();
+	LPCTSTR GetWindowClassName() const ;
+	UINT GetClassStyle() const ;
+	void OnFinalMessage(HWND /*hWnd*/);
+
+	void Init(wchar_t *xmlpath,LANGUAGETYPE lang,BOOL enableuser,BOOL enableguest,BOOL enabledomain,BOOL bShowDefault,
+		BOOL bShowServName,list<SERVERADDOMAIN> servadlist);
+
+	void Notify(TNotifyUI& msg);
+
+	LRESULT OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnLButtonClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+	LRESULT MessageHandler(UINT uMsg, WPARAM wParam, LPARAM lParam, bool& bHandled);
+
+	void  InitControlText();
+
+public:
+	CPaintManagerUI m_pm;
+	CStdString m_xmlpath;
+
+	BOOL m_benableDomain;
+	BOOL m_benableUser;
+	BOOL m_benableGuest;
+	BOOL m_bShowDefalt;
+	BOOL m_bShowServName;
+
+	char m_dbpwd[MAX_PATH];//数据库中的用户密码
+	LANGUAGETYPE m_lang;
+
+   wchar_t m_langinipath[MAX_PATH];
+
+   list<SERVERADDOMAIN> m_addomainlist;
+
+   	GUISETTING  m_guisetting;
+
+   CLabelUI  *pdomainlabel;
+   COptionUI *poptionuser;
+   COptionUI *poptionguest;
+   COptionUI *poptionrmbpwd;
+   COptionUI *poptionautologin;
+   CComboUI *pcombodomain;
+   CEditUI *paccountedit;
+   CEditUI *ppwdedit;
+
+   void GetDbUserInfo();
+
+   //获取服务器端的域id在combo中的位置
+   BOOL GetComboxIndex(int servindexid,int* comboId);
+
+   //根据combo中的下标获取选中的域的服务器id
+   BOOL GetDomainIdFromCombox(int comboid,int *servindex);
+
+   void LogInUserFromMenuLogInDlg();
+};

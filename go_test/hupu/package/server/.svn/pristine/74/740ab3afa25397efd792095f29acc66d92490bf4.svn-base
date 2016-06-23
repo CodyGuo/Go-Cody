@@ -1,0 +1,60 @@
+#pragma once
+
+#include "instlsp.h"
+#include "..\..\..\common\preheader.h"
+#include "..\SafeCheckItem\NetMon.h"
+
+const int NETMONONTIMER = 30*1000;
+
+class COpLsp
+{
+public:
+	COpLsp(void);
+	~COpLsp(void);
+
+public:
+
+	int DoInit();
+	void DoUninit();
+	DWORD FindMyLimiterLayer(WINSOCK_CATALOG Catalog, LPCWSTR lpszName);
+
+	//已经安装返回TRUE,没有安装返回FALSE
+	BOOL bIsInstallDll();
+
+	void InstallDll();
+	void UninstallDll();
+	void GetRuleInfo(RuleInfo* ruleinfo,int rulecnt);
+	void AddRule();
+	void PassAllPacket();
+	void ExceptIp(char*  exceptipstr);
+	void WriteRuleResultToIniFileAndAddNewRule(string servdatetime);
+
+	void NoNetMonRule();
+	void HasNetMonRule(RuleInfo *ruleinfo,char* msginfo,BOOL bOnLine);
+
+	void HandleServXmlStg(int stgsize);
+	void SelectNetMonStg(wchar_t  *dirpath,int iuserid,int iusertype,string timediff);
+
+	void DeleteRecordFile();
+
+	BOOL m_bNeedNetMon;
+	DWORD m_dwstart;
+	int m_confRuleCont;
+private:
+	void GetLspDllPath();
+
+	void WSPAPI SetLimitCondition(const wchar_t *LspPath,RuleInfo ruleinfo);
+	void WSPAPI GetLimitRule(const wchar_t *LspPath,ACLRULE* ruleinfo,int ruleCount);
+	void WSPAPI SetLSPWorkMode(const wchar_t *LspPath,BYTE bWorkMode);
+	BYTE WSPAPI GetLSPWorkMode(const wchar_t *LspPath);
+	void WSPAPI SetLSPServIp(const wchar_t *LspPath,unsigned long ServIp);
+	unsigned long WSPAPI  GetLSPServIp(const wchar_t *LspPath);
+	BOOL bCmpNeedUpdateRule(ACLRULE* ruleinfo,int ruleCount);
+
+	RuleInfo  m_configRule[MAX_RULES];
+	BOOL m_bInstall;
+	wstring m_lspdllpath;
+	CNetMon m_netmon;
+	CRITICAL_SECTION m_hasrulecs;
+};
+

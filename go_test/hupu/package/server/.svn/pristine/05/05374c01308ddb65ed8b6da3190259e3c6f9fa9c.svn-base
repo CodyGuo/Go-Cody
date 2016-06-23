@@ -1,0 +1,167 @@
+#pragma once
+
+#include "..\CommPub.h"
+#include "..\GlobalDate.h"
+#include "DomainIdentydlg.h"
+
+#include <Ntsecapi.h>
+#pragma comment(lib,"Advapi32.lib")
+
+
+const long C_TIPDLGTIMEOUT = 10;//单位为S
+
+typedef struct XMLSFDOMAINFAILINFO
+{
+    //域名
+    char domainname[MAX_PATH];
+    //用户名
+    char username[HP_C_USERCONTENTLEN];
+    //失败描述
+    char faildes[MAX_PATH];
+    //是否可以修复:0表示不可以修复，1表示可以修复,2:表示域用户验证
+    char canrepair[HP_C_USERCONTENTLEN];
+    //修复路径
+    char repairpath[MAX_PATH];
+    //策略动作
+    char repairaction[HP_C_USERCONTENTLEN];
+    //提示信息
+    char warningmsg[MAX_PATH];
+    //警报级别
+    char warninglevel[HP_SF_ATTRBUFLEN];                 
+    //警示信息
+    char warningcont[MAX_PATH];       
+    //原始事件记录
+    char srcevent[HP_SF_ATTRBUFLEN];    
+
+}_XMLSFDOMAINFAILINFO;
+
+class DomainUser
+{
+public:
+    DomainUser(void);
+    ~DomainUser(void);
+
+public:
+    //当前执行的域的个数
+    int m_domainCnt;      
+
+    //执行的策略信息
+    list<XMLSFDOMAINEXEC> m_domainInfo;
+
+    //失败的域检查项
+    int m_faildomainnum;  
+
+    //提供修复的安检项
+   list<XMLSFDOMAINFAILINFO>  m_faildomaininfo;
+
+    //获取是否需要安检的数据
+    int GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday);
+
+    //执行安检数据
+    string ExecDomainItem(IN SFSAFECHECKTYPE sfchecktype,IN LANGUAGETYPE language,char *servertime, char* mac, int totalitem, int curritem, int nextitem,int  *IsDomainSuccess);
+
+    //修复失败的安检项
+    int RestoreFailItem(int index);
+
+private:
+    void InitData();
+
+    //总的域用户数
+    int m_totaldomainnum;
+
+    //总的域用户信息
+    list<XMLSFDOMAINEXEC> m_totaldomaininfo;
+
+    //是否为加入到域中的计算机
+    bool m_Iscmpdomain;
+
+    //是否登录到域
+    bool  m_IsLogOnDomain;
+
+    //登录的服务器
+    TCHAR m_logonServer[MAX_PATH];
+
+    //DNS域名
+    TCHAR  m_dnsDomain[MAX_PATH];
+
+    //用户域名
+    TCHAR  m_userDomain[MAX_PATH];
+
+    //用户名
+    TCHAR m_userName[MAX_PATH];
+
+    //允许的策略的个数
+    int  m_allowdomainnum;
+
+    //拒绝的策略的个数
+    int m_refusedomainnum;
+
+	long m_tipdlgtime;
+
+	HANDLE m_tipdlgHwd;
+
+	 char m_servtimeval[HP_C_USERCONTENTLEN];
+
+	list<ADSERVERNAMEIP> m_servidendomain;
+
+    //判断是否为域用户
+    int  isDomainUser();
+
+    //获取注册表中的键值
+    int  GetCurrentUserDomain( ); 
+    
+    //合并白名单和黑名单中的数据
+    BOOL MergeExceptUser(IN char* whitelist,IN char* blacklist,OUT char* currwhitelist,OUT char* currblacklist);
+
+    BOOL Finduserstring(IN char* dstbuffer,IN char* pattern);
+
+    //根据数据库中的字段转化为结构体字段
+    void GetDomaindbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, XMLSFDOMAINEXEC *dbrowdata);
+
+	//判断用户是否属于黑名单或者白名单用户
+	void JudgeUserNameInBlackOrWriteList(IN LANGUAGETYPE language,IN char* userName,IN char* doMainname,OUT BOOL* bSuccess,OUT int* iRes);
+
+	//计算机选择允许加入的域进行提示
+	//cmptype:0表示计算机没有加入域
+	//                  1表示计算机已经加入一个域，该域不在拒绝的域中
+	//                  2.表示计算机已经加入域，该域在拒绝的域中
+	void chooseSuitDomainTojoin(IN LANGUAGETYPE language,IN char* userName,IN char* doMainname,IN int cmptype,OUT BOOL* bSuccess);
+
+	//判断计算机是否在配置的拒绝的域中
+	BOOL  cmpInRefuseDomain(IN LANGUAGETYPE language,IN char* userName,IN char* doMainname,OUT BOOL* bSuccess);
+
+	//COPY结构体数据
+	void CopyStructData(XMLSFDOMAINEXEC srcdata,XMLSFDOMAINFAILINFO* dstdata);
+
+	//获取服务器配置的允许和拒绝的域的个数
+	void GetServDomainConfigNum();
+
+	//验证域用户信息
+	BOOL IdentifyDomainMsg(LANGUAGETYPE language,SFSAFECHECKTYPE sfchecktype,char* cmpusername,char* cmpdomain,
+		XMLSFDOMAINEXEC domainconfig,char* identifyresult,int identifyresultlen);
+
+
+	//查询本地计算机加入的域是否在服务器端配置的允许的域中,存在则返回TRUE和该域的配置信息
+	BOOL GetCompterDomainInServier(char* compterdomain,int icmpdomainlen,XMLSFDOMAINEXEC* domainconfig);
+
+	void GetIdentifyDomainServer();
+
+	void ShowOffLineTipToIdentify(int ontimeornot,DOMAINEXTERNCONFIGDATA servconf,char *swarnname,char *warninglevel,char* srcevent);
+
+	//获取当前进程的用户名信息
+	BOOL GetProcessUser(HANDLE  exeHandle, wchar_t *szUserName, DWORD  nNameLen,
+		wchar_t *domainName,DWORD domainlen);
+
+	//向服务器上传域用户验证的信息
+	void SendDomainIdentifyInfoToServer(string idenuser,string idendomain,SFSAFECHECKTYPE safechecktype,BOOL  idenRes);
+
+	bool CompareRules(ADSERVERNAMEIP _X,  ADSERVERNAMEIP _Y);
+
+	LSA_HANDLE HPGetLookupPolicyHandle(VOID);
+
+	wstring GetSidFullName(
+		_In_ PSID Sid,
+		_In_ BOOLEAN IncludeDomain
+		);
+};
+

@@ -1,0 +1,47 @@
+#include "StdAfx.h"
+#include "TimeCalculation.h"
+
+//将systemtime时间转化为秒
+unsigned long ConvertSystemUserBlackSpaceToSecond(string timestr)
+{
+	unsigned long tmptime;
+	vector<string> timeVec;
+	timeVec = split(timestr,"-");
+	int timeVecSize = timeVec.size();
+	if (timeVecSize <6 )
+	{
+		return 0;
+	}
+	tmptime = (( atoi(timeVec[0].c_str()) / 4 - atoi(timeVec[0].c_str()) / 100 + atoi(timeVec[0].c_str()) / 400) 
+		+ 367 * atoi(timeVec[1].c_str()) / 12 + atoi(timeVec[2].c_str()) + atoi(timeVec[0].c_str()) * 365 - 719499)*24*3600
+		+atoi(timeVec[3].c_str())*3600+atoi(timeVec[4].c_str())*60+atoi(timeVec[5].c_str());
+	return tmptime;
+}
+
+//将systemtime格式的时间转化为秒
+unsigned long ConvertSystemTimeToSecond(SYSTEMTIME st)
+{
+	unsigned long tmptime;
+	tmptime = (( st.wYear / 4 - st.wYear / 100 + st.wYear / 400) 
+		+ 367 * st.wMonth / 12 + st.wDay + st.wYear* 365 - 719499)*24*3600
+		+st.wHour*3600+st.wMinute*60+st.wSecond;
+	return tmptime;
+}
+
+//将时间戳格式的时间转化为秒
+unsigned long ConvertServiceTimevalToSecond(string servtimeval)
+{
+	SYSTEMTIME pst;
+	long long mytime = _atoi64((char*)servtimeval.c_str())/1000;
+	time_t nowtime = mytime;
+	FILETIME ft;
+	LONGLONG nLL = Int32x32To64(nowtime, 10000000) + 116444736000000000;
+	FILETIME ftnow;
+
+	ft.dwLowDateTime = (DWORD)nLL;
+	ft.dwHighDateTime = (DWORD)(nLL >> 32);
+
+	FileTimeToLocalFileTime(&ft, &ftnow);
+	FileTimeToSystemTime(&ftnow, &pst);
+   return ConvertSystemTimeToSecond(pst);
+}

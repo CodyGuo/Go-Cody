@@ -1,0 +1,1740 @@
+#include "StdAfx.h"
+#include "Antivirus.h"
+#include  "..\DebugInfo.h"
+#include "..\CommPub.h"
+#include "..\GlobalDate.h"
+#include "SafeCheckFuntion.h"
+#include "..\strconvert.h"
+
+#include <Wbemcli.h>
+#include <comutil.h>
+#include <atlbase.h>
+#pragma comment(lib, "wbemuuid.lib")
+#pragma comment(lib, "comsuppw.lib ")
+
+#include <sddl.h>
+#pragma comment(lib,"Advapi32.lib")
+
+#include "Download.h"
+#include "ProcessInfo.h"
+#include "GetAntivirusInfo.h"
+
+Cantivirus::Cantivirus(void):m_antiCnt(0),
+    m_antitotalCnt(0),
+    m_failantinum(0)
+{
+    memset(m_namespacestr[0],0,sizeof(m_namespacestr[0]));
+    memset(m_namespacestr[1],0,sizeof(m_namespacestr[1]));
+
+    memcpy(m_namespacestr[0], L"ROOT\\SecurityCenter", wcslen(L"ROOT\\SecurityCenter")*sizeof(wchar_t));
+    memcpy(m_namespacestr[1], L"ROOT\\SecurityCenter2", wcslen(L"ROOT\\SecurityCenter2")*sizeof(wchar_t));
+
+    for (int i =0;i<HP_SUPPLYANTIVIRUS_NUM;i++)
+    {
+        memset(m_supportedantivirus[i], 0, sizeof(m_supportedantivirus[i]));
+        m_bInstallindex[i] =FALSE;
+    }
+
+    memcpy(m_supportedantivirus[0],L"360杀毒",wcslen(L"360杀毒")*sizeof(wchar_t));
+    memcpy(m_supportedantivirus[1],L"金山毒霸",wcslen(L"金山毒霸")*sizeof(wchar_t));
+    memcpy(m_supportedantivirus[2],L"百度杀毒",wcslen(L"百度杀毒")*sizeof(wchar_t));
+    memcpy(m_supportedantivirus[3],L"瑞星杀毒",wcslen(L"瑞星杀毒")*sizeof(wchar_t));
+    memcpy(m_supportedantivirus[4],L"腾讯电脑管家",wcslen(L"腾讯电脑管家")*sizeof(wchar_t));//电脑管家
+    memcpy(m_supportedantivirus[5],L"McAfee",wcslen(L"McAfee")*sizeof(wchar_t));
+    memcpy(m_supportedantivirus[6],L"NOD32",wcslen(L"NOD32")*sizeof(wchar_t));
+    memcpy(m_supportedantivirus[7],L"微软杀毒软件(MSE)",wcslen(L"微软杀毒软件(MSE)")*sizeof(wchar_t));
+    memcpy(m_supportedantivirus[8],L"赛门铁克",wcslen(L"赛门铁克")*sizeof(wchar_t));//Symantec Endpoint Protection
+
+    for (int i =0;i<3;i++)
+    {
+        memset(identifydes[i], 0, sizeof(identifydes[i]));
+    }
+    memcpy(identifydes[0],"大于",strlen("大于")*sizeof(char));
+    memcpy(identifydes[1],"等于",strlen("等于")*sizeof(char));
+     memcpy(identifydes[2],"小于",strlen("小于")*sizeof(char));
+
+     for (int i =0;i<2;i++)
+     {
+         memset(libchoosedes[i],0,sizeof(libchoosedes[i]));
+     }
+     memcpy(libchoosedes[0],"未更新天数",strlen("未更新天数")*sizeof(char));
+     memcpy(libchoosedes[1],"更新日期",strlen("更新日期")*sizeof(char));
+ 
+     memset(m_currsafechecktime, 0, sizeof(m_currsafechecktime));
+
+    InitData();
+
+    m_x64Version = FALSE;
+    SYSTEM_INFO  si;
+    ::GetNativeSystemInfo(&si);
+    if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||   
+        si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 )  
+    {  
+        m_x64Version = TRUE;
+    } 
+
+}
+
+Cantivirus::~Cantivirus(void)
+{
+    InitData();
+}
+
+int Cantivirus::GetDataFromDB(wchar_t  *dirpath, char *userid,char* usertype, char *currdata, char *millisecond, char *weekday)
+{
+    //从数据库中查询总的策略项和当前要开始检查的策略项及所有的安检结果
+    int ret = SQLITE_OK;
+
+    try
+    {
+        if (HP_openDB(dirpath) == HP_DB_OPENFAIL)
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"打开数据库失败");
+            return HP_DB_OPENFAIL;
+        }
+        else
+        {
+            InitData();
+
+            //获取杀毒软件数据
+            char sql[HP_C_SQLDATA]={0}; 
+            char sqlReal[HP_C_SQLDATA]={0};
+            char **pszResult='\0';
+            CHAR *szErrMsg='\0';
+            INT nRow = 0;
+            INT nCloumn = 0;
+
+          sprintf_s(sql,HP_C_SQLDATA,"SELECT %s,gninstallrepairflag,gninstallpath,gninstallparam,gninstallhandrep,gsoftversionflag, gsoftversionpath, \
+            gsoftversionparam,gsoftversionhandrep,glibversionflag,glibversionpath,glibversionparam,glibversionhandlerep,santname,\
+            softverindetify,softverdes, libverchoose,libverindetify,libverdes,runant,softverflag,softverpath,softverparam,softverhandrep,\
+            libverflag,libverpath,libverparam,libverhandlerep FROM  (SELECT * FROM tstgantivirus a, tstgantiviruscontent b WHERE \
+            (a.ipolicyauthid=b.ipolicyauthid) AND (a.iuserid=%d) AND (a.usertype = \'%s\')AND (a.dstartdate<=\'%s\') AND (a.denddate>=\'%s\') \
+            AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority DESC) AS tb  \
+            GROUP BY tb.santname ORDER BY ipriority ASC ",HP_ATTRIBUTE_SQLNAME,
+            atoi(userid),usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));	
+
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "查询杀毒软件策略的SQL语句:", sql);
+            Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+
+      //      EnterCriticalSection(&g_opdbcs);
+            if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+            {
+  //              LeaveCriticalSection(&g_opdbcs);
+                WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "查询杀毒软件失败:", szErrMsg);
+                sqlite3_free_table(pszResult);
+                return HP_DB_GETTABLEFAIL;
+            }
+            if ((nRow > 0) && (nCloumn > 0))
+            {	
+                m_antitotalCnt = nRow;
+
+                for (int i=0;i<nRow;i++)
+                {
+                    ANTIVIRUSSTGINFO antivirusinfo;
+                    memset(&antivirusinfo,0,sizeof(ANTIVIRUSSTGINFO));
+
+                    for (int j=0; j < nCloumn; j++)
+                    {
+                        GetAntivirusdbColumndata(pszResult[j],pszResult[(i+1)*nCloumn+j],	&antivirusinfo);
+                    }//for (int j=0; j < nCloumn; j++)
+
+                    m_antitotalInfo.push_back(antivirusinfo);
+
+                }//for (int i=0;i<nRow;i++)
+            }//if ((nRow > 0) && (nCloumn > 0))
+            sqlite3_free_table(pszResult);
+ //           LeaveCriticalSection(&g_opdbcs);
+            //去除拒绝的项,合并全局的修复配置
+            if(m_antitotalCnt >0)
+            {
+                sprintf_s(m_currsafechecktime,sizeof(m_currsafechecktime),"%s",currdata);
+
+                RemoveRefuseItemAndMergeGlobalSetting();
+            }  //if(m_antitotalCnt>0)
+
+        }
+        return HP_SUCCESS;
+    }
+    catch (...)
+    {
+#ifdef DEBUG
+        MessageBox(NULL,L"Cantivirus GetDataFromDB except",L"err",0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"Cantivirus GetDataFromDB except");
+        return HP_DB_OPENFAIL;
+    }
+}
+
+string Cantivirus::ExecAntivirusItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess)
+{
+    char tempheader[MAX_PATH]={"0"};
+    sprintf_s(tempheader,MAX_PATH,"%s;%s;%d;%d;1;%d;%s;",servertime,g_deviceid.c_str(),totalitem,
+        curritem,nextitem,mac);
+    //拼接向服务器发送的xml
+    string xmlstring;
+    char *failInfo= new char[MAX_PATH*2*m_antiCnt+1]();
+    memset(failInfo,0,MAX_PATH*2*m_antiCnt+1);
+
+    char *servsfnamedes = new char[HP_C_USERCONTENTLEN*m_antiCnt];//服务器端配置的杀毒软件的名称
+
+    memset(servsfnamedes,0,HP_C_USERCONTENTLEN*m_antiCnt);
+
+    bool bIsSucces = true;
+    if (m_antiCnt>0)
+    {
+         GetStupSoftwareInfo(m_softwareInfo);
+
+        GetWMIAVInfo();
+
+        list<ANTIVIRUSSTGINFO>::iterator  antiter;
+        bool binstallAnt = FALSE;
+
+        for (antiter = m_antiInfo.begin( ); antiter != m_antiInfo.end( );  ++antiter)
+        {
+           
+            bool bcmpsfname = FALSE;//判断杀毒软件名称是否一致
+            bool bcmpsfver = FALSE;//判断杀毒软件版本是否一致
+            bool bcmplibver = FALSE;//判断病毒库版本是否一致
+            bool bcmprun = FALSE;//判断是否立即运行是否一致
+
+            ANTIVIRUSSTGINFO   anttmp = *antiter;
+
+            if (strcmp(servsfnamedes,""))
+            {
+                sprintf_s(servsfnamedes,HP_C_USERCONTENTLEN*m_antiCnt,"%s,",servsfnamedes);
+            }
+              sprintf_s(servsfnamedes,HP_C_USERCONTENTLEN*m_antiCnt,"%s%s",servsfnamedes,anttmp.antivirusset.santname);
+
+            INSTALLEDAVTIVIRUSINFO  installantconf;
+            memset(&installantconf,0,sizeof(INSTALLEDAVTIVIRUSINFO));
+
+            ANTIVIRUSSTGFAILINFO failsafecheckitem;
+            memset(&failsafecheckitem,0,sizeof(ANTIVIRUSSTGFAILINFO));
+            failsafecheckitem.antivirusset = anttmp.antivirusset;
+            failsafecheckitem.attriinfo = anttmp.attriinfo;
+            failsafecheckitem.glibverset = anttmp.glibverset;
+            failsafecheckitem.gnotinstset = anttmp.gnotinstset;
+            failsafecheckitem.gsoftverset = anttmp.gsoftverset;
+            failsafecheckitem.libverset = anttmp.libverset;
+            failsafecheckitem.softverset = anttmp.softverset;
+
+            //首先判断当前计算机是否安装了该杀毒软件
+            if (InstallThisAntivirusProduct(anttmp.antivirusset.santname,&installantconf) == HP_SUCCESS)
+            {
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "杀毒软件名称比对成功",anttmp.antivirusset.santname);
+                bcmpsfname = TRUE;
+                binstallAnt = TRUE;
+            }
+            if ( bcmpsfname )
+            {
+                if ( _strnicmp(anttmp.antivirusset.softverdes,"-1",strlen("-1")) == 0 )
+                {
+                    bcmpsfver = TRUE;
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "不用判断该款杀毒软件的版本");
+                }
+                else
+                {
+                    int Res = CmpSFVersionInfo(anttmp.antivirusset.softverindetify,anttmp.antivirusset.softverdes,installantconf.antivirussetting.softverdes);
+                    if ( Res == HP_SUCCESS )
+                    {
+                        bcmpsfver = TRUE;
+                    }
+                    else if ( Res ==HP_ANTIVIRUS_GETSFVERSIONFAIL )
+                    {
+                        failsafecheckitem.failreason = CANTGETSOFTVERSION;
+                        sprintf_s(failInfo, MAX_PATH*2*m_antiCnt+1,
+                            "%s<subitem checkItemId=\"0\" checkItemAction=\"%d\" faildes=\"客户端安装的杀毒软件为%s,无法获取版本,服务器端配置为%s%s\" name=\"%s\" swarnname=\"%s\"  iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",
+                            failInfo,ALLOW,installantconf.antivirussetting.santname, identifydes[atoi(anttmp.antivirusset.softverindetify)],
+                            anttmp.antivirusset.softverdes,installantconf.antivirussetting.santname,anttmp.attriinfo.warningcont,anttmp.attriinfo.warninglevel,anttmp.attriinfo.srcevent);
+                    }
+                    else
+                    {
+                        failsafecheckitem.failreason = SOFTVERSIONNOTSATIFY;
+                        sprintf_s(failInfo, MAX_PATH*2*m_antiCnt+1,
+                            "%s<subitem checkItemId=\"0\" checkItemAction=\"%d\" faildes=\"客户端安装的杀毒软件为%s,版本为%s,不符合服务器端配置%s%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",
+                            failInfo,ALLOW,installantconf.antivirussetting.santname,installantconf.antivirussetting.softverdes,
+                            identifydes[atoi(anttmp.antivirusset.softverindetify)],anttmp.antivirusset.softverdes,installantconf.antivirussetting.santname,anttmp.attriinfo.warningcont, 
+                            anttmp.attriinfo.warninglevel, anttmp.attriinfo.srcevent);
+                    }
+                }
+            }
+            if (bcmpsfname && bcmpsfver )
+            {
+                char singlefaildes[MAX_PATH] = {0};
+                sprintf_s(singlefaildes,MAX_PATH,"客户端安装的杀毒软件为%s,",installantconf.antivirussetting.santname);
+                if ( strcmp(installantconf.antivirussetting.softverdes,"#.#.#.#") )
+                {
+                    strcat_s(singlefaildes,MAX_PATH,"版本为");
+                    strcat_s(singlefaildes,MAX_PATH,installantconf.antivirussetting.softverdes);
+                    strcat_s(singlefaildes,MAX_PATH,",");
+                }
+                //判断病毒库版本
+                if ( _strnicmp(anttmp.antivirusset.libverdes,"-1",strlen("-1")) == 0 )
+                {
+                    bcmplibver = TRUE;
+                    WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "不用判断该款杀毒软件的病毒库版本");
+                }
+                else
+                {
+                    int Res = CmpLibVersionInfo(anttmp.antivirusset.libverchoose,anttmp.antivirusset.libverindetify,anttmp.antivirusset.libverdes,
+                        installantconf.antivirussetting.libverdes);
+                    if ( Res == HP_SUCCESS )
+                    {
+                        bcmplibver = TRUE;
+                    }
+                    else if ( Res == HP_ANTIVIRUS_GETLIBVERSIONFAIL )
+                    {
+                        failsafecheckitem.failreason = CANGETLIBVERSION;
+                        sprintf_s(failInfo, MAX_PATH*2*m_antiCnt+1,
+                            "%s<subitem checkItemId=\"0\" checkItemAction=\"%d\" faildes=\"%s获取病毒库版本失败\" name=\"%s\" swarnname=\"%s\"  iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",
+                            failInfo,ALLOW,singlefaildes,installantconf.antivirussetting.santname,anttmp.attriinfo.warningcont, anttmp.attriinfo.warninglevel,anttmp.attriinfo.srcevent);
+                    }
+                    else
+                    {
+                        failsafecheckitem.failreason = LIBVERSIONNOTSATIFY;
+                        sprintf_s(failInfo, MAX_PATH*2*m_antiCnt+1,
+                            "%s<subitem checkItemId=\"0\" checkItemAction=\"%d\" faildes=\"%s病毒库版本%s与服务器配置病毒库版本%s%s%s不一致\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",
+                            failInfo,ALLOW,singlefaildes,installantconf.antivirussetting.libverdes, libchoosedes[atoi(anttmp.antivirusset.libverchoose)],
+                            identifydes[atoi(anttmp.antivirusset.libverindetify)],
+                            anttmp.antivirusset.libverdes,installantconf.antivirussetting.santname,anttmp.attriinfo.warningcont,anttmp.attriinfo.warninglevel,anttmp.attriinfo.srcevent);
+                    }
+                }
+            }
+            if (bcmpsfname && bcmpsfver && bcmplibver )
+            {
+                if (_strnicmp(anttmp.antivirusset.runant,"0",strlen("0")) == 0)
+                {
+                    bcmprun = TRUE;
+                }
+                else
+                {
+                    char singlefaildes[MAX_PATH] = {0};
+                    sprintf_s(singlefaildes,MAX_PATH,"客户端安装的杀毒软件为%s,",installantconf.antivirussetting.santname);
+                    if ( strcmp(installantconf.antivirussetting.softverdes,"#.#.#.#") )
+                    {
+                         strcat_s(singlefaildes,MAX_PATH,"版本为");
+                        strcat_s(singlefaildes,MAX_PATH,installantconf.antivirussetting.softverdes);
+                        strcat_s(singlefaildes,MAX_PATH,",");
+                    }
+                    if ( strcmp(installantconf.antivirussetting.libverdes,"####-##-##") )
+                    {
+                        strcat_s(singlefaildes,MAX_PATH,"病毒库为");
+                        strcat_s(singlefaildes,MAX_PATH,installantconf.antivirussetting.libverdes);
+                        strcat_s(singlefaildes,MAX_PATH,",");
+                    }
+
+                    if (_strnicmp(installantconf.antivirussetting.runant,"1",strlen("1")) == 0)
+                    {
+                        bcmprun = TRUE;
+                    }
+                    else if ( _strnicmp(installantconf.antivirussetting.runant,"#",strlen("#")) == 0)
+                    {
+                        failsafecheckitem.failreason = CANTGETRUN;
+                        sprintf_s(failInfo, MAX_PATH*2*m_antiCnt+1,
+                            "%s<subitem checkItemId=\"0\" checkItemAction=\"%d\" faildes=\"%s获取程序是否正在运行失败\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",
+                            failInfo,ALLOW,singlefaildes,installantconf.antivirussetting.santname,anttmp.attriinfo.warningcont, anttmp.attriinfo.warninglevel,anttmp.attriinfo.srcevent);
+                    }
+                    else
+                    {
+                        memset(failsafecheckitem.mianexepath,0,sizeof(failsafecheckitem.mianexepath));
+                        sprintf_s(failsafecheckitem.mianexepath,"%s\\%s",installantconf.installpath,installantconf.mainexe);
+                        failsafecheckitem.failreason = NOTRUN;
+                       
+                        sprintf_s(failInfo, MAX_PATH*2*m_antiCnt+1,
+                            "%s<subitem checkItemId=\"0\" checkItemAction=\"%d\" faildes=\"%s程序没有运行\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",
+                            failInfo,ALLOW,singlefaildes,installantconf.antivirussetting.santname,anttmp.attriinfo.warningcont,
+                            anttmp.attriinfo.warninglevel,anttmp.attriinfo.srcevent);
+                    }
+                }
+            }
+            if (bcmpsfname && bcmpsfver && bcmplibver && bcmprun)
+            {
+                bIsSucces = TRUE;
+                m_failantinum = 0;
+                break;
+            }
+            else
+            {
+                if (bcmpsfname)
+                {
+                    bIsSucces= FALSE;
+                    m_failantinum++;
+                    m_failantiInfo.push_back(failsafecheckitem);
+                }
+            }
+        }//for (antiter = m_antiInfo.begin( ); antiter != m_antiInfo.end( );  )
+
+        ////服务器端配置的杀毒软件客户端均没有安装，选择优先级最高的一条数据
+        if ( !binstallAnt )
+        {
+            bIsSucces = FALSE;
+
+            ANTIVIRUSSTGFAILINFO failstginfo;
+            memset(&failstginfo,0,sizeof(ANTIVIRUSSTGFAILINFO));
+
+            list<ANTIVIRUSSTGINFO>::iterator  antstgiter = m_antiInfo.begin();   
+            ANTIVIRUSSTGINFO topmostpriority =*antstgiter;
+
+            failstginfo.antivirusset = topmostpriority.antivirusset;
+            failstginfo.attriinfo = topmostpriority.attriinfo;
+            failstginfo.glibverset = topmostpriority.glibverset;
+            failstginfo.gnotinstset = topmostpriority.gnotinstset;
+            failstginfo.gsoftverset = topmostpriority.gsoftverset;
+            failstginfo.libverset = topmostpriority.libverset;
+            failstginfo.softverset = topmostpriority.softverset;
+            failstginfo.failreason=NOTINSTALL;
+            m_failantiInfo.push_back(failstginfo);
+            m_failantinum++;
+
+            int installedavNameNum = m_installedantivirusproduct.size();
+            if ( installedavNameNum )
+            {
+                char *installedavname = new char[HP_C_USERCONTENTLEN*installedavNameNum];
+                memset(installedavname,0,HP_C_USERCONTENTLEN*installedavNameNum);
+
+                list<INSTALLEDAVTIVIRUSINFO>::iterator installediter;
+                for ( installediter=m_installedantivirusproduct.begin(); installediter!=m_installedantivirusproduct.end(); ++installediter )
+                {
+                    INSTALLEDAVTIVIRUSINFO tmpprod = *installediter;
+                    if (strcmp(installedavname,""))
+                    {
+                        sprintf_s(installedavname,HP_C_USERCONTENTLEN*installedavNameNum,"%s,",installedavname);
+                    }
+                    sprintf_s(installedavname,HP_C_USERCONTENTLEN*installedavNameNum,"%s%s",installedavname,tmpprod.antivirussetting.santname);
+                }
+
+                sprintf_s(failInfo, MAX_PATH*2*m_antiCnt+1,
+                    "<subitem checkItemId=\"0\" checkItemAction=\"%d\" faildes=\"服务器端配置的杀毒软件%s,客户端安装的杀毒软件为%s,不符合服务器的配置\" name=\"%s\" swarnname=\"%s\" \
+                    iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",ALLOW,servsfnamedes,installedavname,servsfnamedes,failstginfo.attriinfo.warningcont,
+                    failstginfo.attriinfo.warninglevel,failstginfo.attriinfo.srcevent);
+
+                if ( installedavname != NULL )
+                {
+                    delete[] installedavname;
+                    installedavname = NULL;
+                }
+
+            }
+            else
+            {
+                sprintf_s(failInfo, MAX_PATH*2*m_antiCnt+1,
+                    "<subitem checkItemId=\"0\" checkItemAction=\"%d\" faildes=\"服务器端配置的杀毒软件%s,客户端没有安装杀毒软件,不符合服务器的配置\" name=\"%s\" swarnname=\"%s\" \
+                    iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",ALLOW,servsfnamedes,servsfnamedes,failstginfo.attriinfo.warningcont,
+                    failstginfo.attriinfo.warninglevel,failstginfo.attriinfo.srcevent);
+            }
+        }
+    }
+
+    if(bIsSucces)
+    {
+        IsSuccess[ANTIVIRUSCHECK] = HP_SUCCESS;
+        xmlstring = SendSingleItemSafeCheckSuccess(tempheader);
+    }
+    else
+    {
+		IsSuccess[ANTIVIRUSCHECK] = HP_SF_SAFECHECKFAIL;
+
+        char *data=new char[MAX_PATH*2*m_antiCnt+MAX_PATH];
+        sprintf_s(data,MAX_PATH*2*m_antiCnt+MAX_PATH,"<iman succflag =\"0\">%s</iman>",failInfo);
+        string xmlbody = data;
+        string Sendtmpheader =tempheader;
+        string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+        string  xmltail ="</nac>";
+        xmlstring = Sendtmpheader+xmlHeader+xmlbody+xmltail;
+        delete[] data;
+    }
+    if (servsfnamedes != NULL)
+    {
+        delete[] servsfnamedes;
+        servsfnamedes = NULL;
+    }
+    if ( failInfo != NULL )
+    {
+      delete[] failInfo;
+      failInfo = NULL;
+    }
+    
+    return xmlstring;
+}
+
+int Cantivirus::RestoreFailItem()
+{
+    if (m_failantinum > 0)
+    {
+        list<ANTIVIRUSSTGFAILINFO>::iterator  failiter;
+        for (failiter = m_failantiInfo.begin( ); failiter != m_failantiInfo.end( );  )
+        {
+            ANTIVIRUSSTGFAILINFO  failanttmp = *failiter;
+
+            switch (failanttmp.failreason)
+            {
+            case NOTINSTALL:
+                {
+                    if ( atoi(failanttmp.gnotinstset.repairflag) == 0 )
+                    {
+                        if ( strcmp(failanttmp.gnotinstset.path, "") != 0  )
+                        {
+                            DownloadFileFromSevice(failanttmp.gnotinstset.path, failanttmp.gnotinstset.param);
+                        }
+                    }
+					if ( atoi(failanttmp.gnotinstset.repairflag) == 1 )
+					{
+						if (strcmp(failanttmp.gnotinstset.handrep, "") != 0 )
+						{
+						OpenWebUrl(failanttmp.gnotinstset.handrep);
+						}
+					}
+                }
+                break;
+            case CANTGETRUN:
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "无法修复");
+                break;
+            case CANTGETSOFTVERSION:
+            case SOFTVERSIONNOTSATIFY:
+                //首先判断局部是否配置版本不一致的修复路径,不存在的话判断全局中是否有配置版本不一致的修复路径
+                {
+                    if ( atoi(failanttmp.softverset.repairflag) == 0 )
+                    {
+                        if ( strcmp(failanttmp.softverset.path,"") != 0 )
+                        {
+                            DownloadFileFromSevice(failanttmp.softverset.path,failanttmp.softverset.param);
+                        }
+                        else
+                        {
+                            if ( atoi(failanttmp.gsoftverset.repairflag) == 0 )
+                            {
+                                if ( strcmp(failanttmp.gsoftverset.path,"") != 0 )
+                                {
+                                    DownloadFileFromSevice(failanttmp.gsoftverset.path,failanttmp.gsoftverset.param);
+                                }
+                            }
+                        }
+                    }
+
+					if ( atoi(failanttmp.softverset.repairflag) == 1 )
+					{
+						if (strcmp(failanttmp.softverset.handrep, "") != 0)
+						{
+							OpenWebUrl(failanttmp.softverset.handrep);
+						}
+						else
+						{
+							if ( atoi(failanttmp.gsoftverset.repairflag) == 1 )
+							{
+								if (strcmp(failanttmp.gsoftverset.handrep, "") != 0)
+								{
+									OpenWebUrl(failanttmp.gsoftverset.handrep);
+								}
+							}
+						}
+					}
+                }
+                break;
+            case CANGETLIBVERSION:
+            case LIBVERSIONNOTSATIFY:
+                //首先判断局部是否配置病毒库版本不一致的修复路径,不存在的话判断全局中是否有配置病毒库版本不一致的修复路径
+                {
+                    if ( atoi(failanttmp.libverset.repairflag) == 0 )
+                    {
+                        if ( strcmp(failanttmp.libverset.path,"") != 0 )
+                        {
+                            DownloadFileFromSevice(failanttmp.libverset.path,failanttmp.libverset.param);
+                        }
+                        else
+                        {
+                            if ( atoi(failanttmp.glibverset.repairflag) == 0 )
+                            {
+                                if ( strcmp(failanttmp.glibverset.path,"") != 0 )
+                                {
+                                    DownloadFileFromSevice(failanttmp.glibverset.path,failanttmp.glibverset.param);
+                                }
+                            }
+                        }
+                    }
+
+					if ( atoi(failanttmp.libverset.repairflag) == 1 )
+					{
+						if ( strcmp(failanttmp.libverset.handrep, "") != 0)
+						{
+							OpenWebUrl(failanttmp.libverset.handrep);
+						}
+						else
+						{
+							if ( atoi(failanttmp.glibverset.repairflag) == 1 )
+							{
+								if ( strcmp(failanttmp.glibverset.handrep, "") != 0)
+								{
+									OpenWebUrl(failanttmp.glibverset.handrep);
+								}
+							}
+						}
+					}
+                }
+                break;
+            case NOTRUN:
+                //查询杀毒软件进程路径,启动该进程
+                {
+                    if ( strcmp(failanttmp.mianexepath,"") != 0 )
+                    {
+                        CDownload dwfile("invalidurl",strlen("invalidurl"));
+                        dwfile.RunDownLoadFile(failanttmp.mianexepath);
+                    }
+                }
+                break;
+            default:
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "未知的错误类型");
+                break;
+            }
+
+            if ( failanttmp.failreason == NOTINSTALL )
+            {
+                break;
+            }
+            m_failantiInfo.erase(failiter++);
+        }//for (failiter = m_failantiInfo.begin( ); failiter != m_failantiInfo.end( );  )
+    } 
+    return false;
+}
+
+void Cantivirus::InitData()
+{
+    try
+    {
+        m_antitotalCnt = 0;
+        m_antiCnt=0;
+        m_failantinum=0; 
+
+        list<ANTIVIRUSSTGINFO>::iterator  iter;
+
+        for (iter = m_antitotalInfo.begin( ); iter != m_antitotalInfo.end( );  )
+        {
+            m_antitotalInfo.erase(iter++);
+        }
+
+        for (iter = m_antiInfo.begin( ); iter != m_antiInfo.end( );  )
+        {
+            m_antiInfo.erase(iter++);
+        }
+
+        list<ANTIVIRUSSTGFAILINFO>::iterator  failitemiter;
+        for (failitemiter = m_failantiInfo.begin( ); failitemiter != m_failantiInfo.end( );  )
+        {
+            m_failantiInfo.erase(failitemiter++);
+        }
+
+        list<INSTALLEDAVTIVIRUSINFO>::iterator  installedproditer; 
+        for ( installedproditer = m_installedantivirusproduct.begin();installedproditer != m_installedantivirusproduct.end(); )
+        {
+            m_installedantivirusproduct.erase(installedproditer++);
+        }
+
+        list<UninstallSoftwareInfo>::iterator  uninstalliter;
+        for (uninstalliter = m_softwareInfo.begin( ); uninstalliter != m_softwareInfo.end( );  )
+        {
+            m_softwareInfo.erase(uninstalliter++);
+        }
+
+        for (int i =0;i<HP_SUPPLYANTIVIRUS_NUM;i++)
+        {
+            m_bInstallindex[i] =FALSE;
+        }
+
+    }
+    catch (...)
+    {
+#ifdef  _DEBUG
+        MessageBox(NULL,L"Cantivirus InitData except",L"err",0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"Cantivirus InitData except");
+    }
+
+}
+
+//根据数据库中的字段转化为结构体字段
+void Cantivirus::GetAntivirusdbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, ANTIVIRUSSTGINFO *dbrowdata)
+{
+    try
+    {
+        if( strcmp(dbcolumnname, "ipriority")==0 )
+        {			
+            memset(dbrowdata->attriinfo.ipriority, 0, sizeof(dbrowdata->attriinfo.ipriority));
+            Convert(dbcolumnvalue, dbrowdata->attriinfo.ipriority, sizeof(dbrowdata->attriinfo.ipriority),CP_UTF8, CP_ACP);					
+        }
+        else if(strcmp(dbcolumnname, "spolicyaction")==0)
+        {			
+            memset(dbrowdata->attriinfo.spolicyaction,0,sizeof(dbrowdata->attriinfo.spolicyaction));
+            Convert(dbcolumnvalue,dbrowdata->attriinfo.spolicyaction,sizeof(dbrowdata->attriinfo.spolicyaction),CP_UTF8,CP_ACP);					
+        }
+        else if(strcmp(dbcolumnname, "spromptinfo")==0)
+        {
+            memset(dbrowdata->attriinfo.spromptinfo,0,sizeof(dbrowdata->attriinfo.spromptinfo));
+            Convert(dbcolumnvalue,dbrowdata->attriinfo.spromptinfo,sizeof(dbrowdata->attriinfo.spromptinfo),CP_UTF8,CP_ACP);					
+        }
+        else  if(strcmp(dbcolumnname, "warningcont")==0)
+        {
+            memset(dbrowdata->attriinfo.warningcont,0,sizeof(dbrowdata->attriinfo.warningcont));
+            Convert(dbcolumnvalue,dbrowdata->attriinfo.warningcont,sizeof(dbrowdata->attriinfo.warningcont),CP_UTF8,CP_ACP);					
+        }	
+        else  if(strcmp(dbcolumnname,"warninglevel")==0)
+        {
+            memset(dbrowdata->attriinfo.warninglevel,0,sizeof(dbrowdata->attriinfo.warninglevel));
+            Convert(dbcolumnvalue,dbrowdata->attriinfo.warninglevel,sizeof(dbrowdata->attriinfo.warninglevel),CP_UTF8,CP_ACP);					
+        }	
+        else  if(strcmp(dbcolumnname,"srcevent")==0)
+        {
+            memset(dbrowdata->attriinfo.srcevent,0,sizeof(dbrowdata->attriinfo.srcevent));
+            Convert(dbcolumnvalue,dbrowdata->attriinfo.srcevent,sizeof(dbrowdata->attriinfo.srcevent),CP_UTF8,CP_ACP);					
+        }
+        else if(strcmp(dbcolumnname,"gninstallrepairflag")==0)
+        {
+            memset(dbrowdata->gnotinstset.repairflag,0,sizeof(dbrowdata->gnotinstset.repairflag));
+            Convert(dbcolumnvalue,dbrowdata->gnotinstset.repairflag,sizeof(dbrowdata->gnotinstset.repairflag),CP_UTF8,CP_ACP);					
+        }
+        else if(strcmp(dbcolumnname,"gninstallpath")==0)
+        {
+            memset(dbrowdata->gnotinstset.path,0,sizeof(dbrowdata->gnotinstset.path));
+            Convert(dbcolumnvalue, dbrowdata->gnotinstset.path,sizeof(dbrowdata->gnotinstset.path),CP_UTF8,CP_ACP);					
+        }
+        else if(strcmp(dbcolumnname,"gninstallparam")==0)
+        {
+            memset(dbrowdata->gnotinstset.param,0,sizeof(dbrowdata->gnotinstset.param));
+            Convert(dbcolumnvalue,dbrowdata->gnotinstset.param,sizeof(dbrowdata->gnotinstset.param),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"gninstallhandrep")==0)
+        {
+            memset(dbrowdata->gnotinstset.handrep,0,sizeof(dbrowdata->gnotinstset.handrep));
+            Convert(dbcolumnvalue, dbrowdata->gnotinstset.handrep,sizeof(dbrowdata->gnotinstset.handrep),CP_UTF8,CP_ACP);					
+        }
+        else if(strcmp(dbcolumnname,"gsoftversionflag")==0)
+        {
+            memset(dbrowdata->gsoftverset.repairflag,0,sizeof(dbrowdata->gsoftverset.repairflag));
+            Convert(dbcolumnvalue,dbrowdata->gsoftverset.repairflag,sizeof(dbrowdata->gsoftverset.repairflag),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"gsoftversionpath")==0)
+        {
+            memset(dbrowdata->gsoftverset.path,0,sizeof(dbrowdata->gsoftverset.path));
+            Convert(dbcolumnvalue,dbrowdata->gsoftverset.path,sizeof(dbrowdata->gsoftverset.path),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"gsoftversionparam")==0)
+        {
+            memset(dbrowdata->gsoftverset.param,0,sizeof(dbrowdata->gsoftverset.param));
+            Convert(dbcolumnvalue,dbrowdata->gsoftverset.param,sizeof(dbrowdata->gsoftverset.param),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"gsoftversionhandrep")==0)
+        {
+            memset(dbrowdata->gsoftverset.handrep,0,sizeof(dbrowdata->gsoftverset.handrep));
+            Convert(dbcolumnvalue,dbrowdata->gsoftverset.handrep,sizeof(dbrowdata->gsoftverset.handrep),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"glibversionflag")==0)
+        {
+            memset(dbrowdata->glibverset.repairflag,0,sizeof(dbrowdata->glibverset.repairflag));
+            Convert(dbcolumnvalue,dbrowdata->glibverset.repairflag,sizeof(dbrowdata->glibverset.repairflag),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"glibversionpath")==0)
+        {
+            memset(dbrowdata->glibverset.path,0,sizeof(dbrowdata->glibverset.path));
+            Convert(dbcolumnvalue,dbrowdata->glibverset.path,sizeof(dbrowdata->glibverset.path),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"glibversionparam")==0)
+        {
+            memset(dbrowdata->glibverset.param,0,sizeof(dbrowdata->glibverset.param));
+            Convert(dbcolumnvalue,dbrowdata->glibverset.param,sizeof(dbrowdata->glibverset.param),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"glibversionhandlerep")==0)
+        {
+            memset(dbrowdata->glibverset.handrep,0,sizeof(dbrowdata->glibverset.handrep));
+            Convert(dbcolumnvalue,dbrowdata->glibverset.handrep,sizeof(dbrowdata->glibverset.handrep),CP_UTF8,CP_ACP);
+        }	
+        else if(strcmp(dbcolumnname,"santname")==0)
+        {
+            memset(dbrowdata->antivirusset.santname,0,sizeof(dbrowdata->antivirusset.santname));
+            Convert(dbcolumnvalue,dbrowdata->antivirusset.santname,sizeof(dbrowdata->antivirusset.santname),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"softverindetify")==0)
+        {
+            memset(dbrowdata->antivirusset.softverindetify,0,sizeof(dbrowdata->antivirusset.softverindetify));
+            Convert(dbcolumnvalue,dbrowdata->antivirusset.softverindetify,sizeof(dbrowdata->antivirusset.softverindetify),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"softverdes")==0)
+        {
+            memset(dbrowdata->antivirusset.softverdes,0,sizeof(dbrowdata->antivirusset.softverdes));
+            Convert(dbcolumnvalue,dbrowdata->antivirusset.softverdes,sizeof(dbrowdata->antivirusset.softverdes),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"libverchoose")==0)
+        {
+            memset(dbrowdata->antivirusset.libverchoose,0,sizeof(dbrowdata->antivirusset.libverchoose));
+            Convert(dbcolumnvalue,dbrowdata->antivirusset.libverchoose,sizeof(dbrowdata->antivirusset.libverchoose),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"libverindetify")==0)
+        {
+            memset(dbrowdata->antivirusset.libverindetify,0,sizeof(dbrowdata->antivirusset.libverindetify));
+            Convert(dbcolumnvalue,dbrowdata->antivirusset.libverindetify,sizeof(dbrowdata->antivirusset.libverindetify),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"libverdes")==0)
+        {
+            memset(dbrowdata->antivirusset.libverdes,0,sizeof(dbrowdata->antivirusset.libverdes));
+            Convert(dbcolumnvalue,dbrowdata->antivirusset.libverdes,sizeof(dbrowdata->antivirusset.libverdes),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"runant")==0)
+        {
+            memset(dbrowdata->antivirusset.runant,0,sizeof(dbrowdata->antivirusset.runant));
+            Convert(dbcolumnvalue,dbrowdata->antivirusset.runant,sizeof(dbrowdata->antivirusset.runant),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"softverflag")==0)
+        {
+            memset(dbrowdata->softverset.repairflag,0,sizeof(dbrowdata->softverset.repairflag));
+            Convert(dbcolumnvalue,dbrowdata->softverset.repairflag,sizeof(dbrowdata->softverset.repairflag),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"softverpath")==0)
+        {
+            memset(dbrowdata->softverset.path,0,sizeof(dbrowdata->softverset.path));
+            Convert(dbcolumnvalue,dbrowdata->softverset.path,sizeof(dbrowdata->softverset.path),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"softverparam")==0)
+        {
+            memset(dbrowdata->softverset.param,0,sizeof(dbrowdata->softverset.param));
+            Convert(dbcolumnvalue,dbrowdata->softverset.param,sizeof(dbrowdata->softverset.param),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"softverhandrep")==0)
+        {
+            memset(dbrowdata->softverset.handrep,0,sizeof(dbrowdata->softverset.handrep));
+            Convert(dbcolumnvalue,dbrowdata->softverset.handrep,sizeof(dbrowdata->softverset.handrep),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"libverflag")==0)
+        {
+            memset(dbrowdata->libverset.repairflag,0,sizeof(dbrowdata->libverset.repairflag));
+            Convert(dbcolumnvalue,dbrowdata->libverset.repairflag,sizeof(dbrowdata->libverset.repairflag),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"libverpath")==0)
+        {
+            memset(dbrowdata->libverset.path,0,sizeof(dbrowdata->libverset.path));
+            Convert(dbcolumnvalue,dbrowdata->libverset.path,sizeof(dbrowdata->libverset.path),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"libverparam")==0)
+        {
+            memset(dbrowdata->libverset.param,0,sizeof(dbrowdata->libverset.param));
+            Convert(dbcolumnvalue,dbrowdata->libverset.param,sizeof(dbrowdata->libverset.param),CP_UTF8,CP_ACP);					
+        }	
+        else if(strcmp(dbcolumnname,"libverhandlerep")==0)
+        {
+            memset(dbrowdata->libverset.handrep,0,sizeof(dbrowdata->libverset.handrep));
+            Convert(dbcolumnvalue,dbrowdata->libverset.handrep,sizeof(dbrowdata->libverset.handrep),CP_UTF8,CP_ACP);					
+        }	
+        else
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有该字段");
+        }
+    }
+    catch (...)
+    {
+#ifdef  _DEBUG
+        MessageBox(NULL,L"Cantivirus GetAntivirusdbColumndata except",L"err",0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+            "Cantivirus GetAntivirusdbColumndata except");
+    }
+  
+}
+
+void Cantivirus::RemoveRefuseItemAndMergeGlobalSetting()
+{
+    try
+    {
+        BOOL  brefuseaction = FALSE;
+
+        ANTIVIRUSSTGINFO lastantinfo; //上一次的杀毒软件的信息
+        memset(&lastantinfo,0,sizeof(ANTIVIRUSSTGINFO));
+
+        list<ANTIVIRUSSTGINFO>::iterator antivirusiter = m_antitotalInfo.begin( );
+        lastantinfo = *antivirusiter;
+
+        if ( atoi(lastantinfo.attriinfo.spolicyaction) == ALLOW )//策略动作为允许
+        {
+            m_antiInfo.push_back(lastantinfo);
+        }
+        else
+        {
+            brefuseaction = TRUE;
+        }
+        ++antivirusiter;
+
+        for (; antivirusiter != m_antitotalInfo.end( );  ++antivirusiter)
+        {
+
+            ANTIVIRUSSTGINFO tmpantivirus;
+            memset(&tmpantivirus,0,sizeof(ANTIVIRUSSTGINFO));
+
+            tmpantivirus = *antivirusiter;
+
+            if ( _strnicmp(tmpantivirus.antivirusset.santname,lastantinfo.antivirusset.santname,HP_C_USERCONTENTLEN) == 0 )//杀毒软件名称是一样的
+            {
+                if ( brefuseaction )
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "该安检项优先级最高的策略动作为拒绝,不执行");
+                }
+                else
+                {
+                    if ( atoi(tmpantivirus.attriinfo.spolicyaction) == REFUSE )
+                    {
+                        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "该杀毒软件策略动作为拒绝,不执行");
+                    }
+                    else
+                    {
+                        //查看如果上一条全局配置均为空的话，则将该条策略的全局配置赋值给该杀毒软件
+                        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "该杀毒软件策略动作为允许");
+                    }
+                }
+            }
+            else//与上一款杀毒软件名称不一样
+            {
+                lastantinfo = *antivirusiter;
+
+                if ( atoi(tmpantivirus.attriinfo.spolicyaction) == REFUSE )
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "该杀毒软件策略动作为拒绝,不执行");
+                    brefuseaction = TRUE;
+                }
+                else
+                {
+                    m_antiInfo.push_back(lastantinfo);
+                    brefuseaction = FALSE;
+                }
+            }
+        }//for (; antivirusiter != m_antitotalInfo.end( );  ++antivirusiter)
+
+        m_antiCnt = m_antiInfo.size();
+    }
+    catch (...)
+    {
+ #ifdef  _DEBUG
+        MessageBox(NULL,L"Cantivirus RemoveRefuseItemAndMergeGlobalSetting except",L"err",0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+            "Cantivirus RemoveRefuseItemAndMergeGlobalSetting except");
+    }
+
+}
+
+/*************************************************
+Function Name: GetWMIAVInfo
+Description: 使用WMI获取杀毒软件的名称信息
+Input and output:  
+Return:
+      成功返回HP_SUCCESS
+      失败返回HP_ANTIVIRUS_WMIFAIL
+**************************************************/
+int Cantivirus::GetWMIAVInfo()
+{
+     int res = HP_ANTIVIRUS_WMIFAIL;
+
+    try
+    {
+        HRESULT hres = S_FALSE;
+
+        hres =  CoInitializeEx(0, COINIT_MULTITHREADED);
+        if (hres != RPC_E_CHANGED_MODE )
+        {
+            if (FAILED(hres))
+            {
+                char failmsg[MAX_PATH] = {0};
+                sprintf_s(failmsg,MAX_PATH,"Failed to initialize COM library. Error code = %0Xd",hres);
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,failmsg);
+            }
+        }
+
+        hres =  CoInitializeSecurity(
+            NULL,
+            -1,                          // COM authentication
+            NULL,                        // Authentication services
+            NULL,                        // Reserved
+            RPC_C_AUTHN_LEVEL_DEFAULT,   // Default authentication
+            RPC_C_IMP_LEVEL_IMPERSONATE, // Default Impersonation 
+            NULL,                        // Authentication info
+            EOAC_NONE,                   // Additional capabilities
+            NULL                         // Reserved
+            );
+
+        if (FAILED(hres))
+        {
+            if ( hres ==RPC_E_TOO_LATE  )
+            {
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"CoInitializeSecurity has already been called");
+            }
+            else
+            {
+                char failmsg[MAX_PATH] = {0};
+                sprintf_s(failmsg,MAX_PATH,"Failed to initialize security. Error code = 0Xd",hres);
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,failmsg);
+            }
+        }
+
+        IWbemLocator *pLoc = NULL;
+
+        hres = CoCreateInstance(
+            CLSID_WbemLocator,            
+            0,
+            CLSCTX_INPROC_SERVER,
+            IID_IWbemLocator, (LPVOID *) &pLoc);
+
+        if (FAILED(hres))
+        {
+            char failmsg[MAX_PATH] = {0};
+            sprintf_s(failmsg,MAX_PATH, "Failed to create IWbemLocator object.Err code = 0xd",hres);
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,failmsg);
+
+            return res;                 // Program has failed.
+        }
+
+        for (int i=0; i<2; i++)
+        {
+            IWbemServices *pSvc = NULL;
+
+            hres = pLoc->ConnectServer(
+                _bstr_t(m_namespacestr[i]), // Object path of WMI namespace
+                NULL,                    // User name. NULL = current user
+                NULL,                    // User password. NULL = current
+                0,                       // Locale. NULL indicates current
+                NULL,                    // Security flags.
+                0,                       // Authority (e.g. Kerberos)
+                0,                       // Context object
+                &pSvc                    // pointer to IWbemServices proxy
+                );
+
+            if (FAILED(hres))
+            {
+                char failmsg[MAX_PATH] = {0};
+                sprintf_s(failmsg,MAX_PATH,"Could not connect. Error code = 0Xd ",hres);
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,failmsg);
+
+                if ( hres == WBEM_E_ACCESS_DENIED )
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"The current or specified user name and password were "
+                        "not valid or authorized to make the connection");
+                }
+                if ( hres == WBEM_E_FAILED )
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"This indicates other unspecified errors");
+                }
+                if ( hres == WBEM_E_INVALID_NAMESPACE )
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"The specified namespace did not exist on the server");
+                }
+                if ( hres == WBEM_E_INVALID_PARAMETER )
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"An invalid parameter was specified");
+                }
+                if ( hres == WBEM_E_OUT_OF_MEMORY )
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"There was not enough memory to complete the operation");
+                }
+                if (hres == WBEM_E_TRANSPORT_FAILURE)
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"This indicates the failure of the remote procedure call (RPC) link"
+                        "between the current process and WMI");
+                }
+                if (hres == WBEM_E_LOCAL_CREDENTIALS)
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"WMI is passing the user credential on local connection");
+                }
+                if ( hres == WBEM_S_NO_ERROR)
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"The call succeeded");
+                }
+                continue;
+            }
+
+            hres = CoSetProxyBlanket(
+                pSvc,                        // Indicates the proxy to set
+                RPC_C_AUTHN_WINNT,           // RPC_C_AUTHN_xxx
+                RPC_C_AUTHZ_NONE,            // RPC_C_AUTHZ_xxx
+                NULL,                        // Server principal name
+                RPC_C_AUTHN_LEVEL_CALL,      // RPC_C_AUTHN_LEVEL_xxx
+                RPC_C_IMP_LEVEL_IMPERSONATE, // RPC_C_IMP_LEVEL_xxx
+                NULL,                        // client identity
+                EOAC_NONE                    // proxy capabilities
+                );
+
+            if (FAILED(hres))
+            {
+                char errmsg[MAX_PATH] = {0};
+                sprintf_s(errmsg,MAX_PATH,"Could not set proxy blanket. Error code = 0xd",hres);
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,errmsg);
+                pSvc->Release();
+                pSvc = NULL;
+
+                continue;
+            }
+
+            IEnumWbemClassObject* pEnumerator = NULL;
+            hres = pSvc->ExecQuery(
+                bstr_t("WQL"),
+                bstr_t("SELECT * FROM AntiVirusProduct"),
+                WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+                NULL,
+                &pEnumerator);
+
+            if (FAILED(hres))
+            {
+                char failmsg[MAX_PATH] = {0};
+                sprintf_s(failmsg,MAX_PATH,"Query for operating system name failed.Error code = 0xd",hres);
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,failmsg);
+
+                pSvc->Release();
+                pSvc = NULL;
+
+                continue;
+            }
+
+            IWbemClassObject *pclsObj=NULL;
+            ULONG uReturn = 0;
+
+            while (pEnumerator)
+            {
+                HRESULT hr = pEnumerator->Next(WBEM_INFINITE, 1,
+                    &pclsObj, &uReturn);
+
+                if(0 == uReturn)
+                {
+                    break;
+                }
+
+                CComBSTR bstrText;
+                hr = pclsObj->GetObjectText(0, &bstrText);
+                USES_CONVERSION;
+                char msginfo[MAX_PATH*4] = {"0"};
+                sprintf_s(msginfo,MAX_PATH*4,"杀毒软件为%s",W2A(bstrText));
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,msginfo);
+
+                wchar_t  productname[MAX_PATH] = {L"0"};
+                VARIANT vtProp;
+                hr = pclsObj->Get(L"displayName",0,&vtProp,0,0);
+                if (SUCCEEDED(hr))
+                {
+
+                    _snwprintf_s(productname,MAX_PATH,MAX_PATH-1,L"%s",vtProp.bstrVal);
+                    char shownameinfo[MAX_PATH] = {"0"};
+                    ConvertW2A(productname,shownameinfo,MAX_PATH);
+
+                    char exepath[MAX_PATH] = {0};
+                    VARIANT vtProdexe;
+                    hr = pclsObj->Get(L"pathToSignedProductExe",0,&vtProdexe,0,0);
+                    if (SUCCEEDED(hr))
+                    {
+                        char exeabspath[MAX_PATH] = {0};
+                        ConvertW2A(vtProdexe.bstrVal,exeabspath,MAX_PATH);
+                        string exeabspathstr = exeabspath;
+                        int pos = exeabspathstr.rfind("\\");
+                        if ( pos != string::npos )
+                        {
+                            string exepathstr = exeabspathstr.substr(0,pos);
+                            memcpy(exepath,exepathstr.c_str(),exepathstr.length());
+                        }
+                    }
+
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,shownameinfo);
+
+                    //判断在WMI中注册的信息在注册表中的情况
+                    INSTALLEDAVTIVIRUSINFO installedprod;
+
+                    memset(&installedprod,0,sizeof(INSTALLEDAVTIVIRUSINFO));
+                    InitInstalledAntivirusProduct(&installedprod,1,productname);
+                    memset(installedprod.installpath,0,sizeof(installedprod.installpath));
+                    memcpy(installedprod.installpath,exepath,strlen(exepath));
+
+                    if ( GetWMIAntivirusRegInfo(&installedprod,productname) == HP_SUCCESS )
+                    {
+                        m_installedantivirusproduct.push_back(installedprod);
+                    }
+                }
+            }
+            if (pEnumerator != NULL)
+            {
+                pEnumerator->Release();
+                pEnumerator = NULL;
+            }
+            if ( pclsObj != NULL )
+            {
+                pclsObj->Release();
+                pclsObj = NULL;
+            }
+            if (pSvc != NULL )
+            {
+                pSvc->Release();
+                pSvc = NULL;
+            }
+        }
+
+        if (pLoc != NULL )
+        {
+            pLoc->Release();
+            pLoc = NULL;
+        }
+
+        //查询程序支持但是wmi中不存在的杀毒软件信息
+        for ( int i=0; i<HP_SUPPLYANTIVIRUS_NUM; i++)
+        {
+            if ( m_bInstallindex[i] == FALSE )
+            {
+                INSTALLEDAVTIVIRUSINFO installedprog;
+                memset(&installedprog,0,sizeof(INSTALLEDAVTIVIRUSINFO));
+                InitInstalledAntivirusProduct(&installedprog,2,m_supportedantivirus[i]);
+                bool bRes  = false;
+                if ( 0 == i )
+                {
+                    bRes = Get360AntivirusRegInfo(&installedprog);
+                }
+                else if ( 1 == i )
+                {
+                    bRes = GetjinshanAntivirusRegInfo(&installedprog);
+                }
+                else if ( 2 == i )
+                {
+                     bRes = GetbaiduAntivirusRegInfo(&installedprog);
+                }
+                else if ( 3 == i )
+                {
+                    bRes = GetruixingAntivirusRegInfo(&installedprog);
+                }
+                else if ( 4 == i )
+                {
+                     bRes = GetQQPCMgrAntivirusRegInfo(&installedprog);
+                }
+                else if ( 5 == i )
+                {
+                     bRes = GetMcAfeeAntivirusRegInfo(&installedprog);
+                }
+                else if ( 6 == i )
+                {
+                    bRes = GetNod32AntivirusRegInfo(&installedprog);
+                }
+                else if ( 7 == i )
+                {
+                    bRes = GetMseAntivirusRegInfo(&installedprog,m_x64Version);
+                }
+                else if ( 8 == i )
+                {
+                    bRes = GetSymantecAntivirusRegInfo(&installedprog,m_x64Version);
+                }
+                else
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"不支持该款杀毒软件");
+                }
+                if (bRes )
+                {
+                    char regAddProg[MAX_PATH] = {0};
+                    sprintf_s(regAddProg,sizeof(regAddProg),"注册表中添加%s",m_supportedantivirus[i]);
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,regAddProg);
+                    m_bInstallindex[i] = TRUE;
+                    m_installedantivirusproduct.push_back(installedprog);
+                }
+            }
+        }
+        return HP_SUCCESS;
+    }
+    catch (...)
+    {
+#ifdef  _DEBUG
+        MessageBox(NULL,L"GetWMIAVInfo except",L"err",0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"GetWMIAVInfo except");
+        return res;
+    }
+  
+}
+
+/*************************************************
+Function Name: GetWMIAntivirusRegInfo
+Description: 获取WMI中杀毒软件的注册表信息,包括杀毒软件的版本,病毒库版本和程序的运行路径
+Input and output:  
+Return:
+      成功返回HP_SUCCESS
+      失败返回HP_ANTIVIRUS_GETREGFAIL
+**************************************************/
+int Cantivirus::GetWMIAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod,wchar_t* nameinfo)
+{
+    int res = HP_ANTIVIRUS_GETREGFAIL;
+    //wmi显示的名称
+    wstring  wmidisplayname= nameinfo;
+    for ( int i = 0; i<HP_SUPPLYANTIVIRUS_NUM; i++ )
+    {
+        bool bRes = false;
+
+        if ( !m_bInstallindex[i] )
+        {
+            if ( 0 == i )
+            {
+                if ( (wmidisplayname.find(m_supportedantivirus[0], 0) != wstring::npos))
+                {
+                    bRes = Get360AntivirusRegInfo(installedprod);
+                } 
+            }
+            else if ( 1 == i )
+            {
+                if ( wmidisplayname.find(m_supportedantivirus[1],0) != wstring::npos )
+                {
+                      bRes = GetjinshanAntivirusRegInfo(installedprod);
+                }
+            }
+            else if ( 2 == i )
+            {
+                if ( wmidisplayname.find(m_supportedantivirus[2],0) != wstring::npos )
+                {
+                    bRes = GetbaiduAntivirusRegInfo(installedprod);
+                }
+            }
+            else if ( 3 == i )
+            {
+                if ( ((wmidisplayname.find(m_supportedantivirus[3],0) != wstring::npos) || 
+                    (wcscmp(L"瑞星",wmidisplayname.c_str()) == 0 )) )
+                {
+                     bRes = GetruixingAntivirusRegInfo(installedprod);
+                }
+            }
+            else if ( 4 == i )
+            {
+                if ( (wmidisplayname.find(m_supportedantivirus[4],0) != wstring::npos) ||
+                    (wmidisplayname.find(L"电脑管家",0) != wstring::npos) )
+                {
+                    bRes = GetQQPCMgrAntivirusRegInfo(installedprod);
+                }
+            }
+            else if ( 5 == i )
+            {
+                if ( (wmidisplayname.find(m_supportedantivirus[5],0) != wstring::npos) ||
+                    (_wcsnicmp(wmidisplayname.c_str(),L"McAfee VirusScan",wcslen(L"McAfee VirusScan")*2) == 0 ))
+                {
+                    bRes = GetMcAfeeAntivirusRegInfo(installedprod);
+                }
+            }
+            else if ( 6 == i )
+            {
+                if ( (wmidisplayname.find(m_supportedantivirus[6],0) != wstring::npos) ||
+                    (_wcsnicmp(wmidisplayname.c_str(),L"NOD32",wcslen(L"NOD32")*2) == 0 ))
+                {
+                    bRes = GetNod32AntivirusRegInfo(installedprod);
+                }
+            }
+            else if ( 7== i )
+            {
+                if ( (wmidisplayname.find(m_supportedantivirus[7],0) != wstring::npos) || 
+                    (_wcsnicmp(wmidisplayname.c_str(),L"Windows defender",wcslen(L"Windows defender")*2) == 0 )||
+                    (_wcsnicmp(wmidisplayname.c_str(),L"Microsoft Security Essentials",wcslen(L"Microsoft Security Essentials")*2) == 0 ) )
+                {
+                     bRes = GetMseAntivirusRegInfo(installedprod,m_x64Version);
+                }
+            }
+            else if ( 8 == i )
+            {
+                if ( (wmidisplayname.find(m_supportedantivirus[8],0) != wstring::npos) ||
+                    (_wcsnicmp(wmidisplayname.c_str(),L"Symantec Endpoint Protection",wcslen(L"Symantec Endpoint Protection")*2) == 0 ) )
+                {
+                     bRes = GetSymantecAntivirusRegInfo(installedprod,m_x64Version);
+                }
+            }
+            else 
+            {
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"不支持该款杀毒软件");
+            }
+            if ( bRes)
+            {
+                res =HP_SUCCESS;
+                m_bInstallindex[i] = TRUE;
+                installedprod->productsrc = 3;
+                memset(installedprod->antivirussetting.santname,0,sizeof(installedprod->antivirussetting.santname));
+                ConvertW2A(m_supportedantivirus[i],installedprod->antivirussetting.santname,sizeof(installedprod->antivirussetting.santname));
+                break;
+            }
+        }
+    }
+    if(res )
+    {
+        if ( GetotherAntivirusRegInfo(installedprod,nameinfo) == HP_SUCCESS )
+        {
+            res = HP_SUCCESS;
+            installedprod->productsrc = 3;
+        }
+    }
+    return res;
+}
+
+void Cantivirus::InitInstalledAntivirusProduct(INSTALLEDAVTIVIRUSINFO *installedprod,int productsrc,wchar_t* antivirusname)
+ {
+     ASSERT(antivirusname);
+
+     char antnamem[HP_C_USERCONTENTLEN] = {0};
+     ConvertW2A(antivirusname,antnamem,HP_C_USERCONTENTLEN);
+
+     installedprod->productsrc = productsrc;
+
+     memset(installedprod->antivirussetting.santname,0,sizeof(installedprod->antivirussetting.santname));
+     memcpy(installedprod->antivirussetting.santname,antnamem,strlen(antnamem));
+
+     memset(installedprod->antivirussetting.softverindetify,0,sizeof(installedprod->antivirussetting.softverindetify));
+     memcpy(installedprod->antivirussetting.softverindetify,"1",strlen("1"));
+
+     memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+     memcpy(installedprod->antivirussetting.softverdes,"#.#.#.#",strlen("#.#.#.#"));
+
+     memset(installedprod->antivirussetting.libverchoose,0,sizeof(installedprod->antivirussetting.libverchoose));
+     memcpy(installedprod->antivirussetting.libverchoose,"1",strlen("1"));
+
+     memset(installedprod->antivirussetting.libverindetify,0,sizeof(installedprod->antivirussetting.libverindetify));
+     memcpy(installedprod->antivirussetting.libverindetify,"1",strlen("1"));
+
+     memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+     memcpy(installedprod->antivirussetting.libverdes,"####-##-##",strlen("####-##-##"));
+
+     memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+     memcpy(installedprod->antivirussetting.runant,"#",strlen("#"));
+ }
+
+  /*************************************************
+Function Name: InstallThisAntivirusProduct
+Description: 判断当前计算机中是否安装有指定的杀毒软件
+Input and output:  
+Return:
+      成功返回HP_SUCCESS
+      失败返回HP_ANTIVIRUS_NOTINSTALL:没有安装antivirusname名称的杀毒软件
+**************************************************/
+ int Cantivirus::InstallThisAntivirusProduct(char* antivirusname, INSTALLEDAVTIVIRUSINFO *installedprod)
+ {
+     int Res = HP_ANTIVIRUS_NOTINSTALL;
+
+     list<INSTALLEDAVTIVIRUSINFO>::iterator installediter;
+     for ( installediter=m_installedantivirusproduct.begin(); installediter!=m_installedantivirusproduct.end(); ++installediter )
+     {
+         INSTALLEDAVTIVIRUSINFO tmpprod = *installediter;
+
+         //表示客户端安装了该杀毒软件
+         if ( _strnicmp(antivirusname,tmpprod.antivirussetting.santname,strlen(tmpprod.antivirussetting.santname)) == 0 )
+         {
+             *installedprod = tmpprod;
+
+             Res = HP_SUCCESS;
+             break;
+         }
+         else
+         {
+            if ((StrStrIA(tmpprod.antivirussetting.santname,antivirusname) ) ||
+                (StrStrIA(antivirusname,tmpprod.antivirussetting.santname) ) )
+            {
+                *installedprod = tmpprod;
+
+                Res = HP_SUCCESS;
+                break;
+            }
+         }
+     }
+     return Res;
+ }
+
+ /*************************************************
+Function Name: CmpSFVersionInfo
+Description: 判断当前程序版本是否符合服务器端的版本信息
+Input and output:  
+      condition:判断条件:取值为0,1,2:0表示大于,1表示等于,2表示小于
+      versdes:管理员输入的程序版本:
+      sfvers:软件的版本
+Return:
+      成功返回HP_SUCCESS
+      失败返回HP_ANTIVIRUS_GETSFVERSIONFAIL:程序没有获取到杀毒软件版本
+      失败返回HP_ANTIVIRUS_SFVERSNOTSATIFY:版本不符合要求
+Remark:
+      版本号从前往后进行比对:服务器端配置的版本比程序版本的位数少，若是版本号的前几位一样，则不管配置
+      大于还是小于，等于安检项均通过。
+      例如程序版本为5.0.0.1,服务器配置为版本为等于5.0,该安检项判断为成功
+      程序版本为5.0.0.1,服务器配置为版本大于5.0,该安检项成功
+      程序版本为5.0.0.1,服务器配置为版本小于5.0,该安检项成功
+      程序版本为5.0.0.5011,服务器配置为版本大于5.0.0.5012,该安检项失败
+**************************************************/
+ int Cantivirus::CmpSFVersionInfo(char* condition, char* versdes, char* sfvers)
+ {
+     ASSERT(condition);
+     ASSERT(versdes);
+     ASSERT(sfvers);
+     try
+     {
+         int Res = HP_ANTIVIRUS_SFVERSNOTSATIFY;
+         //1.判断程序是否没有获取到本地的杀毒软件的版本
+         if ( _strnicmp(sfvers,"#.#.#.#",strlen("#.#.#.#")) == 0 )
+         {
+             Res = HP_ANTIVIRUS_GETSFVERSIONFAIL;
+             return Res;
+         }
+
+         //需要判断管理员的输入是否为非法输入:例如将程序版本号输入2013-03-16
+         //2.判断服务器配置的版本和管理员配置的版本是否存在包含关系，存在的话安检直接通过
+         if ( _strnicmp(versdes,sfvers,min(strlen(versdes),strlen(sfvers))) == 0 )
+         {
+             Res = HP_SUCCESS;
+             return Res;
+         }
+         //3.取出程序中的所有使用.号分割的数字,不存在.取到非数字的第一位
+         string servavsfver = versdes;
+         vector<string> vtservsubver;//服务器端分割的字段
+         vtservsubver = split(servavsfver,".");
+
+         string localavsfver = sfvers;
+         vector<string> vtlocalsubver;//客户端端分割的字段
+         vtlocalsubver = split(localavsfver,".");
+
+         int cmplen = min(vtservsubver.size(),vtlocalsubver.size());
+         int i =0;
+         int servbiglocal = 3; //0表示本地大,1表示等于,2表示服务器大
+
+         for ( i =0;i<cmplen;i++ )
+         {
+             if (atoi(vtservsubver[i].c_str())>atoi(vtlocalsubver[i].c_str()))
+             {
+                 servbiglocal = 2;
+                 break;
+             }
+             else 
+             {
+                 if (atoi(vtservsubver[i].c_str())<atoi(vtlocalsubver[i].c_str()))
+                 {
+                     servbiglocal = 0;
+                     break;
+                 }
+             }
+         }
+         if ( i == cmplen )
+         {
+             servbiglocal = 1;
+         }
+         switch (atoi(condition))
+         {
+         case 0://大于sfvers
+             {
+                 if ( servbiglocal == 0)
+                 {
+                     Res =HP_SUCCESS;
+                 }    
+             }
+             break;
+         case 1://1表示等于
+             {
+                 if ( servbiglocal == 1)
+                 {
+                     Res =HP_SUCCESS;
+                 }    
+             }
+             break;
+         case 2://表示小于
+             {
+                 if ( servbiglocal == 2)
+                 {
+                     Res = HP_SUCCESS;
+                 }    
+             }
+             break;
+         default:
+             break;
+         }
+         return Res;
+     }
+     catch (...)
+     {
+         MessageBox(NULL,L"CmpSFVersionInfo except",L"err",0);
+         WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CmpSFVersionInfo except");
+         return HP_ANTIVIRUS_SFVERSNOTSATIFY;
+     }
+ }
+
+  /*************************************************
+Function Name: CmpLibVersionInfo
+Description: 判断杀毒软件的病毒库版本是否符合服务器端的病毒库版本信息
+Input and output:  
+       libchoose:取值为0,1:0表示选择未更新天数,1表示选择更新日期
+       condition:判断条件:取值为0,1,2:0表示大于,1表示等于,2表示小于
+       libversdes:管理员输入天数或者日期
+       locallibvers:本地杀毒软件的病毒库日期；格式为2014-03-16
+Return:
+      成功返回HP_SUCCESS
+      失败返回HP_ANTIVIRUS_GETLIBVERSIONFAIL:程序没有获取到病毒库版本
+      失败返回HP_ANTIVIRUS_LIBVERSNOTSATIFY:病毒库版本不符合要求
+**************************************************/
+ int Cantivirus::CmpLibVersionInfo(char*  libchoose, char* condition, char* libversdes, char* locallibvers)
+ {
+     try
+     {
+         int Res = HP_ANTIVIRUS_LIBVERSNOTSATIFY;
+
+         if ( (_strnicmp(locallibvers,"####-##-##",strlen("####-##-##")) == 0 ))
+         {
+             Res = HP_ANTIVIRUS_GETLIBVERSIONFAIL;
+             return Res;
+         }
+
+         string  currservertimeval = m_currsafechecktime;
+         string currserverdata;
+         int datapos = currservertimeval.find(" ",0);
+         if ( datapos == string::npos )
+         {
+             Res = HP_ANTIVIRUS_LIBVERSNOTSATIFY;
+             WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "获取的服务器端的时间戳不对");
+             return Res;
+         }
+         else
+         {
+             currserverdata = currservertimeval.substr(0,datapos);
+         }
+
+         string locallibver = locallibvers;
+         long long servlibdataday = ConvertDateToDay(currserverdata);
+         long long locallibdataday = ConvertDateToDay(locallibver);
+
+         string serverconfdata = libversdes;
+         long long servsubconfdataday = 0;
+         if (serverconfdata.find("-",0) == string::npos)
+         {
+             servsubconfdataday = atoi(libversdes);
+         }
+         else
+         {
+             servsubconfdataday= ConvertDateToDay(serverconfdata);
+         }
+        
+         if ( atoi(libchoose) == 0 )//选择未更新天数
+         {
+             long long differentialvalue = servlibdataday - locallibdataday;
+
+             switch (atoi(condition))
+             {
+             case 0://0表示大于,1表示等于,2表示小于
+                 {
+                     if ( (int)differentialvalue>atoi(libversdes) )
+                     {
+                         Res = HP_SUCCESS;
+                     }
+                 }
+                 break;
+             case 1:
+                 {
+                     if ( (int)differentialvalue == atoi(libversdes) )
+                     {
+                         Res = HP_SUCCESS;
+                     }
+                 }
+                 break;
+             case 2:
+                 {
+                     if ( (int)differentialvalue < atoi(libversdes) )
+                     {
+                         Res = HP_SUCCESS;
+                     }
+                 }
+                 break;
+             default:
+                 break;
+             }
+         }
+         else//选择更新日期
+         {
+             long long differentialvalue = locallibdataday - servsubconfdataday;
+
+             switch (atoi(condition))
+             {
+             case 0://0表示大于,1表示等于,2表示小于
+                 {
+                     if ( (int)differentialvalue>0)
+                     {
+                         Res = HP_SUCCESS;
+                     }
+                 }
+                 break;
+             case 1:
+                 {
+                     if ( (int)differentialvalue == 0)
+                     {
+                         Res = HP_SUCCESS;
+                     }
+                 }
+                 break;
+             case 2:
+                 {
+                     if ( (int)differentialvalue < 0)
+                     {
+                         Res = HP_SUCCESS;
+                     }
+                 }
+                 break;
+             default:
+                 break;
+             }
+         }
+         return Res;
+     }
+     catch (...)
+     {
+         MessageBox(NULL,L"CmpLibVersionInfo except",L"err",0);
+         WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CmpLibVersionInfo except");
+         return HP_ANTIVIRUS_LIBVERSNOTSATIFY;
+     }
+ }
+
+ int Cantivirus::DownloadFileFromSevice(char* installexepath,char* installexeparam)
+  {
+      try
+      {
+          ASSERT(installexepath !=  NULL);
+
+          CDownload dwfile(installexepath,strlen(installexepath));
+          char localfilePath[MAX_PATH] = {0};
+          if ( dwfile.StartDownLoad(localfilePath,sizeof(localfilePath)) )
+          {
+              dwfile.RunDownLoadFile(localfilePath,installexeparam);
+          }
+          return 0;
+      }
+      catch (...)
+      {
+#ifdef _DEBUG
+          MessageBox(NULL,L"DownloadFileFromSevice except", L"err", 0);
+#endif
+          WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "DownloadFileFromSevice except");
+          return -1;
+      }
+ }
+
+ int Cantivirus::GetotherAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod,wchar_t* nameinfo)
+ {
+     int Res = HP_ANTIVIRUS_KEYNOTEXIST;
+
+     char avname[HP_C_USERCONTENTLEN] = {0};
+     ConvertW2A(nameinfo,avname,HP_C_USERCONTENTLEN);
+
+     list<UninstallSoftwareInfo>::iterator  iter;
+     for (iter = m_softwareInfo.begin( ); iter != m_softwareInfo.end( ); ++iter )
+     {
+         UninstallSoftwareInfo tmpsoftinfo = *iter;
+         if ( _strnicmp(avname,tmpsoftinfo.displayName,strlen(tmpsoftinfo.displayName)) == 0 )
+         {
+             Res = HP_SUCCESS;
+             memcpy(installedprod->antivirussetting.softverdes,tmpsoftinfo.displayVersion,
+                 strlen(tmpsoftinfo.displayVersion));
+             break;
+         }
+     }
+     return Res;
+ }
+
+ long long Cantivirus::ConvertDateToDay(string dateTime)
+ {
+     long long tmpday;
+     vector<string> dateVec;
+     dateVec = split(dateTime,"-");
+     tmpday = ( atoi(dateVec[0].c_str()) / 4 - atoi(dateVec[0].c_str()) / 100 + atoi(dateVec[0].c_str()) / 400) 
+         + 367 * atoi(dateVec[1].c_str()) / 12 + atoi(dateVec[2].c_str()) + atoi(dateVec[0].c_str()) * 365 - 719499;
+     return tmpday;
+ }
+
+ void Cantivirus::OpenWebUrl(char* urlpath)
+ {
+	 char exename[20] = {"0"};
+	 ConvertW2A(HP_C_WEBBROWSER,exename,sizeof(exename));
+	 char filepath[MAX_PATH] = {"0"};
+	 sprintf_s(filepath,sizeof(filepath),"%s\\%s",g_nacdirpath,exename);
+	 CDownload dwfile("invalidurl",strlen("invalidurl"));
+	 dwfile.RunDownLoadFile(filepath,urlpath,TRUE);
+ }

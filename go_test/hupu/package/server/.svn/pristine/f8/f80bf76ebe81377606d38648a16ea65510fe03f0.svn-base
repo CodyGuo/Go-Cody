@@ -1,0 +1,61 @@
+/*++
+
+Copyright (c) 2013 hu pu gu fen
+
+Module Name:
+
+   HpNacMntor.c
+
+Abstract:
+
+	This file is part of hu pu nac client  .
+
+Environment:
+
+    Kernel mode
+--*/
+
+#include "MntCommFunc.h"
+#include "HpProcProtect.h"
+
+DRIVER_INITIALIZE DriverEntry;
+DRIVER_UNLOAD DriverUnload;
+
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, DriverEntry)
+#pragma alloc_text(PAGE, DriverUnload)
+#endif
+
+NTSTATUS DriverEntry(__in PDRIVER_OBJECT DriverObject, __in PUNICODE_STRING RegistryPath)
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    //PAGED_CODE();
+
+	DriverObject->DriverUnload = DriverUnload;
+	MntCreateControlDeviceObject(DriverObject);
+	mntDriverObject = DriverObject;
+
+#if 	WINVER >= 0x0600 //WINDOWS_VERSION_VISTA 
+	status = RegProcProtectCallback(DriverObject);
+#endif
+
+    KdPrint(("HpNacMntor.sys-->Driver loaded\n"));
+
+    return status;
+}
+
+VOID DriverUnload(__in PDRIVER_OBJECT DriverObject)
+{
+	UNREFERENCED_PARAMETER(DriverObject);
+
+    //PAGED_CODE();
+
+#if 	WINVER >= 0x0600
+	UnProcProtectRegCallback();
+#endif
+
+	MntDeleteControlDeviceObject();
+	
+    KdPrint(("HpNacMntor.sys-->Driver unloaded\n"));
+}

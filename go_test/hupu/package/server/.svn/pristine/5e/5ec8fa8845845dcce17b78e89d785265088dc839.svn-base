@@ -1,0 +1,16 @@
+
+#ifndef _NETINET_UDP_H_
+#define _NETINET_UDP_H_
+
+/*
+ * Udp protocol header.
+ * Per RFC 768, September, 1981.
+ */
+struct udphdr {
+	USHORT	uh_sport;		/* source port */
+	USHORT	uh_dport;		/* destination port */
+	USHORT	uh_ulen;		/* udp length */
+	USHORT	uh_sum;			/* udp checksum */
+};
+
+#endif

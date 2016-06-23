@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window >
+  <Font name="微软雅黑" size="12" bold="false" default="true" />
+  <Default name="Menu" value="bordersize=&quot;1&quot; bordercolor=&quot;#FFB5B5B5&quot; inset=&quot;3,4,3,4&quot; itemtextpadding=&quot;35,0,0,0&quot; bkcolor=&quot;#FFFFFFFE&quot; itemselectedbkcolor=&quot;#FFB5B5B5&quot;" />
+  <Default name="ExplandIcon" value="res\\menu_expand.png" />
+  <Menu>
+    <MenuElement name="MENU_RIGHT_8021X" text="802.1x认证窗口"  />
+
+    <MenuElement name="MENU_RIGHT_REGISTER" text="身份认证/安全检查"  />
+    <MenuElement name="MENU_RIGHT_REGISRES"  text="查看安检结果"/>
+  	<MenuElement name="MENU_RIGHT_NETWORKINFO"  text="可访问的网络信息" />
+
+    <MenuElement name="MENU_RIGHT_LANGINFO" text="语言" expland="true" >
+	<MenuElement name="MENU_RIGHT_JIANTI" text="简体中文" />
+	<MenuElement name="MENU_RIGHT_FANTI" text="繁体中文" />
+	<MenuElement name="MENU_RIGHT_ENGLISH" text="英文" />
+	<MenuElement name="MENU_RIGHT_JAPAN" text="日文" />
+	</MenuElement> 
+
+	<MenuElement name="MENU_RIGHT_LOGON"   text="切换用户" />
+
+    <MenuElement name="MENU_RIGHT_RESTART"  text="重启" />
+	<MenuElement name="MENU_RIGHT_DISCONNECT"  text="断开网络"/>
+    <MenuElement name="MENU_RIGHT_UNINSTALL" text="卸载" />
+	<MenuElement name="MENU_RIGHT_ABOUT" text="关于" />
+
+	<MenuElement name="MENU_RIGHT_SYSTEMLOG" text="系统日志" /> 
+ 	</Menu>
+</Window>

@@ -1,0 +1,31 @@
+#pragma once
+
+class ExeProcess
+{
+
+public:
+	ExeProcess(void);
+	~ExeProcess(void);
+public:
+	//当前执行的进程个数
+	int m_procCnt;      
+
+	//执行的策略信息
+	list<PROCESSINFO> m_procInfo;
+
+	//失败的进程个数
+	int m_failprocnum;  
+
+	//失败的策略信息
+	list<PROCESSINFO> m_failprocInfo;
+
+	//进程策略数据
+	int GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday);
+	string ExecProcessItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsProcessSuccess);
+
+	int RestoreFailItem(int index);
+
+private:
+	void InitData();
+};
+

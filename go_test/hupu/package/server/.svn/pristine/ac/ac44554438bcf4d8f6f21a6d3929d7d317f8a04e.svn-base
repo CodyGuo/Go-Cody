@@ -1,0 +1,53 @@
+#pragma once
+
+
+#include <list>
+#include <map>
+using namespace std;
+
+
+typedef struct _AdapterInfo
+{
+	char ipvalue[HP_C_IPLEN];
+	char macvalue[HP_C_MACLEN];
+    char adapterName[MAX_PATH];//网卡适配器的名称{GUID}
+	char  adapterpszwName[MAX_PATH];//{本地连接}
+}AdapterInfo;
+
+
+typedef struct _AdapterGUIDAndName
+{
+	char guidvalue[MAX_PATH];
+	char adapterpszwName[MAX_PATH];
+}AdapterGUIDAndName;
+
+class CGetAdapterInfo
+{
+public:
+	CGetAdapterInfo(void);
+	~CGetAdapterInfo(void);
+
+	//判断当前是否有可以网卡
+	BOOL bCurrentCanUsingAdapter(int *iAdapterNum);
+
+	//获取当前网卡的ip和mac值:函数执行成功返回TRUE，执行失败返回FALSE
+	BOOL GetNetworkIpAndMac(list<AdapterInfo> &adaptinfolist);
+
+	//判断当前的网卡信息是否与上一次发送服务器的不一致,不一致的话则返回TRUE,一致返回FALSE
+	BOOL NeedUpdateNetworkInfoToService(list<AdapterInfo> &adaptinfolist);
+
+	//将ip和mac值写入map集合中
+	BOOL WriteAdaptInfoToMap(list<AdapterInfo> &adaptinfolist);
+
+private:
+	BOOL bIsValueInMapList(ULONG valueinfo,char* macvalue);
+
+	AdapterGUIDAndName*  m_adaguidandname;
+	int  m_adaguidandnameNum;
+
+	BOOL GetAdapterName(char *guidvalue='\0',char* adapszName='\0',int adapszNamelen=0);
+
+public:
+	map<ULONG,string> m_adaptmap;
+};
+

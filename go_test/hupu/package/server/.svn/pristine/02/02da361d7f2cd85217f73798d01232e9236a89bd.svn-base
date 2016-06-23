@@ -1,0 +1,59 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#include "MntCommFunc.h"
+#include "HpGlobalFunction.h"
+
+BOOLEAN ConverWcharToChar(WCHAR* wstrSourBuffer, CHAR* strDesBuffer)
+{
+	WCHAR				wbuffer[HPMAXSTRINGLEN]			= {0};
+	CHAR				sbuffer[HPMIDDLESTRINGLEN]		= {0};
+	UNICODE_STRING		ustring;
+	ANSI_STRING			astring;
+
+	ustring.Buffer= wbuffer;
+	ustring.Length= (wcslen(wbuffer)*sizeof(WCHAR));
+	ustring.MaximumLength= sizeof(wbuffer);
+
+	astring.Buffer= sbuffer;
+	astring.Length= (strlen(sbuffer)*sizeof(CHAR));
+	astring.MaximumLength= sizeof(sbuffer);
+
+	wcsncpy(wbuffer,wstrSourBuffer,HPMAXSTRINGLEN-2);
+
+	RtlInitUnicodeString(&ustring,wbuffer);
+	RtlUnicodeStringToAnsiString(&astring,&ustring,FALSE);
+
+	RtlStringCchPrintfA(strDesBuffer, HPMIDDLESTRINGLEN-1, "%s", sbuffer);
+
+	return TRUE;
+}
+
+BOOLEAN ConverCharToWChar(CHAR* strSourBuffer, WCHAR* wstrDesBuffer)
+{
+	WCHAR wbuffer[HPMAXSTRINGLEN];
+	CHAR  sbuffer[HPMIDDLESTRINGLEN];
+	UNICODE_STRING ustring;
+	ANSI_STRING	   astring;
+
+	ustring.Buffer= wbuffer;
+	ustring.Length= (wcslen(wbuffer)*sizeof(WCHAR));
+	ustring.MaximumLength= sizeof(wbuffer);
+
+	astring.Buffer= sbuffer;
+	astring.Length= (strlen(sbuffer)*sizeof(CHAR));
+	astring.MaximumLength= sizeof(sbuffer);
+
+	strncpy(sbuffer, strSourBuffer, HPMIDDLESTRINGLEN-1);
+
+	RtlInitAnsiString(&astring, sbuffer);
+	RtlAnsiStringToUnicodeString(&ustring, &astring, FALSE);
+
+	RtlStringCchPrintfW(wstrDesBuffer, HPMAXSTRINGLEN-2, L"%s", wbuffer);
+
+	return TRUE;
+}

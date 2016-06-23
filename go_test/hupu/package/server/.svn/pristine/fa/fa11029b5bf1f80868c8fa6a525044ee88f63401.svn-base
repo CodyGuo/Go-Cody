@@ -1,0 +1,851 @@
+#include "stdafx.h"
+#include "GetHardDiskInfo.h"
+#include "..\GlobalFunction.h"
+#include "..\DebugInfo.h"
+#include "../../../common/com_class/WmiClass.h"
+#include "HandleJob1.h"
+
+#include <Windows.h>
+#include <string>
+#include <string.h>
+#include <WinIoCtl.h>
+#include <setupapi.h>
+
+#include <Objbase.h>
+#include <Wbemcli.h>
+#include <algorithm>
+#include "HardwareManage.h"
+#include "UsbStorageDevMana.h"
+
+#pragma comment(lib, "Ole32.lib")
+#pragma comment(lib, "wbemuuid.lib")
+
+using namespace std;
+
+#define  MAX_IDE_DRIVES  9
+#define  HARD_ID_LEN  256
+#define  DFP_GET_VERSION          0x00074080
+#define  DFP_SEND_DRIVE_COMMAND   CTL_CODE(IOCTL_DISK_BASE, 0x0021, METHOD_BUFFERED, FILE_READ_ACCESS | FILE_WRITE_ACCESS)
+#define  DFP_RECEIVE_DRIVE_DATA   CTL_CODE(IOCTL_DISK_BASE, 0x0022, METHOD_BUFFERED, FILE_READ_ACCESS | FILE_WRITE_ACCESS)
+#define  FILE_DEVICE_SCSI           0x0000001B
+#define  IOCTL_SCSI_MINIPORT_IDENTIFY  ((FILE_DEVICE_SCSI << 16) + 0x0501)
+#define  IOCTL_SCSI_MINIPORT 0x0004D008			
+
+#define  IDE_ATAPI_IDENTIFY  0xA1				
+#define  IDE_ATA_IDENTIFY    0xEC				
+
+#define MAX_DISKDRIVER_NUM 64
+#define MAX_MANUFACTURER_NUM 7
+
+#define MAX_SYSTEMDIR_LEN 32
+
+const char* m_HardDriveManu[MAX_MANUFACTURER_NUM] =
+{
+	"西部数据",
+	"日立",
+	"希捷",
+	"三星",
+	"东芝",
+	"迈拓",
+	"VMWare"
+};
+
+const char* m_HardDriveManuFlag[MAX_MANUFACTURER_NUM] =
+{
+	"WD",
+	"HITACHI",
+	"ST",
+	"SAMSUNG",
+	"TOSHIBA",
+	"MAXTOR",
+	"VMWARE"
+};
+
+unsigned int g_iHardDiskNum = 0;
+BOOL bUpdateHardDiskFlag = FALSE;
+
+typedef struct _GETVERSIONOUTPARAMS
+{
+	BYTE bVersion;      // Binary driver version.
+	BYTE bRevision;     // Binary driver revision.
+	BYTE bReserved;     // Not used.
+	BYTE bIDEDeviceMap; // Bit map of IDE devices.
+	DWORD fCapabilities; // Bit mask of driver capabilities.
+	DWORD dwReserved[4]; // For future use.
+
+} GETVERSIONOUTPARAMS, *PGETVERSIONOUTPARAMS, *LPGETVERSIONOUTPARAMS;
+
+//The following struct defines the interesting part of the IDENTIFY buffer:
+typedef struct _IDSECTOR
+{
+	USHORT  wGenConfig;
+	USHORT  wNumCyls;
+	USHORT  wReserved;
+	USHORT  wNumHeads;
+	USHORT  wBytesPerTrack;
+	USHORT  wBytesPerSector;
+	USHORT  wSectorsPerTrack;
+	USHORT  wVendorUnique[3];
+	CHAR    sSerialNumber[20];
+	USHORT  wBufferType;
+	USHORT  wBufferSize;
+	USHORT  wECCSize;
+	CHAR    sFirmwareRev[8];
+	CHAR    sModelNumber[40];
+	USHORT  wMoreVendorUnique;
+	USHORT  wDoubleWordIO;
+	USHORT  wCapabilities;
+	USHORT  wReserved1;
+	USHORT  wPIOTiming;
+	USHORT  wDMATiming;
+	USHORT  wBS;
+	USHORT  wNumCurrentCyls;
+	USHORT  wNumCurrentHeads;
+	USHORT  wNumCurrentSectorsPerTrack;
+	ULONG   ulCurrentSectorCapacity;
+	USHORT  wMultSectorStuff;
+	ULONG   ulTotalAddressableSectors;
+	USHORT  wSingleWordDMA;
+	USHORT  wMultiWordDMA;
+	BYTE    bReserved[128];
+}IDSECTOR, *PIDSECTOR;
+
+typedef struct _SRB_IO_CONTROL
+{
+	ULONG HeaderLength;
+	UCHAR Signature[8];
+	ULONG Timeout;
+	ULONG ControlCode;
+	ULONG ReturnCode;
+	ULONG Length;
+
+}SRB_IO_CONTROL, *PSRB_IO_CONTROL;
+
+BYTE IdOutCmd[sizeof(SENDCMDOUTPARAMS)+HARD_ID_LEN*2-1];
+
+#define SENDIDLENGTH sizeof(SENDCMDOUTPARAMS)+HARD_ID_LEN*2
+
+HANDLE OpenDevice(LPCSTR filename)
+{
+	HANDLE hDevice = NULL;
+
+	hDevice = ::CreateFileA(filename,           
+							GENERIC_READ|GENERIC_WRITE,         
+							FILE_SHARE_READ|FILE_SHARE_WRITE,   
+							NULL,               
+							OPEN_EXISTING,     
+							0,                     
+							NULL);                
+
+	return hDevice;
+}
+
+int GetPhysicalDevId(IN LPCSTR lpFileName)
+{
+	STORAGE_DEVICE_NUMBER sdn;
+	DWORD dwBytesRetuned=0;
+	int iRet = -1;
+	HANDLE hDev = NULL;
+
+	hDev = CreateFileA(lpFileName, GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+
+	if (hDev)
+	{
+		long lRes = DeviceIoControl(hDev, IOCTL_STORAGE_GET_DEVICE_NUMBER, NULL, 0, &sdn, sizeof(sdn), &dwBytesRetuned, NULL);
+
+		if(lRes)
+		{
+			iRet = (int)sdn.DeviceNumber;
+		}
+		CloseHandle(hDev);
+	}
+
+	return iRet;
+}
+
+void EnumHardDriverInfo(OUT int* ipSystemDevId, OUT int* ipHardDiskCount, OUT double dUsedSize[])
+{
+	ULARGE_INTEGER lpFreeBytesAvailableToCaller = {0};
+	ULARGE_INTEGER lpTotalNumberOfBytes = {0};
+	ULARGE_INTEGER lpTotalNumberOfFreeBytes = {0};
+	string strRoot = "";
+	char chRootNum[2] = {0};
+	int driverFlag = 0;
+	DWORD allDrives = GetLogicalDrives();
+	char systemDir[MAX_SYSTEMDIR_LEN] = {0};
+
+	if (allDrives == 0)
+		return ; 
+
+	if (allDrives != 0)
+	{
+		GetSystemDirectoryA(systemDir, MAX_SYSTEMDIR_LEN);
+
+		for(int i = 0; i < 26; i++) 
+		{ 
+			if ((allDrives & 1) == 1)
+			{
+				sprintf_s(chRootNum, 2, "%c", i+'A');
+				strRoot = chRootNum;
+				strRoot += ":\\";
+
+				if(GetDriveTypeA(strRoot.c_str()) == DRIVE_FIXED)
+				{
+					string strDriverName = "\\\\.\\";
+					int iDevId = -1;
+
+					strDriverName += (string)chRootNum;
+					strDriverName += ":";
+
+					iDevId = GetPhysicalDevId(strDriverName.c_str());
+
+					if (iDevId >= 0 && iDevId < MAX_IDE_DRIVES)
+					{
+						if (_strnicmp(systemDir, strRoot.c_str(), strRoot.length()) == 0)
+						{
+							*ipSystemDevId = iDevId;
+						}
+
+						if (iDevId > *ipHardDiskCount)
+						{
+							*ipHardDiskCount = iDevId;
+						}
+
+						if (GetDiskFreeSpaceExA(strRoot.c_str(), &lpFreeBytesAvailableToCaller, &lpTotalNumberOfBytes, &lpTotalNumberOfFreeBytes))
+						{
+							double fTotalNumberOfBytes = (double)lpTotalNumberOfBytes.QuadPart/(1024.0*1024.0*1024.0);
+							double flpTotalNumberOfFreeBytes = (double)lpTotalNumberOfFreeBytes.QuadPart/(1024.0*1024.0*1024.0);
+
+							dUsedSize[iDevId] += (fTotalNumberOfBytes - flpTotalNumberOfFreeBytes);
+						}
+					}
+					driverFlag++;
+				}
+			}
+			allDrives = allDrives >> 1;
+		} 
+	}
+}
+
+BOOL IdentifyDevice (HANDLE hPhysicalDriveIOCTL,
+					PSENDCMDINPARAMS pSCIP,
+					PSENDCMDOUTPARAMS pSCOP, 
+					BYTE bIDCmd, 
+					BYTE bDriveNum,
+					PDWORD lpcbBytesReturned)
+{
+	pSCIP -> cBufferSize = HARD_ID_LEN*2;
+	pSCIP -> irDriveRegs.bFeaturesReg = 0;
+	pSCIP -> irDriveRegs.bSectorCountReg = 1;
+	pSCIP -> irDriveRegs.bSectorNumberReg = 1;
+	pSCIP -> irDriveRegs.bCylLowReg = 0;
+	pSCIP -> irDriveRegs.bCylHighReg = 0;
+	pSCIP -> irDriveRegs.bDriveHeadReg = 0xA0 | ((bDriveNum & 1) << 4);
+	pSCIP -> irDriveRegs.bCommandReg = bIDCmd;
+	pSCIP -> bDriveNumber = bDriveNum;
+	pSCIP -> cBufferSize = HARD_ID_LEN*2;
+
+	return ( DeviceIoControl (	hPhysicalDriveIOCTL,
+								DFP_RECEIVE_DRIVE_DATA,
+								(LPVOID)pSCIP,
+								sizeof(SENDCMDINPARAMS)-1,
+								(LPVOID)pSCOP,
+								sizeof(SENDCMDOUTPARAMS)+HARD_ID_LEN*2-1,
+								lpcbBytesReturned, 
+								NULL));
+}
+
+char *ConvertToString (DWORD diskdata[HARD_ID_LEN], int firstIndex, int lastIndex)
+{
+	static char string[HARD_ID_LEN*2];
+	int index = 0;
+	int position = 0;
+
+	for (index = firstIndex; index <= lastIndex; index++)
+	{
+		string[position] = (char)(diskdata[index]/HARD_ID_LEN);
+		position++;
+
+		string[position] = (char)(diskdata[index]%HARD_ID_LEN);
+		position++;
+	}
+	string [position] = '\0';
+
+	for (index = position - 1; index > 0 && ' ' == string[index]; index--)
+		string[index] = '\0';
+
+	return string;
+}
+
+double GetDiskTotalSize(IN int iDriverNum, IN HANDLE hDevice)
+{
+	BOOL bResult = FALSE;
+	DWORD dwBytesReturned = 0;
+	DISK_GEOMETRY diskGeometry;      
+	ULONGLONG ulDiskSize = 0;
+	double dDiskTotalSize = 0.0;
+	HANDLE hLocalDevice = NULL;
+	HANDLE hDICDevice = NULL;
+	std::string strDevName = "\\\\.\\PHYSICALDRIVE";
+
+	strDevName += std::to_string((_Longlong)iDriverNum);
+
+	if (hDevice == NULL)
+	{
+		hLocalDevice = ::CreateFileA(strDevName.c_str(), GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+		hDICDevice = hLocalDevice;
+	}
+	else
+	{
+		hDICDevice = hDevice;
+	}
+
+	if (hDICDevice)
+	{
+		bResult = DeviceIoControl(hDICDevice,  
+								IOCTL_DISK_GET_DRIVE_GEOMETRY,  
+								NULL, 
+								0,             
+								&diskGeometry, 
+								sizeof(diskGeometry),   
+								&dwBytesReturned,               
+								(LPOVERLAPPED)NULL); 
+
+		if (bResult)
+		{
+			ulDiskSize = diskGeometry.Cylinders.QuadPart*(ULONG)diskGeometry.TracksPerCylinder*(ULONG)diskGeometry.SectorsPerTrack*(ULONG)diskGeometry.BytesPerSector;
+			dDiskTotalSize = (double)ulDiskSize/(1024.0*1024.0*1024.0);
+		}
+
+		if (hLocalDevice)
+		{
+			CloseHandle(hLocalDevice);
+		}
+	}
+
+	return dDiskTotalSize;
+}
+
+BOOL GetSerialNumber(IN DWORD diskdata[HARD_ID_LEN], OUT HARDDISKNFO& hardDiskInfo)
+{
+	int iBlankPos = std::string::npos;
+	std::string strSerialNumber = "";
+	std::string strModelNumber = "";
+	BOOL bRet = FALSE;
+
+	strModelNumber = ConvertToString(diskdata, 27, 46);
+
+#ifdef _DEBUG
+	OutputDebugStringA(strModelNumber.c_str());
+#endif
+
+	if (strstr(strModelNumber.c_str(), "VMware"))
+	{
+		return bRet;
+	}
+	
+	if (strModelNumber.length() > 3)
+	{
+		hardDiskInfo.strModel = strModelNumber;
+
+		strSerialNumber = ConvertToString(diskdata, 10, 19);
+		iBlankPos = strSerialNumber.find_first_not_of(' ');
+
+		if (iBlankPos != string::npos)
+		{
+			hardDiskInfo.strSerialNumber = strSerialNumber.substr(iBlankPos, strSerialNumber.length());
+		}
+		else
+		{
+			hardDiskInfo.strSerialNumber = strSerialNumber;
+		}
+
+		bRet = TRUE;
+	}
+
+	return bRet;
+}
+
+int GetHardDiskInfoFromBuf(IN DWORD diskdata[HARD_ID_LEN], IN int iIndex, IN int& iSystemDevId,  IN double dUsedSize[], OUT HARDDISKNFO& hardDiskInfo)
+{
+	int iRet = FALSE;
+
+	if(GetSerialNumber(diskdata, hardDiskInfo))
+	{
+		if (iSystemDevId == iIndex)
+		{
+			hardDiskInfo.iIsSystemDisk = 1;
+		}
+
+		for(int j = 0; j < MAX_MANUFACTURER_NUM; j++)
+		{
+			transform(hardDiskInfo.strModel.begin(), hardDiskInfo.strModel.end(), hardDiskInfo.strModel.begin(), toupper);  
+			if (strstr(hardDiskInfo.strModel.c_str(), m_HardDriveManuFlag[j]))
+			{
+				hardDiskInfo.strManufacturer = m_HardDriveManu[j];
+				break;
+			}
+		}
+
+		hardDiskInfo.strDevId = hardDiskInfo.strModel + hardDiskInfo.strSerialNumber;
+		hardDiskInfo.dwUsedSize = dUsedSize[iIndex];
+		iRet = TRUE;
+	}
+
+	return iRet;
+}
+
+int ReadPhysicalDriveInNT(OUT std::list<HARDDISKNFO>&hardDiskInfoList, OUT unsigned int *piHardDiskNum, IN int& iSystemDevId,  IN double dUsedSize[])
+{
+	int iRet = FALSE;
+	int i = 0;
+
+	for (i = 0; i < MAX_IDE_DRIVES; i++)
+	{
+		HANDLE hPhysicalDrive = 0;
+		std::string strDriveName = "";
+		HARDDISKNFO hardDiskInfo;
+
+		strDriveName = "\\\\.\\PhysicalDrive";
+		strDriveName += std::to_string((_Longlong)i);
+		hPhysicalDrive = OpenDevice(strDriveName.c_str());
+
+		hardDiskInfo.iDevIndex = i;
+		hardDiskInfo.iIsSystemDisk = 0;
+
+#ifdef _DEBUG
+		OutputDebugStringA(strDriveName.c_str());
+#endif
+
+		if (hPhysicalDrive != INVALID_HANDLE_VALUE)
+		{
+			GETVERSIONOUTPARAMS VersionParams;
+			DWORD               cbBytesReturned = 0;
+			BOOL				bIoConFlag = FALSE;
+
+			memset ((void*)&VersionParams, 0, sizeof(VersionParams));
+
+			for (int j = 0; j < 5; j++)
+			{
+				if (DeviceIoControl(hPhysicalDrive, 
+									DFP_GET_VERSION,
+									NULL, 
+									0,
+									&VersionParams,
+									sizeof(VersionParams),
+									&cbBytesReturned,
+									NULL))
+				{
+					bIoConFlag = TRUE;
+					break;
+				}
+			}
+
+			if (bIoConFlag == FALSE)
+			{
+				CloseHandle(hPhysicalDrive);
+				continue;
+			}
+
+			if (VersionParams.bIDEDeviceMap > 0)
+			{
+				BYTE             bIDCmd = 0; 
+				SENDCMDINPARAMS  scip;
+
+				bIDCmd = (VersionParams.bIDEDeviceMap>>i & 0x10) ? IDE_ATAPI_IDENTIFY : IDE_ATA_IDENTIFY;
+				memset (&scip, 0, sizeof(scip));
+				memset (IdOutCmd, 0, sizeof(IdOutCmd));
+
+				if ( IdentifyDevice(hPhysicalDrive, 
+									&scip, 
+									(PSENDCMDOUTPARAMS)&IdOutCmd, 
+									(BYTE)bIDCmd,
+									(BYTE)i,
+									&cbBytesReturned))
+				{
+					DWORD diskdata[HARD_ID_LEN] = {0};
+					int  j = 0;
+					USHORT *pIdSector = (USHORT *)((PSENDCMDOUTPARAMS)IdOutCmd)->bBuffer;
+
+					for (j = 0; j < HARD_ID_LEN; j++)
+						diskdata[j] = pIdSector[j];
+
+					if (GetHardDiskInfoFromBuf(diskdata, i, iSystemDevId, dUsedSize, hardDiskInfo))
+					{
+						*piHardDiskNum = *piHardDiskNum + 1;
+						hardDiskInfo.dwTotalSize = GetDiskTotalSize(i, hPhysicalDrive);
+						hardDiskInfoList.push_back(hardDiskInfo);
+						iRet = TRUE;
+					}
+				}
+			}
+			CloseHandle(hPhysicalDrive);
+		}
+	}
+	return iRet;
+}
+
+int ReadIdeDriveAsScsiDriveInNT(OUT std::list<HARDDISKNFO>&hardDiskInfoList,  OUT unsigned int *piHardDiskNum, IN int& iSystemDevId,  IN double dUsedSize[])
+{
+	int iRet = FALSE;
+	int i = 0;
+	HARDDISKNFO hardDiskInfo;
+
+	for (i = 0; i < MAX_IDE_DRIVES; i++)
+	{
+		HANDLE hScsiDrive = 0;
+		std::string strDriveName = "";
+
+		hardDiskInfo.iDevIndex = i;
+		hardDiskInfo.iIsSystemDisk = 0;
+
+		strDriveName = "\\\\.\\Scsi";
+		strDriveName += std::to_string((_Longlong)i);
+		strDriveName += ":";
+
+#ifdef _DEBUG
+		OutputDebugStringA(strDriveName.c_str());
+#endif
+
+		hScsiDrive = OpenDevice(strDriveName.c_str());
+
+		if (hScsiDrive != INVALID_HANDLE_VALUE)
+		{
+			char buffer[sizeof(SRB_IO_CONTROL)+SENDIDLENGTH] = {0};
+
+			SRB_IO_CONTROL *p = (SRB_IO_CONTROL*)buffer;
+			SENDCMDINPARAMS *pin =(SENDCMDINPARAMS*)(buffer + sizeof(SRB_IO_CONTROL));
+			DWORD dummy = 0;
+
+			memset (buffer, 0, sizeof (buffer));
+			p->HeaderLength = sizeof(SRB_IO_CONTROL);
+			p->Timeout = 20000;
+			p->Length = SENDIDLENGTH;
+			p->ControlCode = IOCTL_SCSI_MINIPORT_IDENTIFY; 
+			strncpy_s((char *)p->Signature, 9, "SCSIDISK", 8); 
+			pin->irDriveRegs.bCommandReg = IDE_ATA_IDENTIFY;
+			pin->bDriveNumber = 0;
+
+			if (DeviceIoControl (hScsiDrive, 
+								IOCTL_SCSI_MINIPORT, 
+								buffer,
+								sizeof(SRB_IO_CONTROL)+sizeof(SENDCMDINPARAMS)-1,
+								buffer,
+								sizeof(SRB_IO_CONTROL)+SENDIDLENGTH,
+								&dummy, 
+								NULL))
+			{
+				SENDCMDOUTPARAMS *pOut =(SENDCMDOUTPARAMS*)(buffer + sizeof(SRB_IO_CONTROL));
+				IDSECTOR *pId = (IDSECTOR *)(pOut->bBuffer);
+
+				if (pId->sModelNumber[0])
+				{
+					DWORD diskdata[HARD_ID_LEN];
+					int j = 0;
+					USHORT *pIdSector = (USHORT *)pId;
+
+					for (j = 0; j < HARD_ID_LEN; j++)
+						diskdata[j] = pIdSector[j];
+
+					if (GetHardDiskInfoFromBuf(diskdata, i, iSystemDevId, dUsedSize, hardDiskInfo))
+					{
+						*piHardDiskNum = *piHardDiskNum + 1;
+						hardDiskInfo.dwTotalSize = GetDiskTotalSize(i, NULL);
+						hardDiskInfoList.push_back(hardDiskInfo);
+						iRet = TRUE;
+					}
+				}
+			}
+			CloseHandle(hScsiDrive);
+		}
+	}
+	return iRet;
+}
+
+void IoctrlGetHardDiskInfo(OUT std::list<HARDDISKNFO>&hardDiskInfoList, OUT unsigned int *piHardDiskNum, IN int& iSystemDevId, IN double dUsedSize[])
+{
+	int iRet = FALSE;
+
+	iRet =ReadPhysicalDriveInNT(hardDiskInfoList, piHardDiskNum, iSystemDevId, dUsedSize);
+	if (!iRet) 
+	{
+		iRet =ReadIdeDriveAsScsiDriveInNT(hardDiskInfoList, piHardDiskNum, iSystemDevId, dUsedSize);
+	}
+}
+
+void WmiGetHardDiskInfo(OUT std::list<HARDDISKNFO>&hardDiskInfoList, OUT unsigned int *piHardDiskNum, IN int& iSystemDevId,  IN double dUsedSize[])
+{
+	try
+	{
+		CWmiClass wmiClass;
+		CString cstrClassName = L"Win32_DiskDrive";
+		CString cstrClassMember[6] = {L"MediaType", L"Model", L"SerialNumber", L"Index", L"Size", L"PNPDeviceID"};
+		CString cstrRetValue[MAX_DISKDRIVER_NUM][MAX_COLUMN_INFO] = {0};
+		int iOutNum = 0;
+
+		std::string strSerialNumber = "";
+		int iBlankPos = std::string::npos;
+
+		wmiClass.InitWmi();
+		wmiClass.GetGroupItemInfo(cstrClassName, cstrClassMember, 6, cstrRetValue, iOutNum);
+		wmiClass.ReleaseWmi();
+
+		for (int i = 0; i < iOutNum; i++)
+		{
+			//Fixed hard disk media(固定硬盘);
+			if (_wcsnicmp(cstrRetValue[i][0].GetBuffer(), L"Fixed", wcslen(L"Fixed")) == 0)
+			{
+				HARDDISKNFO hardDiskInfo;
+
+				*piHardDiskNum = *piHardDiskNum + 1;
+
+				hardDiskInfo.iIsSystemDisk = FALSE;
+				hardDiskInfo.strManufacturer = "(标准磁盘驱动器)";
+
+				if (cstrRetValue[i][1].GetLength() >= 3)
+				{
+					hardDiskInfo.strModel = WCharToAnsi(cstrRetValue[i][1]);
+				}
+
+				for(int j = 0; j < MAX_MANUFACTURER_NUM; j++)
+				{
+					if (strstr(hardDiskInfo.strModel.c_str(), m_HardDriveManuFlag[j]))
+					{
+						hardDiskInfo.strManufacturer = m_HardDriveManu[j];
+						break;
+					}
+				}
+
+				if (cstrRetValue[i][2].GetLength() >= 3)
+				{
+					strSerialNumber = WCharToAnsi(cstrRetValue[i][2]);
+					iBlankPos = strSerialNumber.find_first_not_of(' ');
+					if (iBlankPos != string::npos)
+					{
+						hardDiskInfo.strSerialNumber = strSerialNumber.substr(iBlankPos, strSerialNumber.length());
+					}
+					else
+					{
+						hardDiskInfo.strSerialNumber = strSerialNumber;
+					}
+				}
+				else
+				{
+					hardDiskInfo.strSerialNumber = "";
+				}
+				
+				if (cstrRetValue[i][3].GetLength() >= 1)
+				{
+					hardDiskInfo.iDevIndex = (int)(_wtoi(cstrRetValue[i][3].GetBuffer()));
+				}
+
+				if (hardDiskInfo.iDevIndex == iSystemDevId)
+				{
+					hardDiskInfo.iIsSystemDisk = TRUE;
+				}
+
+				if (cstrRetValue[i][4].GetLength() >= 1)
+				{
+					hardDiskInfo.dwTotalSize = (double)(_wtof(cstrRetValue[i][4].GetBuffer())/1024.0/1024.0/1024.0);
+				}
+
+				hardDiskInfo.dwUsedSize = dUsedSize[hardDiskInfo.iDevIndex];
+
+				if (hardDiskInfo.strModel.length() > 3 &&
+					hardDiskInfo.strSerialNumber.length() > 3)
+				{
+					hardDiskInfo.strDevId = hardDiskInfo.strModel + hardDiskInfo.strSerialNumber;
+				}
+				else
+				{
+					if (cstrRetValue[i][5].GetLength() >= 3)
+					{
+						hardDiskInfo.strDevId = WCharToAnsi(cstrRetValue[i][5]);
+					}
+				}
+
+				if (strstr(hardDiskInfo.strDevId.c_str(), "VMware"))
+				{
+					hardDiskInfoList.push_back(hardDiskInfo);
+				}
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"WmiGetHardDiskInfo except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "WmiGetHardDiskInfo except");
+	}
+}
+
+void ShowLog(IN char* pPrinStart, IN std::list<HARDDISKNFO>&hardDiskInfoList)
+{
+	std::list<HARDDISKNFO>::iterator iter;
+
+	WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, (char*)pPrinStart);
+
+	for (iter = hardDiskInfoList.begin(); iter != hardDiskInfoList.end(); iter++)
+	{
+		char prin[256] = {0};
+
+		sprintf_s(prin, "DevIndex[%d] IsSystemDisk[%d] TotalSize[%f] UsedSize[%f]", iter->iDevIndex, iter->iIsSystemDisk, iter->dwTotalSize, iter->dwUsedSize);
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, (char*)prin);
+
+		sprintf_s(prin, "Model[%s] SerialNumber[%s] Manufacturer[%s]", iter->strModel.c_str(), iter->strSerialNumber.c_str(), iter->strManufacturer.c_str());
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, (char*)prin);
+
+		sprintf_s(prin, "DevId[%s]", iter->strDevId.c_str());
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, (char*)prin);
+	}
+}
+
+void GetAllHardDriverSubItem(OUT std::string &strHardDiskInfo, IN std::list<HARDDISKNFO>&hardDiskInfoList)
+{
+	std::list<HARDDISKNFO>::iterator iter;
+	size_t szPos = 0;
+
+	for (iter = hardDiskInfoList.begin(); iter != hardDiskInfoList.end(); iter++)
+	{
+		std::string strTotalSize = "";
+		std::string strUsedSize = "";
+		size_t stPos = 0;
+
+		strTotalSize = std::to_string((long double)iter->dwTotalSize);
+		stPos =  strTotalSize.find(".");
+		strTotalSize = strTotalSize.substr(0, stPos+3);
+
+		strUsedSize = std::to_string((long double)iter->dwUsedSize);
+		stPos =  strUsedSize.find(".");
+		strUsedSize = strUsedSize.substr(0, stPos+3);
+
+		strHardDiskInfo += "<subitem harddiskid=\"";
+		strHardDiskInfo += iter->strDevId; 
+		strHardDiskInfo += "\" manufacturer=\""; 
+		strHardDiskInfo += iter->strManufacturer; 
+		strHardDiskInfo += "\" issystemdriver=\""; 
+		strHardDiskInfo += std::to_string((_Longlong)iter->iIsSystemDisk); 
+		strHardDiskInfo += "\" totalsize=\""; 
+		strHardDiskInfo += strTotalSize; 
+		strHardDiskInfo += " GB"; 
+		strHardDiskInfo += "\" usedsize=\""; 
+		strHardDiskInfo += strUsedSize; 
+		strHardDiskInfo += " GB"; 
+		strHardDiskInfo += "\"/>"; 
+	}
+
+	szPos = strHardDiskInfo.find("&");
+
+	while(szPos != string::npos)
+	{
+		strHardDiskInfo.replace(szPos, 1, "&amp;");
+		szPos = strHardDiskInfo.find("&", szPos+1);
+	}
+
+	WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, (char*)strHardDiskInfo.c_str());
+}
+
+void GetHardDiskInfo(OUT std::string &strHardDiskInfo, OUT unsigned int *piHardDiskNum)
+{
+	unsigned int iIoctrlGetHardDiskNum = 0;
+	unsigned int iWmiGetHardDiskNum = 0;
+
+	double dUsedSize[MAX_IDE_DRIVES] = {0};
+	int iSystemDevId = -1;
+	int iHardDiskCount = 0;
+
+	std::list<HARDDISKNFO>wmiHardDiskInfoList;
+	std::list<HARDDISKNFO>ioctrlHardDiskInfoList;
+
+	EnumHardDriverInfo(&iSystemDevId, &iHardDiskCount, dUsedSize);
+
+	WmiGetHardDiskInfo(wmiHardDiskInfoList, &iWmiGetHardDiskNum, iSystemDevId, dUsedSize);
+
+	IoctrlGetHardDiskInfo(ioctrlHardDiskInfoList, &iIoctrlGetHardDiskNum, iSystemDevId, dUsedSize);
+
+	ShowLog("WmiGetHardDiskInfo...\n", wmiHardDiskInfoList);
+	ShowLog("IoctrlGetHardDiskInfo...\n", ioctrlHardDiskInfoList);
+
+	*piHardDiskNum = iWmiGetHardDiskNum;
+
+	if (iIoctrlGetHardDiskNum >=  iWmiGetHardDiskNum)
+	{
+		*piHardDiskNum = iIoctrlGetHardDiskNum;
+		GetAllHardDriverSubItem(strHardDiskInfo, ioctrlHardDiskInfoList);
+	}
+	else
+	{
+		*piHardDiskNum = iWmiGetHardDiskNum;
+		GetAllHardDriverSubItem(strHardDiskInfo, wmiHardDiskInfoList);
+	}
+}
+
+void UpdateHardDiskDev()
+{
+	std::string strHardDiskInfo = "";
+	unsigned int iHardDiskNum = 0;
+
+	GetHardDiskInfo(strHardDiskInfo, &iHardDiskNum);
+
+	if (iHardDiskNum != g_iHardDiskNum)
+	{
+		HandleJob1  uploaddevinfo;
+
+		g_iHardDiskNum = 0;
+		uploaddevinfo.InitParam(g_EstliSocket.m_hComm, CLINET_DEVICE_REG_FLAG);
+		uploaddevinfo.execute();
+	}
+}
+
+DWORD __stdcall UpdateDevThread(LPVOID lParameter)
+{
+	UNREFERENCED_PARAMETER(lParameter);
+
+	while(TRUE)
+	{
+
+#ifdef _DEBUG
+		if(bUpdateHarwareFlag)
+		{
+			char prin[64] = {0};
+
+			GetAllHardwareInfo(&iHardwareDevNum);
+			bUpdateHarwareFlag = FALSE;
+
+			sprintf_s(prin, 64, "HardwareDevNum[%d]\n", iHardwareDevNum);
+			OutputDebugStringA(prin);
+		}
+
+		if(bUpdateUsbStorageDevFlag)
+		{
+			char prin[64] = {0};
+
+			GetAlUSBStorageDevInfo(&iUSBStorageDevDevNum);
+			bUpdateUsbStorageDevFlag = FALSE;
+			sprintf_s(prin, 64, "USB NUM[%d]\n", iUSBStorageDevDevNum);
+			OutputDebugStringA(prin);
+		}
+#endif
+
+		if (bUpdateHardDiskFlag)
+		{
+			time_t dwTick, dwOldTick;
+
+			dwOldTick = clock();
+			dwTick = dwOldTick;
+
+			while(dwTick - dwOldTick <= 8000)
+			{
+				Sleep(500);
+				dwTick = clock();
+			}
+
+			UpdateHardDiskDev();
+			bUpdateHardDiskFlag = FALSE;	
+		}
+
+		Sleep(2000);
+	}
+	return 0;
+}

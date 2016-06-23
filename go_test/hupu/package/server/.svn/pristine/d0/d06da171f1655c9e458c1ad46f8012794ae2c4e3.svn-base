@@ -1,0 +1,27 @@
+#pragma once 
+#ifndef TRANSPROTOCAL
+#define TRANSPROTOCAL
+
+#include "StdAfx.h"
+//#include "ConfigFunction.h"
+#include <stdio.h>
+#include <Windows.h>
+#include <IPHlpApi.h>
+#include <WinSock2.h>
+#pragma comment(lib, "Iphlpapi.lib")
+#pragma comment(lib, "WS2_32.lib")
+
+
+
+#include "DebugInfo.h"
+#include "OpStgClass.h"
+
+#include "CommPub.h"  ///////一些宏定义
+#include "DebugInfo.h"
+
+
+
+
+
+
+#endif

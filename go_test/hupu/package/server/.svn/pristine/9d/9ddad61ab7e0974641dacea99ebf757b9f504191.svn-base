@@ -1,0 +1,387 @@
+///////////////////////////
+//获取当前的网卡信息及网卡的ip和mac值
+//使用map保存网卡的ip和mac值
+//根据新获取的ip和mac值判断原来上传的信息中是否存在该值,都存在且两个数量相等则不上传网卡信息，
+//若存在不存在的项或者数量不相等则重新上传网卡信息
+//////////////////////////
+#include "StdAfx.h"
+#include "GetAdapterInfo.h"
+
+#include <IPHlpApi.h>
+#pragma  comment(lib,"Iphlpapi.lib")
+
+#include <NetCon.h>
+#include <locale>
+#pragma comment(lib,"Rpcrt4.lib")//GUID
+
+#include  "GlobalDate.h"
+#include "DebugInfo.h"
+
+const char INVALIDIP[] = {"0.0.0.0"};
+const char INVALIDMAC[] = {"00-00-00-00-00-00"};
+
+const int MAXADAPTERNUMBER = 256;
+
+
+CGetAdapterInfo::CGetAdapterInfo(void)
+{
+	 m_adaguidandname = NULL;
+    m_adaguidandnameNum = 0;
+}
+
+
+CGetAdapterInfo::~CGetAdapterInfo(void)
+{
+	if (m_adaguidandname)
+	{
+		delete[] m_adaguidandname;
+		m_adaguidandname = NULL;
+	}
+	m_adaguidandnameNum = 0;
+}
+
+
+//************************************
+// 函数名称:  bCurrentCanUsingAdapter
+// 函数说明:  判断当前是否有可以使用的网卡
+// 返回值:   BOOL:存在可用网卡返回TRUE，没有可用网卡返回FALSE
+// 参数: int iAdapterNum:存在可用网卡返回网卡的数量，不存在可用网卡返回0
+// 作者: gaochunyan
+// 日期：2015/11/26
+//************************************
+BOOL CGetAdapterInfo::bCurrentCanUsingAdapter(int *iAdapterNum)
+{
+	BOOL bRet = FALSE;
+	PIP_ADAPTER_INFO pIpAdapterInfo = new IP_ADAPTER_INFO();
+	unsigned long stSize = sizeof(IP_ADAPTER_INFO);
+	int nRel = GetAdaptersInfo(pIpAdapterInfo,&stSize);
+	if ( ERROR_BUFFER_OVERFLOW == nRel)
+	{
+		delete pIpAdapterInfo;
+		pIpAdapterInfo = (PIP_ADAPTER_INFO)new BYTE[stSize];
+		nRel=GetAdaptersInfo(pIpAdapterInfo,&stSize);
+		if(ERROR_SUCCESS == nRel)
+		{
+			delete[] pIpAdapterInfo;
+			*iAdapterNum = stSize;
+			bRet = TRUE;
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"获取到网卡数量");
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"获取到网卡数量失败");
+			delete pIpAdapterInfo;
+			bRet = FALSE;
+		  *iAdapterNum = 0;
+		}
+	}
+	else if(ERROR_SUCCESS == nRel)
+	{
+		delete pIpAdapterInfo;
+		*iAdapterNum = stSize;
+		bRet = TRUE;
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"获取到网卡数量");
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"获取到网卡数量失败");
+		delete pIpAdapterInfo;
+		bRet = FALSE;
+		*iAdapterNum = 0;
+	}	
+	return bRet;
+}
+
+//************************************
+// 函数名称:  GetNetworkIpAndMac
+// 函数说明:  获取网卡的ip和mac值
+// 返回值:   BOOL：获取成功返回TRUE,执行失败返回FALSE
+// 参数: int adaptnum:网卡的个数
+// 参数: list<AdapterInfo> & adaptinfo:ip和mac的值
+// 作者: gaochunyan
+// 日期：2015/12/07
+//************************************
+BOOL CGetAdapterInfo::GetNetworkIpAndMac(list<AdapterInfo> &adaptinfolist)
+{
+	BOOL bRes = TRUE;
+	BOOL  bManyNk = FALSE;
+	PIP_ADAPTER_INFO pIpAdapterInfo = new IP_ADAPTER_INFO();
+	unsigned long stSize = sizeof(IP_ADAPTER_INFO);
+	int nRel = GetAdaptersInfo(pIpAdapterInfo,&stSize);
+	if ( ERROR_BUFFER_OVERFLOW == nRel )
+	{
+		bManyNk = TRUE;
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"需要重新获取网卡信息");
+		delete pIpAdapterInfo;
+		pIpAdapterInfo = (PIP_ADAPTER_INFO)new BYTE[stSize];
+		//再次调用GetAdaptersInfo函数,填充pIpAdapterInfo指针变量
+		nRel=GetAdaptersInfo(pIpAdapterInfo,&stSize);
+	}
+	if ( ERROR_SUCCESS == nRel )
+	{
+		while (pIpAdapterInfo)
+		{
+			AdapterInfo adaptinfo = {0};
+			memset(&adaptinfo,0,sizeof(AdapterInfo));
+			sprintf_s(adaptinfo.adapterName,sizeof(adaptinfo.adapterName),"%s",pIpAdapterInfo->AdapterName);
+
+			GetAdapterName(adaptinfo.adapterName,adaptinfo.adapterpszwName,sizeof(adaptinfo.adapterpszwName));
+			for (DWORD i = 0; i < pIpAdapterInfo->AddressLength; i++)
+			{
+				char bytevalue[5] = {"0"};
+				if (i < pIpAdapterInfo->AddressLength-1)
+				{
+					sprintf_s(bytevalue,sizeof(bytevalue),"%02X-",pIpAdapterInfo->Address[i]);
+				}
+				else
+				{
+					sprintf_s(bytevalue,sizeof(bytevalue),"%02X",pIpAdapterInfo->Address[i]);
+				}
+				StrCatA(adaptinfo.macvalue,bytevalue);
+			}
+			//此处可能有多个ip,我们获取第一个
+			//IP_ADDR_STRING *pIpAddrString =&(pIpAdapterInfo->IpAddressList);
+			//sprintf_s(adaptinfo.ipvalue,sizeof(adaptinfo.ipvalue),"%s",pIpAddrString->IpAddress.String);
+			IP_ADDR_STRING *pIpAddrString =&(pIpAdapterInfo->IpAddressList);
+			do 
+			{
+				sprintf_s(adaptinfo.ipvalue,sizeof(adaptinfo.ipvalue),"%s",pIpAddrString->IpAddress.String);
+
+				if ((strcmp(adaptinfo.ipvalue,INVALIDIP))&&(strcmp(adaptinfo.macvalue,INVALIDMAC)))
+				{
+					char msginfo[MAX_PATH] = {"0"};
+					sprintf_s(msginfo,sizeof(msginfo),"ip:%s,mac:%s",adaptinfo.ipvalue,adaptinfo.macvalue);
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,msginfo);
+					adaptinfolist.push_back(adaptinfo);
+				}
+				else
+				{
+					string errmsg="invalid ip or mac:ipvalue=";
+					errmsg += adaptinfo.ipvalue;
+					errmsg += "mac=";
+					errmsg += adaptinfo.macvalue;
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,(char*)errmsg.c_str());
+				}
+				pIpAddrString=pIpAddrString->Next;
+			} while (pIpAddrString);
+			pIpAdapterInfo = pIpAdapterInfo->Next;
+		}
+	}
+	else
+	{
+		bRes = FALSE;
+	}
+	if (bManyNk)
+	{
+		delete[] pIpAdapterInfo;
+	}
+	else
+	{
+		delete pIpAdapterInfo;
+	}
+
+	return bRes;
+}
+
+BOOL CGetAdapterInfo::GetAdapterName(char *guidvalue,char* adapszName,int adapszNamelen)
+{
+	BOOL bRet = FALSE;
+	if (guidvalue)
+	{
+		if (m_adaguidandnameNum)
+		{
+			for (int i=0;i<m_adaguidandnameNum;i++)
+			{
+				if (!stricmp(guidvalue,m_adaguidandname[i].guidvalue))
+				{
+					sprintf_s(adapszName,adapszNamelen,"%s",m_adaguidandname[i].adapterpszwName);
+					bRet  = TRUE;
+				}
+			}
+		}
+	}
+	if (!bRet)
+	{
+		if (m_adaguidandname)
+		{
+			delete[] m_adaguidandname;
+			m_adaguidandname = NULL;
+		}
+		m_adaguidandnameNum = 0;
+		m_adaguidandname = new AdapterGUIDAndName[MAXADAPTERNUMBER];
+		memset(m_adaguidandname,0,sizeof(AdapterGUIDAndName)*MAXADAPTERNUMBER);
+
+		INetConnectionManager *pManager=NULL;
+		INetConnection *pConnection=NULL;
+		IEnumNetConnection *pEnum=NULL;
+		ULONG           celt;
+		INetSharingManager *pNetSharingManager=NULL;
+		INetConnectionProps *pProps=NULL;
+		INetSharingConfiguration *pConfiguration=NULL;
+		NETCON_PROPERTIES*   Nproperties=NULL;
+
+		CoInitialize(NULL);
+
+		CoCreateInstance(CLSID_ConnectionManager, NULL, CLSCTX_SERVER, IID_INetConnectionManager, (void**)&pManager);
+		if(pManager == NULL)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"产生异常，创建失败");
+			return FALSE;
+		}
+		pManager->EnumConnections(NCME_DEFAULT, &pEnum);//开始枚举网卡
+
+		while(  pEnum->Next(1, &pConnection, &celt) == S_OK )
+		{  
+			/*
+			条件会返回2个值，分别是S_OK，S_FALSE
+			#define S_OK                                   ((HRESULT)0L)
+			#define S_FALSE                                ((HRESULT)1L)
+			*/
+
+			pConnection->GetProperties(&Nproperties);
+
+			char szguid[MAX_PATH] = {0};
+			sprintf_s(szguid,MAX_PATH,"{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+				Nproperties->guidId.Data1,Nproperties->guidId.Data2,Nproperties->guidId.Data3,
+				Nproperties->guidId.Data4[0],Nproperties->guidId.Data4[1],Nproperties->guidId.Data4[2],
+				Nproperties->guidId.Data4[3],Nproperties->guidId.Data4[4],Nproperties->guidId.Data4[5],
+				Nproperties->guidId.Data4[6],Nproperties->guidId.Data4[7]);
+
+			int len = WideCharToMultiByte(CP_ACP,0,Nproperties->pszwName,-1,NULL,0,NULL,NULL);
+			char *utf8str = new char[len+1];
+			WideCharToMultiByte(CP_ACP,0,Nproperties->pszwName,-1,utf8str,len,NULL,NULL);
+			utf8str[len]='\0';
+			memset(m_adaguidandname[m_adaguidandnameNum].adapterpszwName,0,sizeof(m_adaguidandname[m_adaguidandnameNum].adapterpszwName));
+			sprintf_s(m_adaguidandname[m_adaguidandnameNum].adapterpszwName,sizeof(m_adaguidandname[m_adaguidandnameNum].adapterpszwName),
+				"%s",utf8str);
+			memset(m_adaguidandname[m_adaguidandnameNum].guidvalue,0,sizeof(m_adaguidandname[m_adaguidandnameNum].guidvalue));
+			sprintf_s(m_adaguidandname[m_adaguidandnameNum].guidvalue,sizeof(m_adaguidandname[m_adaguidandnameNum].guidvalue),
+				"%s",szguid);
+			m_adaguidandnameNum++;
+			delete[] utf8str;
+			utf8str = NULL;
+		}
+
+		if(pManager) pManager->Release();
+		if(pConnection) pConnection->Release();
+		if(pEnum) pEnum->Release();
+		if(pNetSharingManager) pNetSharingManager->Release();
+		if(pConfiguration) pConfiguration->Release();
+		CoUninitialize();
+	}
+    bRet = FALSE;
+	if (guidvalue)
+	{
+		if (m_adaguidandnameNum)
+		{
+			for (int i=0;i<m_adaguidandnameNum;i++)
+			{
+				if (!stricmp(guidvalue,m_adaguidandname[i].guidvalue))
+				{
+					sprintf_s(adapszName,adapszNamelen,"%s",m_adaguidandname[i].adapterpszwName);
+					bRet  = TRUE;
+				}
+			}
+		}
+	}
+	return bRet;
+}
+
+
+//************************************
+// 函数名称:  bIsValueInMapList
+// 函数说明:  
+// 返回值:   BOOL:若查找的数据存在map集合中,则返回TRUE,否则返回FALSE
+// 参数: ULONG valueinfo
+// 参数: char * macvalue
+// 作者: gaochunyan
+// 日期：2015/12/07
+//************************************
+BOOL CGetAdapterInfo::bIsValueInMapList(ULONG valueinfo,char* macvalue)
+{
+	BOOL bRet = FALSE;
+	map<ULONG, string>::iterator mapiter;
+	mapiter = m_adaptmap.find(valueinfo);
+	if(mapiter != m_adaptmap.end())
+	{
+		string macstr = mapiter->second;
+		if ( _stricmp(macstr.c_str(),macvalue) == 0 )
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"在map中查找到该ip和mac值");
+			bRet = TRUE;
+		}
+	}
+	return bRet;
+}
+
+
+//************************************
+// 函数名称:  NeedUpdateNetworkInfoToService
+// 函数说明:  
+// 返回值:   BOOL:需要上传则返回TRUE,不需要上传返回FALSE
+// 参数: list<AdapterInfo> & adaptinfolist
+// 作者: gaochunyan
+// 日期：2015/12/07
+//************************************
+BOOL CGetAdapterInfo::NeedUpdateNetworkInfoToService(list<AdapterInfo> &adaptinfolist)
+{
+	BOOL bRet = FALSE;
+	if ( adaptinfolist.size() == 0 )//没有可用网卡,不需要上传信息
+	{
+		return bRet;
+	}
+
+	if ( adaptinfolist.size() != m_adaptmap.size())
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"网卡数据发生变化");
+		bRet = TRUE;
+	}
+
+	if ( !bRet)
+	{
+		if (m_adaptmap.size() == 0 )
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"还没有向服务器提交过网卡信息");
+			bRet = TRUE;
+		}
+		else//数量是一样的,判断内容是否一样
+		{
+			list<AdapterInfo>::iterator adapteriter;
+			for (adapteriter = adaptinfolist.begin();adapteriter != adaptinfolist.end();++adapteriter)
+			{
+				AdapterInfo tmpadapt = {0};
+				memset(&tmpadapt,0,sizeof(AdapterInfo));
+				tmpadapt = *adapteriter;
+				if (!bIsValueInMapList(inet_addr(tmpadapt.ipvalue),tmpadapt.macvalue))
+				{
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"存在不一致的ip和mac值");
+					bRet = TRUE;
+					break;
+				}
+			}
+		}
+	}
+	return bRet;
+}
+
+//将ip和mac值写入map集合中
+BOOL CGetAdapterInfo::WriteAdaptInfoToMap(list<AdapterInfo> &adaptinfolist)
+{
+	BOOL bRet = FALSE;
+	if ( adaptinfolist.size() == 0 )//没有可用网卡,不需要上传信息
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, L"没有网卡信息");
+		return bRet;
+	}
+
+	m_adaptmap.clear();
+	list<AdapterInfo>::iterator adapteriter;
+	for (adapteriter = adaptinfolist.begin();adapteriter != adaptinfolist.end();++adapteriter)
+	{
+		AdapterInfo tmpadapt = {0};
+		memset(&tmpadapt,0,sizeof(AdapterInfo));
+		tmpadapt = *adapteriter;
+		m_adaptmap.insert(pair<ULONG,string>(inet_addr(tmpadapt.ipvalue),tmpadapt.macvalue));
+	}
+	return bRet;
+}

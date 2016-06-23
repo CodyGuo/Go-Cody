@@ -1,0 +1,297 @@
+// DlgNicSet.cpp : implementation file
+//
+
+#include "stdafx.h"
+#include "Hupu802.1x.h"
+#include "DlgNicSet.h"
+#include "afxdialogex.h"
+#include "../../common/GlobalFunction/GlobalFunction.h"
+#include "8021xCommunicate.h"
+#include "AuthenticationWindow.h"
+
+#pragma comment(lib, "IPHLPAPI.lib")
+#pragma comment(lib,"setupapi.lib")
+
+// CDlgNicSet dialog
+
+IMPLEMENT_DYNAMIC(CDlgNicSet, CDialogEx)
+
+CDlgNicSet::CDlgNicSet(CWnd* pParent /*=NULL*/)
+	: CDialogEx(CDlgNicSet::IDD, pParent)
+{
+	m_iSelectedCard = 0;
+	pAdapterInfo = NULL;
+}
+
+CDlgNicSet::~CDlgNicSet()
+{
+	if (pAdapterInfo)
+	{
+		free(pAdapterInfo);
+		pAdapterInfo = NULL;
+	}
+
+	m_AuthInfo.hWnd = NULL;
+	m_AuthInfo.strUsername = "";
+	m_AuthInfo.strPassword = "";
+	m_AuthInfo.strDevice = "";
+	memset(&m_AuthInfo.iLocalMac, 0, sizeof(m_AuthInfo.iLocalMac));
+	m_AuthInfo.bConnect = FALSE;
+
+	m_cstrLocalMac = _T("");
+	cstrPostMsg = _T("");
+	m_iSelectedCard = 0;
+}
+
+void CDlgNicSet::DoDataExchange(CDataExchange* pDX)
+{
+	CDialogEx::DoDataExchange(pDX);
+	DDX_CBIndex(pDX, IDC_CMB_NETCARDS, m_iSelectedCard);
+	DDX_Control(pDX, IDC_CMB_NETCARDS, m_cmbNicInfo);
+}
+
+
+BEGIN_MESSAGE_MAP(CDlgNicSet, CDialogEx)
+	ON_CBN_SELCHANGE(IDC_CMB_NETCARDS, &CDlgNicSet::OnSelchangeCmbNetcards)
+END_MESSAGE_MAP()
+
+
+// CDlgNicSet message handlers
+
+BOOL CDlgNicSet::OnInitDialog()
+{
+	CDialogEx::OnInitDialog();
+
+	// TODO:  Add extra initialization here
+	EnumNetWorkCard();
+	GetTheNetCardMac(m_iSelectedCard);
+
+	m_cmbNicInfo.SetCurSel(0);
+
+	return TRUE;  // return TRUE unless you set the focus to a control
+	// EXCEPTION: OCX Property Pages should return FALSE
+}
+
+void CDlgNicSet::OnSelchangeCmbNetcards()
+{
+	// TODO: Add your control notification handler code here
+	UpdateData();
+	GetTheNetCardMac(m_iSelectedCard);
+	UpdateData(FALSE);
+}
+
+void CDlgNicSet::GetDeviceBasicInfo(IN HDEVINFO hDevInfo, IN PSP_DEVINFO_DATA pspDevInfoData, OUT DEVBASICVECTOR& devBasicInfo)
+{
+	TCHAR	szDesBuf[DEVINFOBUFLEN]		  = {0};
+	TCHAR   szDevManu[DEVINFOBUFLEN]      = {0};
+	TCHAR   szDevID[DEVINFOBUFLEN]		  = {0};
+	TCHAR   szDevName[DEVINFOBUFLEN]      = {0};
+	DEVBASICINFO tempDevBasicInfo;
+
+	if (SetupDiGetDeviceInstanceId(hDevInfo, pspDevInfoData, szDevID, DEVINFOBUFLEN, 0))
+	{
+#ifdef _DEBUG
+
+		TCHAR tcDeviceId[128] = {0};
+
+		wsprintf(tcDeviceId, L"设备ID:%ws\n", szDevID);
+		OutputDebugString(tcDeviceId);
+#endif
+
+		tempDevBasicInfo.strDevID = WCharToAnsi(szDevID);
+
+		if (tempDevBasicInfo.strDevID.find("ROOT") != string::npos ||
+			tempDevBasicInfo.strDevID.find("PCI\\") == string::npos )
+		{
+			return;
+		}
+
+	}
+
+	tempDevBasicInfo.strClassDesc = "";
+	tempDevBasicInfo.strManufacturer = "";
+
+	if (SetupDiGetDeviceRegistryProperty(hDevInfo, pspDevInfoData, SPDRP_FRIENDLYNAME, 0L, (PBYTE)szDevName, DEVINFOBUFLEN, 0))
+	{
+#ifdef _DEBUG
+		TCHAR tcfriendlyName[DEVINFOBUFLEN] = {0};
+
+		wsprintf(tcfriendlyName, L"设备名称:%ws\n", szDevName);
+		OutputDebugString(tcfriendlyName);
+#endif
+
+	}
+	else if (SetupDiGetDeviceRegistryProperty(hDevInfo, pspDevInfoData, SPDRP_DEVICEDESC, 0L, (PBYTE)szDevName, DEVINFOBUFLEN, 0))
+	{
+#ifdef _DEBUG
+		TCHAR tcDescBuf[DEVINFOBUFLEN] = {0};
+
+		wsprintf(tcDescBuf, L"设备描述:%ws\n", szDevName);
+		OutputDebugString(tcDescBuf);
+#endif
+	}
+	else 
+	{
+		lstrcpy(szDevName, _T("Unknown"));
+		OutputDebugString(szDevName);
+	}
+
+	tempDevBasicInfo.strDevDesc = WCharToAnsi(szDevName);
+	devBasicInfo.push_back(tempDevBasicInfo);
+}
+
+void CDlgNicSet::EnumNicDev(OUT DEVBASICVECTOR& devNetVector)
+{
+	HDEVINFO        hDevInfo         = 0L;
+	SP_DEVINFO_DATA spDevInfoData    = {0};
+	short           wIndex           = 0;
+	int				iClassNameIndex = -1;
+
+	hDevInfo = SetupDiGetClassDevs(0L, 0L, NULL, DIGCF_PRESENT | DIGCF_ALLCLASSES | DIGCF_PROFILE);
+	if (hDevInfo == (void*)-1)
+	{
+		TRACE(CString("SetupDiGetClassDevs(): ") + _com_error(GetLastError()).ErrorMessage());
+		return;
+	}
+
+	wIndex = 0;
+	spDevInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+
+	while (TRUE)
+	{
+		if (SetupDiEnumDeviceInfo(hDevInfo, wIndex, &spDevInfoData))
+		{
+			TCHAR szBuf[DEVINFOBUFLEN] = {0};
+			string strClassName = "";
+
+			if (!SetupDiGetDeviceRegistryProperty(hDevInfo, &spDevInfoData, SPDRP_CLASS, 0L, (PBYTE)szBuf, DEVINFOBUFLEN, 0))
+			{
+				wIndex++;
+				continue;
+			}
+
+			if (_wcsnicmp(szBuf, L"net", wcslen(L"net")) == 0)
+			{
+				GetDeviceBasicInfo(hDevInfo, &spDevInfoData, devNetVector);
+			}
+		}
+		else
+			break;
+
+		wIndex++;
+	};
+
+	SetupDiDestroyDeviceInfoList(hDevInfo);
+}
+
+void CDlgNicSet::EnumNetWorkCard()
+{
+	PIP_ADAPTER_INFO pAdapter = NULL;
+	DWORD dwRetVal = 0;
+	ULONG ulOutBufLen = sizeof(IP_ADAPTER_INFO);
+
+	pAdapterInfo = (IP_ADAPTER_INFO *)malloc(sizeof(IP_ADAPTER_INFO));
+
+	if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == ERROR_BUFFER_OVERFLOW) 
+	{
+		free(pAdapterInfo);
+		pAdapterInfo = (IP_ADAPTER_INFO*)malloc(ulOutBufLen); 
+	}
+
+	if ((dwRetVal = GetAdaptersInfo(pAdapterInfo, &ulOutBufLen)) == NO_ERROR) 
+	{
+		DEVBASICVECTOR devNetVector;
+
+		EnumNicDev(devNetVector);
+		pAdapter = pAdapterInfo;
+
+		while(pAdapter) 
+		{
+			wstring wstrDevice = AnsiToWChar((const char*)pAdapter->Description);
+
+			if (_wcsnicmp(wstrDevice.c_str(), L"VMware", wcslen(L"VMware")) != 0 &&
+				_wcsnicmp(wstrDevice.c_str(), L"VirtualBox", wcslen(L"VirtualBox")) != 0 &&
+				_wcsnicmp(wstrDevice.c_str(), L"VPN", wcslen(L"VPN")) != 0 &&
+				StrStrI(wstrDevice.c_str(), L"Wifi") == NULL &&
+				StrStrI(wstrDevice.c_str(), L"Wi-Fi") == NULL &&
+				StrStrI(wstrDevice.c_str(), L"无线网络适配器") == NULL &&
+				StrStrI(wstrDevice.c_str(), L"Bluetooth") == NULL)
+			{
+				vector<DEVBASICINFO>::iterator iter;
+				BOOL bExistFlag = FALSE;
+
+				for(iter = devNetVector.begin(); iter != devNetVector.end(); iter++)
+				{
+					if (_strnicmp((const char*)pAdapter->Description, iter->strDevDesc.c_str(), strlen(pAdapter->Description)) == 0)
+					{
+						m_cmbNicInfo.AddString(wstrDevice.c_str());
+						bExistFlag = TRUE;
+						break;
+					}					
+				}
+
+				if (!bExistFlag)
+				{
+					m_cmbNicInfo.AddString(wstrDevice.c_str());
+				}
+			}
+			
+			pAdapter = pAdapter->Next;
+		}
+	}
+}
+
+void CDlgNicSet::GetTheNetCardMac(int i)
+{
+	PIP_ADAPTER_INFO pAdapter = NULL;
+	wstring wstrCurNicDesc = L"";
+	CString cstrCmbBoxText = L"";
+	string strCmbBoxText = "";
+
+	if (m_cmbNicInfo.GetCount() > 0)
+	{
+		pAdapter = pAdapterInfo;
+		m_cmbNicInfo.GetLBText(i, cstrCmbBoxText);
+		strCmbBoxText = WCharToAnsi(cstrCmbBoxText.GetBuffer());
+
+		while(pAdapter) 
+		{
+			if (_strnicmp((const char*)pAdapter->Description, strCmbBoxText.c_str(), strCmbBoxText.length()) == 0)
+			{
+				break;
+			}
+			pAdapter = pAdapter->Next;
+		}
+
+		for(int j=0; j < 6;j++)
+		{
+			m_AuthInfo.iLocalMac[j] = pAdapter->Address[j];
+		}
+
+		m_AuthInfo.strDevice = pAdapter->AdapterName;
+
+		m_cstrLocalMac.Format(L"%02X:%02X:%02X:%02X:%02X:%02X",
+			pAdapter->Address[0],
+			pAdapter->Address[1],
+			pAdapter->Address[2],
+			pAdapter->Address[3],
+			pAdapter->Address[4],
+			pAdapter->Address[5]);
+
+		wstrCurNicDesc = AnsiToWChar(pAdapter->Description);
+		cstrPostMsg = L"";
+		cstrPostMsg.Format(L"AuthenNetWork{%ws}", wstrCurNicDesc.c_str());
+
+		if (m_global_data.hWnd)
+		{
+			::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)cstrPostMsg.GetBuffer());
+		}
+	}
+	else
+	{
+		if (m_global_data.hWnd)
+		{
+			::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)L"没有检测到可用的认证网卡，请检查网卡后重启客户端再认证！");
+		}
+	}
+}

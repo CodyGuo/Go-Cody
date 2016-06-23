@@ -1,0 +1,13 @@
+#ifndef HARDWAREMANAGE_H_
+#define HARDWAREMANAGE_H_ 1
+
+#include "../../../HardwareManage//HardwareManage//HardwareManGlobalData.h"
+
+typedef void (__cdecl *pFnGetAllHardwareInfo)(OUT int* piHardwareDevNum);  
+
+void GetAllHardwareInfo(OUT int* piHardwareDevNum);
+
+extern BOOL bUpdateHarwareFlag;
+extern int iHardwareDevNum;
+
+#endif

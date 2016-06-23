@@ -1,0 +1,197 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#include <ntifs.h>
+#include "MntCommFunc.h"
+#include "HpProcProtect.h"
+
+#define SYSPROCNAME	"System"
+
+PDEVICE_OBJECT mntDeviceObject = NULL;
+PDRIVER_OBJECT mntDriverObject = NULL;
+PVOID pRegbHandle = NULL;
+
+ULONG g_protectProcFlag = FALSE;
+FAST_MUTEX g_protectProcIoFastMutex;
+LIST_ENTRY s_protectProcListHead; 
+
+PRKEVENT g_MntEvntObject = NULL;
+char	 g_szCreateProcBuf[MIN_BUF_LEN] = {0};
+char	 g_szTerminatedProcBuf[MIN_BUF_LEN] = {0};
+
+PVOID MntAlloc(IN SIZE_T numberOfBytes)
+{
+	PVOID p = NULL;
+
+	PAGED_CODE();
+	p = ExAllocatePoolWithTag(NonPagedPool, numberOfBytes, 'hmnt');
+	if (p)
+	{
+		RtlZeroMemory(p, numberOfBytes);
+	}
+	return p;
+}
+
+VOID MntFree(IN PVOID* p)
+{
+	ASSERT(p);
+	ASSERT(*p);
+
+	ExFreePoolWithTag(*p, 'hmnt');
+}
+
+#if 	WINVER >= 0x0600
+
+OB_PREOP_CALLBACK_STATUS PreOperationCallback(PVOID pRegistrationContext, POB_PRE_OPERATION_INFORMATION pOperationInformation)
+{
+	NTSTATUS	ntstatus = STATUS_SUCCESS;
+	HANDLE		hCurPid = NULL;
+
+	hCurPid = PsGetProcessId((PEPROCESS)pOperationInformation->Object);
+
+	UNREFERENCED_PARAMETER(pRegistrationContext);
+
+	if (!g_protectProcFlag || !hCurPid )
+	{
+		return OB_PREOP_SUCCESS;
+	}
+
+	ExAcquireFastMutex(&g_protectProcIoFastMutex);
+	if (!IsListEmpty(&s_protectProcListHead)) 
+	{
+		LIST_ENTRY *pCmpList  = NULL;
+		MntProtectProcList* pProtectProc = NULL;
+
+		for (pCmpList = s_protectProcListHead.Flink; pCmpList != &s_protectProcListHead; pCmpList = pCmpList->Flink)
+		{
+			pProtectProc = (MntProtectProcList*)pCmpList;
+
+			if ( hCurPid && (ULONG)hCurPid == pProtectProc->ulProcId)
+			{
+				if (pOperationInformation->Operation == OB_OPERATION_HANDLE_CREATE)
+				{
+					if ((pOperationInformation->Parameters->CreateHandleInformation.OriginalDesiredAccess & PROCESS_TERMINATE) == PROCESS_TERMINATE)
+					{
+						KdPrint(("HpNacMntor.sys-->阻止进程[PID:%d]结束\n", hCurPid));
+						pOperationInformation->Parameters->CreateHandleInformation.DesiredAccess &= ~PROCESS_TERMINATE;
+					}
+				}
+				break;
+			}
+		}
+	}
+	ExReleaseFastMutex(&g_protectProcIoFastMutex);
+
+	return OB_PREOP_SUCCESS;
+}
+
+NTSTATUS RegProcProtectCallback(__in PDRIVER_OBJECT pDriverObject)
+{
+	OB_CALLBACK_REGISTRATION	obCallbackReg;
+	OB_OPERATION_REGISTRATION	opReg;
+	NTSTATUS					retStatus = STATUS_SUCCESS;
+
+	UNREFERENCED_PARAMETER(pDriverObject);
+
+	memset(&obCallbackReg, 0, sizeof(obCallbackReg));
+	obCallbackReg.Version = ObGetFilterVersion();
+	obCallbackReg.OperationRegistrationCount = 1;
+	obCallbackReg.RegistrationContext = NULL;
+	RtlInitUnicodeString(&obCallbackReg.Altitude, L"378888");
+
+	memset(&opReg, 0, sizeof(opReg));
+
+	opReg.ObjectType = PsProcessType;
+	opReg.Operations = OB_OPERATION_HANDLE_CREATE|OB_OPERATION_HANDLE_DUPLICATE; 
+
+	opReg.PreOperation = (POB_PRE_OPERATION_CALLBACK)&PreOperationCallback;
+
+	obCallbackReg.OperationRegistration = &opReg;
+
+	retStatus = ObRegisterCallbacks(&obCallbackReg, &pRegbHandle); 
+
+	KdPrint(("HpNacMntor.sys-->@RegProcProtectCallback..retStatus %x\n", retStatus));
+
+	return retStatus;
+}
+
+VOID UnProcProtectRegCallback()
+{
+	if (pRegbHandle)
+	{
+		ObUnRegisterCallbacks(pRegbHandle);
+		pRegbHandle = NULL;
+	}
+}
+
+#endif
+
+VOID CreateProcCallBack(IN HANDLE hParentId, IN HANDLE hProcessId, IN BOOLEAN bCreate)
+{
+	UNREFERENCED_PARAMETER(hParentId);
+
+	//创建进程
+	if (bCreate) 
+	{
+		/*if (g_MntEvntObject)
+		{
+			RtlStringCchPrintfA(g_szCreateProcBuf, MIN_BUF_LEN, "%s:%u", CREATED_PROC_FLAG, hProcessId);
+			KeSetEvent(g_MntEvntObject, 0, FALSE);
+			KdPrint(("HpNacMntor.sys-->启动进程通知应用层[%s]\n", g_szCreateProcBuf));
+		}
+		else*/
+		{
+			KdPrint(("HpNacMntor.sys-->启动进程[pid: %d]\n", hProcessId));
+		}
+	}
+
+	//结束进程
+	else
+	{
+		LIST_ENTRY *pCmpList  = NULL;
+		MntProtectProcList* pProtectProc = NULL;
+
+		ExAcquireFastMutex(&g_protectProcIoFastMutex);
+		if (!IsListEmpty(&s_protectProcListHead))
+		{
+			for (pCmpList = s_protectProcListHead.Flink; pCmpList != &s_protectProcListHead; pCmpList = pCmpList->Flink)
+			{
+				pProtectProc = (MntProtectProcList*)pCmpList;
+
+				if ((ULONG)hProcessId == pProtectProc->ulProcId)
+				{
+					RemoveEntryList(&pProtectProc->m_protectProcListEntry);
+					MntFree(&pProtectProc);
+
+					if (g_MntEvntObject)
+					{
+						RtlStringCchPrintfA(g_szTerminatedProcBuf, MIN_BUF_LEN, "%s:%u", TERMINATED_PROC_FLAG, hProcessId);
+						KeSetEvent(g_MntEvntObject, 0, FALSE);
+						KdPrint(("HpNacMntor.sys-->结束进程通知应用层[%s]\n", g_szTerminatedProcBuf));
+					}	
+					KdPrint(("HpNacMntor.sys-->从队列中删除被结束的进程[pid: %d]\n", hProcessId));
+
+					break;
+				}
+			}
+		}
+		ExReleaseFastMutex(&g_protectProcIoFastMutex);
+	}
+}
+
+VOID ProtectProcClean()
+{   
+	MntProtectProcList* pProtectProcList = NULL;
+
+	ExAcquireFastMutex(&g_protectProcIoFastMutex);
+	while (!IsListEmpty(&s_protectProcListHead))
+	{
+		pProtectProcList = (MntProtectProcList*)RemoveTailList(&s_protectProcListHead);
+		MntFree(&pProtectProcList);
+	}
+	ExReleaseFastMutex(&g_protectProcIoFastMutex);
+}

@@ -1,0 +1,10 @@
+LIBRARY    hpLimitDll
+EXPORTS   
+    WSPStartup
+    GetLspGuid
+    SetLimitOption
+	GetLimitRuleInfo
+	SetWorkMode
+	GetWorkMode
+	SetServIp
+	GetServIp

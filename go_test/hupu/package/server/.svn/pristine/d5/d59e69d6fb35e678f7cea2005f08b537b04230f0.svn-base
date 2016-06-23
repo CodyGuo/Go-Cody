@@ -1,0 +1,65 @@
+// DlgLogInfo.cpp : implementation file
+//
+
+#include "stdafx.h"
+#include "Hupu802.1x.h"
+#include "DlgLogInfo.h"
+#include "afxdialogex.h"
+#include "Global.h"
+
+
+// CDlgLogInfo dialog
+
+IMPLEMENT_DYNAMIC(CDlgLogInfo, CDialogEx)
+
+CDlgLogInfo::CDlgLogInfo(CWnd* pParent /*=NULL*/)
+	: CDialogEx(CDlgLogInfo::IDD, pParent)
+{
+
+	m_DisplayInfo = _T("");
+}
+
+CDlgLogInfo::~CDlgLogInfo()
+{
+	m_DisplayInfo =_T("");
+}
+
+void CDlgLogInfo::DoDataExchange(CDataExchange* pDX)
+{
+	CDialogEx::DoDataExchange(pDX);
+	DDX_Text(pDX, IDC_EDT_LOGINFO, m_DisplayInfo);
+}
+
+
+BEGIN_MESSAGE_MAP(CDlgLogInfo, CDialogEx)
+	ON_MESSAGE(WM_USER_DISPLAY_LOG_INFO, OnUpdateLogInfo)
+END_MESSAGE_MAP()
+
+
+// CDlgLogInfo message handlers
+
+BOOL CDlgLogInfo::OnInitDialog()
+{
+	CDialogEx::OnInitDialog();
+
+	// TODO:  Add extra initialization here
+
+	return TRUE;  // return TRUE unless you set the focus to a control
+	// EXCEPTION: OCX Property Pages should return FALSE
+}
+
+LRESULT  CDlgLogInfo::OnUpdateLogInfo(WPARAM wparam, LPARAM lparam)
+{
+	CEdit * edit = NULL;
+
+	UpdateData(FALSE);
+
+	edit = (CEdit*)GetDlgItem(IDC_EDT_LOGINFO);
+
+	if (edit != NULL)
+	{
+		edit->LineScroll(edit->GetLineCount());
+	}
+
+	return 0;
+}

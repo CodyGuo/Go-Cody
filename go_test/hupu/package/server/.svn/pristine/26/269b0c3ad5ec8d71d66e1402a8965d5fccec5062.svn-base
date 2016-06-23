@@ -1,0 +1,64 @@
+#pragma once
+
+#include <string>
+using namespace std;
+
+#define SYSTEM_PROCESS_ID (4)
+
+//typedef unsigned long NTSTATUS;   
+typedef unsigned short USHORT;   
+//typedef unsigned long LONG;   
+typedef unsigned long DWORD;   
+typedef long LONG;   
+typedef __int64 LONGLONG;//64   
+   
+typedef struct {   
+USHORT Length;   
+USHORT MaxLen;   
+USHORT *Buffer;   
+}MYUNICODE_STRING;   
+   
+typedef struct _VM_COUNTERS {
+    ULONG PeakVirtualSize;
+    ULONG VirtualSize;
+    ULONG PageFaultCount;
+    ULONG PeakWorkingSetSize;
+    ULONG WorkingSetSize;
+    ULONG QuotaPeakPagedPoolUsage;
+    ULONG QuotaPagedPoolUsage;
+    ULONG QuotaPeakNonPagedPoolUsage;
+    ULONG QuotaNonPagedPoolUsage;
+    ULONG PagefileUsage;
+    ULONG PeakPagefileUsage;
+} VM_COUNTERS, *PVM_COUNTERS;
+
+struct process_info {   
+ULONG NextEntryDelta;   
+ULONG ThreadCount;   
+ULONG Reserved1[6];   
+LARGE_INTEGER CreateTime;   
+LARGE_INTEGER UserTime;   
+LARGE_INTEGER KernelTime;   
+MYUNICODE_STRING ProcessName;   
+ULONG BasePriority;   
+ULONG ProcessId;   
+ULONG InheritedFromProcessId;
+ ULONG HandleCount;
+ ULONG     Reserved2[2];
+ VM_COUNTERS    VmCounters;
+ IO_COUNTERS    IoCounters;
+};   
+   
+
+#define STATUS_INFO_LENGTH_MISMATCH      ((NTSTATUS)0xC0000004L)
+
+
+bool GetRunProcessFilePath(char* exefilename,char* exepath,int exepathlen,char* softwarepath);
+
+bool GetProcessFullPath(DWORD dwPID, TCHAR* pszFullPath);
+
+bool DosPathToNtPath(LPTSTR pszDosPath, LPTSTR pszNtPath);
+
+BOOL ProcEnableTokenPrivilege(LPCTSTR pszPrivilege);
+
+int GetSystemProcessInfo(string &filepath,string &tcreatetime,string &worksize);

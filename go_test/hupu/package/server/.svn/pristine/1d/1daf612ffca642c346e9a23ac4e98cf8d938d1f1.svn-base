@@ -1,0 +1,20 @@
+#pragma once
+class CJob
+{
+	public:
+	BOOL m_Completed;
+	static long lastUsedID;
+	void setPriority(int priority);
+	int getPriority();
+	long getID();	
+	void setAutoDelete(BOOL autoDeleteFlag=TRUE);
+	BOOL AutoDelete();
+	virtual int execute()=0;
+	CJob();	
+	virtual ~CJob();
+private:
+	long m_ID;
+	BOOL m_autoDeleteFlag;
+	int m_priority;
+};
+

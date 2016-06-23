@@ -1,0 +1,51 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKIEMAIN_H 
+#define _CHECKIEMAIN_H 1
+
+#define WM_CHECKIEMAIN_MSG WM_USER+4
+
+#define MAXL_URL_LEN 512
+
+#define MAINPAGE_TABLE_NAME "tstgmainpage"
+
+const char mainPageTableItem[] = {"ipolicyauthid, spolicyname, dmodifytime, sstarttime, sendtime, dstartdate,"
+    "denddate, iintervaldays, spolicyaction, ipriority, istate, iuserid, stimeperiod, sweekday,"
+    "spromptitle, spromptinfo, smainpage, warningcont, warninglevel, srcevent, usertype"};
+
+const char selectMainPageTable[] = {"SELECT spolicyaction, ipriority, spromptinfo, smainpage, warningcont,warninglevel,"
+    "srcevent FROM  %s a WHERE  (a.iuserid=\'%s\') AND (usertype=\'%s\') AND (dstartdate<=\'%s\')"
+    "AND (denddate>=\'%s\')AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")"
+    "ORDER BY a.ipriority ASC"};
+
+typedef struct _MAINPAGEPOLICY
+{
+    BOOL fixFlag;
+    wchar_t mainPageUrl[MAXL_URL_LEN];
+}MAINPAGEPOLICY, *PMAINPAGEPOLICY;
+
+typedef BOOL(*pSetIEMainPagePolicy)(IN MAINPAGEPOLICY mPagePolicy);
+
+/************************************************************ 
+ Description: 初始化主页策略
+ input: pItemName[字段名]、pItemValue[字段值]、pMainPagePolicy[主页策略]
+ Return: TRUE[检查IE主页不符合要求或修复成功]；FALSE[检查IE主页符合要求或修复失败];
+*************************************************************/
+void InitMainPagePolicy(IN char* pItemName, IN char* pItemValue, IN PMAINPAGEPOLICY pMainPagePolicy);
+
+/************************************************************ 
+ Description: 检查IE主页并是否修复
+ input: PIEMAINPAGEPOLICY[IE主页策略]
+ Return: TRUE[检查IE主页不符合要求或修复成功]；FALSE[检查IE主页符合要求或修复失败];
+*************************************************************/
+int CheckIEMainPage(IN MAINPAGEPOLICY mPagePolicy);
+
+bool IEMainRetShowMsg(IN int iCheckState, IN safecheckattr checkItem, IN MAINPAGEPOLICY mainPagePolicy, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language);
+
+#endif

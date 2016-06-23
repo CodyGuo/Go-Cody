@@ -1,0 +1,133 @@
+#ifndef _GLOBAL_H
+#define _GLOBAL_H 1
+
+#include <pcap.h>
+
+#define WM_USER_DISPLAY_INFO_NOTIFY	WM_USER+1
+#define WM_USER_DISCONNECTED_NOTIFY WM_USER+2
+#define WM_USER_DISPLAY_LOG_INFO	WM_USER+3
+
+#define WM_LOGON_STATES_NOTIFY	WM_USER+311
+
+//PackType
+#define   EAP_PKT      0x00		/*Eap packet*/
+#define   EAPOL_PKT    0x01		/*authentication start*/
+#define   LOGOFF_PKT   0x02		/*logoff*/
+
+//EAP_HEAD  CODE
+#define EAP_REQUEST		0x01
+#define EAP_RESPONSE	0x02
+#define EAP_SUCCESS		0x03
+#define EAP_FAILURE		0x04
+#define EAP_OTHER		0x0a 
+
+//EAP DATA	TYPE 
+#define EAP_IDENTIFY		0x01
+#define EAP_NOTIFICATION	0x02
+#define EAP_MD5				0X04
+#define EAP_LOGOUT			0X08
+#define EAP_ERROR			0X09
+#define EAP_KEEPONLINE		0X14
+
+typedef unsigned char  u_char8;
+typedef unsigned char  u_char;
+typedef unsigned short u_short16;
+typedef unsigned short u_short;
+
+#include <string>
+
+#pragma pack(push) 
+#pragma pack(1)
+
+typedef struct USERDATA
+{
+	char username[50];
+	char password[50];
+	u_char8 ip[4];
+	u_char8 mac[6];
+	char nic[60];
+	char nicdes[60];
+
+	//广播还是多播触发认证
+	char morb;		
+
+	//自动获取IP地址
+	char dhcp;	
+
+	//上传IP
+	char updateip;
+
+	//多播发送数据帧
+	char multisend;	
+
+	//断线90s后自动重新连接
+	char relogin;	
+
+	//启动自动连接
+	char autologin;	
+
+}USERDATA, *PUSERDATA;
+
+typedef struct ETHHDR
+{
+	u_char8	DestMAC[6];
+	u_char8	SourMAC[6];
+	u_short	EthType;
+
+}ETHHDR, *PETHHDR;
+
+typedef struct PKTHDR
+{
+	u_char8	DestMAC[6];
+	u_char8	SourMAC[6];
+	u_char8 EthType[2];
+
+	u_char8 Version;
+	u_char8	PktType;
+	u_short Len1;
+	
+	u_char8	Code;
+	u_char8	Id;
+	u_short Len2;
+
+	u_char8 EapType;
+}PKTHDR, *PPKTHDR, LOGINFRM, *PLOGINFRM, LOGOUTFRM, *PLOGOUTFRM;
+
+typedef struct VERSIONFRM
+{
+	PKTHDR	Hdr;
+	u_char8 Version[50];
+
+}VERSIONFRM, *PVERSIONFRM;
+
+typedef struct USERNAMEFRM
+{
+	PKTHDR	Hdr;
+	/*u_char8 Unknown[2];
+	u_char8 Ip[4];*/
+	u_char8 Username[50];
+
+}USERNAMEFRM, *PUSERNAMEFRM;
+
+typedef struct PASSWORDFRM
+{
+	PKTHDR	Hdr;
+	u_char8 Unknown[1];
+	u_char8 Md5Pwd[16];
+	//u_char8 Username[50];
+
+}PASSWORDFRM, *PPASSWORDFRM;
+
+typedef struct KEEPONLINEFRM
+{
+	PKTHDR	Hdr;
+	u_char8 Unknown[3];
+	u_char8 Ip[4];
+	u_char8 Username[50];
+
+}KEEPONLINEFRM, *PKEEPONLINEFRM;
+
+#pragma pack(pop)
+
+#endif
+

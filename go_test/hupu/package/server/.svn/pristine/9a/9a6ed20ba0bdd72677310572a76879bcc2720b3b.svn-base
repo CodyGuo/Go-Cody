@@ -1,0 +1,13 @@
+#pragma once
+
+int CompareData(double data1,double data2);
+
+int CompareLongData(double srcdata,int srcdataunit,double ruledata,int ruledataunit);
+
+unsigned long GetNetSpeed(double totaldata,double rulespeed,unsigned long timediff);
+
+unsigned long CompateNetSpeed(double srcdata,int srcdataunit,double rulespeed,
+	int rulespeedunit,unsigned long timediff);
+
+int GetStaticalPacket(double *totaldata,int *totaldataunit,double packetlen);
+

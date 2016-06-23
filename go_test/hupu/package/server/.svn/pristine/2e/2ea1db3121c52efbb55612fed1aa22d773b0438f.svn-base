@@ -1,0 +1,20 @@
+#include "..\GlobalDate.h"
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKFILE_H_
+#define _CHECKFIlE_H_ 1
+
+string CheckFileIsExist(IN const char* szCheckFilePath, IN int iCheckCondition, IN LANGUAGETYPE language, IN int iTrigger, OUT string& strTrigrSucc);
+string CheckFileSize(IN const char* szCheckFilePath,  IN DWORD dwSetFileSize, IN int iCheckCondition, IN LANGUAGETYPE language, IN int iTrigger, OUT string& strTrigrSucc);
+string CheckFileMD5( IN const char* szCheckFilePath, IN const char* pFileMD5, IN LANGUAGETYPE language, IN int iTrigger, OUT string& strTrigrSucc);
+string CheckFileVersion( IN const char* szCheckFilePath,  IN const char* pFileVersion, IN int iCheckCondition, IN LANGUAGETYPE language, IN int iTrigger, OUT string& strTrigrSucc);
+
+int DeleteFileRepair(IN const char* pszDeleteFilePath);
+
+#endif

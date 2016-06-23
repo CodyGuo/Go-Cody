@@ -1,0 +1,14 @@
+#include "StdAfx.h"
+#include "DuilibConfig.h"
+
+
+CDuilibConfig::CDuilibConfig(void)
+{
+
+}
+
+
+CDuilibConfig::~CDuilibConfig(void)
+{
+
+}

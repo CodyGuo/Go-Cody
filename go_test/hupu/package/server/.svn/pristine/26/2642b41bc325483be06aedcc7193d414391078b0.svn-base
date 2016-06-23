@@ -1,0 +1,17 @@
+#pragma once
+
+//GUEST用户相关
+//获取GUEST用户的状态
+int GetGuestState(IN DWORD &dFlag);
+
+//设置GUEST用户的状态
+BOOL SetGuestState(IN int iflag);                 
+
+
+//远程桌面相关
+//获取远程桌面的状态
+int GetRemoteDesk();
+
+//设置远程桌面的状态
+BOOL SetRemoteDesk(int iflag);
+

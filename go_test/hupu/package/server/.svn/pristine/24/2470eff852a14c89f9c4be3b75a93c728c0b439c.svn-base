@@ -1,0 +1,69 @@
+#include "..\GlobalDate.h"
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKJUNKFILES_H
+#define _CHECKJUNKFILES_H 1
+
+#define WM_CHECKJUNKFILE_MSG WM_USER+1
+#define WM_CLEANJUNKFILE_MSG WM_USER+2
+
+#define JUNK_FILES_TABLE_NAME "tstgjunkfiles"
+
+const char junkFileTableItem[] = {"ipolicyauthid,spolicyname,dmodifytime,sstarttime,sendtime,dstartdate,"
+    "denddate,iintervaldays,spolicyaction,ipriority,istate,stimeperiod,sweekday,spromptitle,spromptinfo,warningcont,"
+    "warninglevel,srcevent,iuserid,usertype,ichecktempfile,icheckrecycle,ifilesize,ifilenum"};
+
+const char selectJunkfileTableItem[] = {"SELECT spolicyaction,ipriority,spromptinfo,ichecktempfile,icheckrecycle,ifilesize, ifilenum, warningcont,"
+    "warninglevel,srcevent FROM  %s a WHERE  (a.iuserid=\'%s\') AND (usertype=\'%s\') AND (dstartdate<=\'%s\') AND (denddate>=\'%s\') "
+    "AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority ASC"};
+
+typedef struct _JUNKDIRPOLICY
+{
+    char isCheckTempFile;
+    char isCheckRecycle;
+    long fileSize;
+    long fileNum;
+
+}JUNKDIRPOLICY, *PJUNKDIRPOLICY;
+
+typedef BOOL(*pSetJunkFilePolicy)(IN PJUNKDIRPOLICY pJunkDirPolicy);
+
+/************************************************************ 
+ Description: 初始化主页策略
+ input: pItemName[字段名]、pItemValue[字段值]、pMainPagePolicy[主页策略]
+*************************************************************/
+void InitJunkFilePolicy(IN char* pItemName, IN char* pItemValue, OUT PJUNKDIRPOLICY pJunkDirPolicy);
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input: 
+ Return: 
+*************************************************************/
+bool JunkFileRetShowMsg(IN int iCheckState, IN safecheckattr checkItem, IN JUNKDIRPOLICY junkDirPolicy, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language);
+
+/************************************************************ 
+ Description:  保存垃圾文件策略到数据库中
+ Input:pItemName[字段名];pJunkDirPolicy[垃圾文件策略]
+*************************************************************/
+void SaveJunkFilePolicyToDB(IN char* pName, IN char* pValue, IN PJUNKDIRPOLICY pJunkDirPolicy);
+
+/************************************************************ 
+ Description: 发送检查垃圾文件消息
+ Input:pJunkDirPolicy[垃圾文件检查策略]
+ return: 0[成功]、1[失败]
+*************************************************************/
+int SendMsgCheckJunkFile(IN PJUNKDIRPOLICY pJunkDirPolicy);
+
+/************************************************************ 
+ Description: 发送清理垃圾文件消息
+  return: 0[成功]、1[失败]
+*************************************************************/
+int SendMsgCleanFile(IN PJUNKDIRPOLICY pJunkDirPolicy);
+
+#endif

@@ -1,0 +1,64 @@
+#include <windows.h>
+#include <tchar.h>
+
+////////////////////////////////////////////////////////
+//  Right Menu
+const TCHAR RIGHTMENUCLASSNAME[] = _T("RIGHTMENUCLASSNAME");
+
+const TCHAR MenuRight[] = _T("MENU_RIGHT");
+
+const TCHAR MenuRegisterBrowser[] =				_T("MENU_RIGHT_REGISTER");
+const TCHAR MenuSafeCheckResult[] =	_T("MENU_RIGHT_REGISRES");
+const TCHAR MenuNetworkInfo[] =					_T("MENU_RIGHT_NETWORKINFO");
+const TCHAR MenuRestartHelp[] =			_T("MENU_RIGHT_RESTART");
+const TCHAR MenuLogonUser[] =				_T("MENU_RIGHT_LOGON");
+const TCHAR MenuLogoffUser[] =		_T("Menu_Logoff_User");
+const TCHAR MenuUninstallHelp[] =				_T("MENU_RIGHT_UNINSTALL");
+const TCHAR MenuAbout[] =		_T("MENU_RIGHT_ABOUT");
+const TCHAR MenuSystemLog[] =		_T("MENU_RIGHT_SYSTEMLOG");	
+const TCHAR MenuLanguage[] =		_T("MENU_RIGHT_LANGINFO");
+const TCHAR MenuJantiChineses[] = _T("MENU_RIGHT_JIANTI");
+const TCHAR MenuFantiChinese[] = _T("MENU_RIGHT_FANTI");
+const TCHAR MenuEnglish[] = _T("MENU_RIGHT_ENGLISH");
+const TCHAR MenuJapan[] = _T("MENU_RIGHT_JAPAN");
+const TCHAR MenuDisNetwork[] = _T("MENU_RIGHT_DISCONNECT");
+
+const TCHAR Menu8021XReg[] = _T("MENU_RIGHT_8021X");
+
+
+////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////
+//右键登录
+const TCHAR MenuLogin[] = _T("MENU_LOGIN");
+////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////
+  //右键关于
+const TCHAR MenuAboutDlg[] = _T("MENU_ABOUT");
+////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////
+//右键卸载
+const TCHAR MenuUninstallDlg[] = _T("MENU_UNINSTALL");
+////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////
+//右键可访问的网络信息
+const TCHAR MenuNetworkInfoDlg[] = _T("MENU_NETWORKINFO");
+////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////
+//右键系统日志
+const TCHAR MenuSystemlogDlg[] = _T("MENU_SYSTEMLOG");
+////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////
+//域用户验证
+const TCHAR DomainIdentifyDlg[] = _T("DOMAIN_IDENTIFY");
+////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////
+//域用户提示框
+const TCHAR DOMAINTIPDLG[] = _T("DOMAIN_TIPDLG");
+////////////////////////////////////////////////////////

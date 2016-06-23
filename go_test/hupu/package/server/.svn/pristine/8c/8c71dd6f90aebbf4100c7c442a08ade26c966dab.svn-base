@@ -1,0 +1,312 @@
+#include "StdAfx.h"
+#include "RegisterInfo.h"
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+
+
+bool GetUninstallKey(UninstallSoftwareInfo *softwareinfo,wchar_t *keyname,bool readX64)
+{
+    bool  bRes = false;
+
+    wchar_t regBufferName[MAX_PATH] = {L"0"};
+    _snwprintf_s(regBufferName,MAX_PATH,MAX_PATH-1,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\%s",
+        keyname);
+
+    REGSAM flag = KEY_READ;
+    if (readX64)
+    {
+        flag=flag|KEY_WOW64_64KEY;
+         WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"64位电脑");
+    }
+
+    DWORD dwType;	
+    HKEY hKey;
+    DWORD dwRegSize = MAX_PATH;
+
+    if( RegOpenKeyEx(HKEY_LOCAL_MACHINE, regBufferName, NULL, flag, &hKey) == ERROR_SUCCESS)
+    {
+        bRes = true;
+        TCHAR regBufferValue[MAX_PATH] = {_T("0")};
+        char  buffVal[MAX_PATH]={0};
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        if ( RegQueryValueEx(hKey, _T("DisplayName"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+            memset(softwareinfo->displayName,0,sizeof(softwareinfo->displayName));
+            memcpy(softwareinfo->displayName, buffVal, strlen(buffVal));//软件名称
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue, _T(""));
+        strcpy_s(buffVal,"");
+        if ( RegQueryValueEx(hKey, _T("Publisher"), 0, &dwType,(LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+            memcpy(softwareinfo->publisher,buffVal,strlen(buffVal));//发行商
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue,_T(""));
+        strcpy_s(buffVal,"");
+        if (RegQueryValueEx(hKey, _T("DisplayVersion"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+            memcpy(softwareinfo->displayVersion, buffVal, strlen(buffVal));//版本
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue,_T(""));
+        strcpy_s(buffVal,"");
+        if ( RegQueryValueEx(hKey, _T("UninstallString"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+            memcpy(softwareinfo->uninstallString, buffVal,strlen(buffVal));//卸载命令及参数
+        } 
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue,_T(""));
+        strcpy_s(buffVal,"");
+        if (RegQueryValueEx(hKey, _T("InstallLocation"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+            int copylen = strlen(buffVal);
+            if (buffVal[copylen-1] == '\\')
+            {
+                copylen = strlen(buffVal)-1;
+            }
+            memcpy(softwareinfo->installLocation, buffVal, copylen); //安装路径
+        }
+        else//不存在安装路径时从UninstallString字串中取值
+        {
+            if (strcmp(softwareinfo->uninstallString,""))
+            {
+                string uninstallstr = softwareinfo->uninstallString;
+                int uninstallexepos = uninstallstr.find(".exe",0);
+                if ( uninstallexepos != string::npos)
+                {
+                    string installlocationstr =  "";
+                    int installpos = uninstallstr.rfind("\\",uninstallexepos);
+                    if (installpos != string::npos )
+                    {
+                        if (uninstallstr[1] != ':')
+                        {
+                            int cipanpos = uninstallstr.find(":",0);
+                            if ( (cipanpos != string::npos) && (cipanpos>1) )
+                            {
+                                installlocationstr = uninstallstr.substr(cipanpos-1,installpos-cipanpos+1);
+                            }
+                            else
+                            {
+                                installlocationstr = uninstallstr.substr(0,installpos);
+                            }
+                        }
+                        else
+                            installlocationstr = uninstallstr.substr(0,installpos);
+                    }
+                    memcpy(softwareinfo->installLocation,installlocationstr.c_str(),installlocationstr.size());
+                }
+            }
+        }
+    } 		
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,L"不存在注册表项",keyname);
+    }
+    if (hKey != NULL)
+    {
+        RegCloseKey(hKey);
+        hKey = NULL;
+    }
+    return bRes;
+}
+
+//获取注册表中某一个子键的key的value
+//keyRoot:1:HKCR,2:HKCU,3:HKLM,4:HKU,5:HKCF
+bool GetKeyValueFromRegedit(IN int keyRoot,IN wchar_t *regPath,IN wchar_t *key, char* keyvalue,IN int keyvaluelen)
+{
+    bool bRes = false;
+
+    const int  MAX_LEG = 256 * sizeof(TCHAR);
+    HKEY hKey;
+    DWORD dwRegSize = MAX_LEG;
+
+    REGSAM samdesired = KEY_READ;
+
+    HKEY rootKey = HKEY_LOCAL_MACHINE;
+    if ( 1 == keyRoot  )
+    {
+        rootKey = HKEY_CLASSES_ROOT;
+    }
+    else if ( 2 == keyRoot )
+    {
+        rootKey = HKEY_CURRENT_USER;
+    }
+    else if ( 3 == keyRoot )
+    {
+        rootKey = HKEY_LOCAL_MACHINE;
+    }
+    else if ( 4 == keyRoot )
+    {
+        rootKey = HKEY_USERS;
+    }
+    else 
+    {
+        rootKey = HKEY_CURRENT_CONFIG;
+    }
+    if(RegOpenKeyEx(rootKey, 
+         regPath,
+        NULL, 
+        samdesired, 
+        &hKey) == ERROR_SUCCESS	)
+    {
+        DWORD dwType = REG_SZ;
+
+        TCHAR regBufferValue[MAX_LEG] = {_T("0")};
+        dwRegSize = MAX_LEG;
+        if ( RegQueryValueEx(hKey, key, 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            bRes = true;
+            ConvertW2A(regBufferValue, keyvalue, keyvaluelen);
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"不存在KisliveUpdateTime键值");
+        }
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"打开注册表键值失败");
+    }
+    RegCloseKey(hKey);
+    return bRes;
+}
+
+bool GetStupSoftwareInfo(list<UninstallSoftwareInfo> &stupInfo)
+ {
+     const int  MAX_LEG = 256 * sizeof(TCHAR);
+     HKEY hKey;
+     DWORD dwRegNum = MAX_LEG;
+     TCHAR regBufferName[MAX_LEG] = {0};
+
+     if(RegOpenKeyEx(HKEY_LOCAL_MACHINE, 
+         _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+         NULL, 
+         KEY_READ, 
+         &hKey) == ERROR_SUCCESS	)
+     {
+         if(RegQueryInfoKey(hKey, NULL, NULL, NULL, &dwRegNum, NULL, NULL, NULL, 
+             NULL, NULL, NULL, NULL)	==	ERROR_SUCCESS)
+         {
+             for(unsigned int i = 0; i < dwRegNum; i++)	
+             {	
+                 DWORD dwRegSize = MAX_LEG;
+                 RegEnumKeyEx(hKey, i, regBufferName, &dwRegSize, NULL, NULL, 
+                     NULL, NULL);
+
+                 DWORD dwType;	
+                 HKEY hSubKey;
+                 if( RegOpenKeyEx(hKey, regBufferName, NULL, KEY_READ, &hSubKey) == ERROR_SUCCESS)
+                 {
+
+                     UninstallSoftwareInfo info;
+                     memset(&info,0,sizeof(UninstallSoftwareInfo));
+
+                     TCHAR regBufferValue[MAX_LEG] = {_T("0")};
+                     char   buffVal[MAX_PATH]={0};
+
+                     dwRegSize = MAX_LEG;
+                     RegQueryValueEx(hSubKey, _T("DisplayName"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize);
+                     ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+
+                     memcpy(info.displayName, buffVal, sizeof(buffVal));//软件名称
+
+                     dwRegSize = MAX_LEG;
+                     _tcscpy_s(regBufferValue, _T(""));
+                     strcpy_s(buffVal,"");
+                     RegQueryValueEx(hSubKey, _T("Publisher"), 0, &dwType,(LPBYTE)regBufferValue, &dwRegSize);
+                     ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+                     memcpy(info.publisher,buffVal,strlen(buffVal));//发行商
+
+                     dwRegSize = MAX_LEG;
+                     _tcscpy_s(regBufferValue,_T(""));
+                     strcpy_s(buffVal,"");
+                     RegQueryValueEx(hSubKey, _T("DisplayVersion"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize);
+                     ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+                     memcpy(info.displayVersion, buffVal, strlen(buffVal));//版本
+
+                     dwRegSize = MAX_PATH;
+                     dwType = REG_SZ;
+                     _tcscpy_s(regBufferValue,_T(""));
+                     strcpy_s(buffVal,"");
+                     if ( RegQueryValueEx(hKey, _T("UninstallString"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+                     {
+                         ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+                         memcpy(info.uninstallString, buffVal,strlen(buffVal));//卸载命令及参数
+                     } 
+
+                     dwRegSize = MAX_PATH;
+                     dwType = REG_SZ;
+                     _tcscpy_s(regBufferValue,_T(""));
+                     strcpy_s(buffVal,"");
+                     if (RegQueryValueEx(hKey, _T("InstallLocation"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+                     {
+                         ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+                         int copylen = strlen(buffVal);
+                         if (buffVal[copylen-1] == '\\')
+                         {
+                             copylen = strlen(buffVal)-1;
+                         }
+                         memcpy(info.installLocation, buffVal, copylen); //安装路径
+                     }
+                     else//不存在安装路径时从UninstallString字串中取值
+                     {
+                         if (strcmp(info.uninstallString,""))
+                         {
+                             string uninstallstr = info.uninstallString;
+                             int uninstallexepos = uninstallstr.find(".exe",0);
+                             if ( uninstallexepos != string::npos)
+                             {
+                                 string installposstr =  "";
+                                 int installpos = uninstallstr.rfind("\\",uninstallexepos);
+                                 if (installpos != string::npos )
+                                 {
+                                     if (uninstallstr[1] != ':')
+                                     {
+                                         int cipanpos = uninstallstr.find(":",0);
+                                         if ( (cipanpos != string::npos) && (cipanpos>1) )
+                                         {
+                                             installposstr = uninstallstr.substr(cipanpos-1,installpos-cipanpos+1);
+                                         }
+                                         else
+                                         {
+                                             installposstr = uninstallstr.substr(0,installpos);
+                                         }
+                                     }
+                                     else
+                                         installposstr = uninstallstr.substr(0,installpos);
+                                 }
+                                 memcpy(info.installLocation, installposstr.c_str(), installposstr.size());
+                             }
+                         }
+                     }
+                    stupInfo.push_back(info);
+                 } 		
+                 RegCloseKey(hSubKey);
+             }
+         }
+     }
+     else 
+     {
+         RegCloseKey(hKey);
+         return false; //打开键失败
+     }
+     RegCloseKey(hKey);
+
+     return true;
+ }

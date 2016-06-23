@@ -1,0 +1,207 @@
+#pragma once 
+#include "SocketComm.h"
+#include <list>
+using namespace std;
+
+#define MACADDRESSBYTE 12
+#define IPADDRESSLENGTH 17
+#define MACADDRESSLEN 18
+#define TABLE_NUMBER  28
+#define MODULE_NUM 28
+#define  MAX_WRITE_BUF 64
+#define MAXBUFLEN 256
+
+#define SYSTEMCHECKDLLNAME "SystemCheck.dll"
+#define HP_REGISTEREXE_NAME "hpregister.exe"
+
+const char ONTIMER_APPNAME[] = {"ontimer"};
+
+const char ONTIMER_TIMER[] = {"timersf"};
+
+const char ONTIMER_MD5[] = {"timermd5"};
+
+const char DOMAINIDENTIFY_STARTTIME[] = {"timeridentify"};
+
+const char DOMAINIDENTIFY_MD5[] = {"timeridentifymd5"};
+
+//链接服务器端口
+#define SOCKETPORT 6002
+
+//程序的文件夹目录
+extern  char g_nacdirpath[MAX_PATH];
+
+//socket 通讯类
+extern CSocketComm g_EstliSocket; 
+
+//日志互斥量
+extern  CRITICAL_SECTION g_logcs;
+
+//操作数据库互斥量
+//extern  CRITICAL_SECTION g_opdbcs;
+
+extern CRITICAL_SECTION m_customCheckCs;
+
+//服务器分配的设备ID值:取值应>0,默认值为-1,服务器解析注册
+//设备信息失败时会返回0
+extern string g_deviceid; 
+
+//程序启动时的时间,用于在关于中显示程序的执行时间
+extern DWORD g_ststarttime;
+
+extern DWORD g_stexectime;
+
+//当前程序版本
+extern  char  g_version[HP_C_USERCONTENTLEN];
+
+//程序更新时间:ini配置档中若也是该时间2000-01-01 01:01:01,则表示程序没有更新,
+//使用当前时间,否则使用ini配置档中的更新时间
+extern wchar_t   g_Updatetime[HP_C_USERCONTENTLEN];
+
+//数据库句柄
+extern sqlite3 *g_db;
+
+//是否需要上传通讯的值到服务器端的数据库:取值0表示不上传,1表示上传
+extern int  g_UploadLog;
+
+//服务器ip地址
+extern  wchar_t g_ServerIp[HP_C_USERCONTENTLEN] ;  
+
+//服务器端口
+extern  int g_ServerPort;        
+
+//认证流程页面:默认值为服务器IP地址,若服务器返回的有重定向页面，则修改为重定向页面
+extern  wchar_t g_RegisterPage[MAX_PATH];  
+
+//控制器mac值
+extern string g_strAscMac;               
+
+//客户端图标变化标志
+extern   int g_sysiconflag; 
+
+//自动安检定时器的间隔时间
+extern long  g_SafeCheckTimeVal; 
+
+extern  map<int,string> g_debugMap;
+
+extern const char* logininames[MODULE_NUM];
+
+ //安检项中的表的名字
+ extern const char* g_safechecktable[TABLE_NUMBER];
+
+ extern string  g_domainidenResult;
+
+ extern  CRITICAL_SECTION g_doaminidenlogcs;
+
+//打开数据库操作
+int HP_openDB(IN wchar_t *  dirpath);
+
+//程序结束自己
+void DeleteSelf(char* dirpath);
+
+//通讯结果中特殊值的处理
+typedef enum _IDENTIMEUNIT
+{
+	IDENMINUTE = 1,
+	IDENHOUR,
+	IDENDAY,
+	IDENMONTH,
+}_IDENTIMEUNIT;
+
+unsigned long long TranslateTimeTosec(unsigned long valueinfo,int valueunit);
+
+//Language
+typedef enum _LANGUAGETYPE
+{
+	JIANTICHINESE=1,//服务器端语言下标从1开始
+	FANTICHINESE ,
+	ENGLISH,
+	JAPAN,
+	LANGUAGETOTALNUM,
+}LANGUAGETYPE;
+
+extern const TCHAR *LANGUAGECONFIG[LANGUAGETOTALNUM];
+
+
+typedef enum _RIGHTMENUSTAT
+{
+	CONNECT8021X = 0,
+	DISCONNECT8021X,
+	CONNECTWHITOUTUSER,
+	CONNECTWHITHUSER,
+	DISCONNECTORFORBIT,
+	MENUSTATETOTAL,
+}RIGHTMENUSTAT;
+
+typedef enum _MENUCONTROLNAME
+{
+	MENU_RIGHT_8021X=0,
+
+	MENU_RIGHT_REGISTER,
+	MENU_RIGHT_REGISRES,
+	MENU_RIGHT_NETWORKINFO,
+
+	MENU_RIGHT_LANGINFO,
+	MENU_RIGHT_JIANTI,
+	MENU_RIGHT_FANTI,
+	MENU_RIGHT_ENGLISH,
+	MENU_RIGHT_JAPAN,
+
+	MENU_RIGHT_LOGON,
+	MENU_RIGHT_RESTART,
+	MENU_RIGHT_DISCONNECT,
+	MENU_RIGHT_UNINSTALL,
+	MENU_RIGHT_ABOUT,
+	MENU_RIGHT_SYSTEMLOG,
+	MENU_RIGHT_TOTAL,
+}MENUCONTROLNAME;
+
+extern const TCHAR *CONTROLNAMESTR[MENU_RIGHT_TOTAL];
+
+
+typedef enum _ABOUTCONTROLNAME
+{
+	MENU_ABOUT_TITLELABEL = 0,
+    MENU_ABOUT_COMPANYLABEL,
+	MENU_ABOUT_VERSIONLABEL,
+	MENU_ABOUT_OFFICALNETLABEL,
+	MENU_ABOUT_UPDATETIMELABLE,
+	MENU_ABOUT_EXECTIMELABEL,
+	MENU_ABOUT_SERVERIPLABEL,
+	MENU_ABOUT_COMPANYNAME,
+	MENU_ABOUT_VERSIONNAME,
+	MENU_ABOUT_OFFICALNETNAME,
+	MENU_ABOUT_UPDATETIMENAME,
+	MENU_ABOUT_EXECTIMENAME,
+	MENU_ABOUT_SERVERIPNAME,
+	MENU_ABOUT_TOTAL,
+}ABOUTCONTROLNAME;
+
+extern const TCHAR *ABOUTCONTROLSTR[MENU_ABOUT_TOTAL];
+
+
+typedef enum _UNINSTALLCONTROLNAME
+{
+	MENU_UNINSTALL_TITLE = 0,
+	MENU_UNINSTALL_APPLYLABEL,
+	MENU_UNINSTALL_IDENTIFYLABEL,
+	MENU_UNINSTALL_UNINSTALLTIP,
+	MENU_UNINSTALL_IDOK,
+	MENU_UNINSTALL_CODEERROR,
+	MENU_UNINSTALL_TOTAL,
+}UNINSTALLCONTROLNAME;
+
+extern const TCHAR *UNINSTALLCONTROLSTR[MENU_UNINSTALL_TOTAL];
+
+typedef enum _DOMAINCONTROL
+{
+	DOMAIN_IDENTIFY_TITLE=0,
+	DOMAIN_IDENTIFY_ACCOUNTLABEL,
+	DOMAIN_IDENTIFY_PWDLABEL,
+	DOMAIN_IDENTIFY_DOMAINLABEL,
+	DOMAIN_IDENTIFY_ERRORTIP,
+	DOMAIN_IDENTIFY_IDENTIFYACC,
+	DOMAIN_IDENTIFY_TOTAL,
+}DOMAINCONTROL;
+
+extern const TCHAR *DOMAINIDENCONTROLSTR[DOMAIN_IDENTIFY_TOTAL];
+

@@ -1,0 +1,18 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _HPGLOBALFUNTTION_H
+#define _HPGLOBALFUNTTION_H 1
+
+#define HPMAXSTRINGLEN					256
+#define HPMIDDLESTRINGLEN				128
+
+BOOLEAN ConverWcharToChar(WCHAR* wstrSourBuffer, CHAR* strDesBuffer);
+BOOLEAN ConverCharToWChar(CHAR* strSourBuffer, WCHAR* wstrDesBuffer);
+
+#endif

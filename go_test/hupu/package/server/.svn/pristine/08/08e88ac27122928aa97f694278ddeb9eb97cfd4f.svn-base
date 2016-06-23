@@ -1,0 +1,64 @@
+#include "StdAfx.h"
+#include "SocketMakeTip.h"
+#include "CommPub.h"
+#include "DebugInfo.h"
+
+
+void  InitdebugMap()
+{
+
+	g_debugMap[0]="服务器异常断开";
+	g_debugMap[CLIENT_SEND_HEARBEAT_PACKET_FLAG]="服务器发送心跳包";
+	g_debugMap[CLINET_DEVICE_REG_FLAG]="客户端设备注册";
+	g_debugMap[CLINET_DEVICE_REG_FLAG+HP_C_OFFSETVALUE]="服务器返回客户端编号";
+	g_debugMap[CLIENT_GET_DEVICE_AUTH_INFO_FLAG]="客户端请求当前设备状态";
+	g_debugMap[CLIENT_GET_DEVICE_AUTH_INFO_FLAG+HP_C_OFFSETVALUE]="服务器返回客户端当前状态";
+	g_debugMap[CLIENT_LOGNO_USRE_FLAG]="客户端用户注册";
+	g_debugMap[CLIENT_LOGNO_USRE_FLAG+HP_C_OFFSETVALUE]="服务器返回客户端用户编号";
+	g_debugMap[CLIENT_GET_SYSTEMCHECK_POLICY_FLAG]="客户端请求策略";
+	g_debugMap[CLIENT_GET_SYSTEMCHECK_POLICY_FLAG+HP_C_OFFSETVALUE]="服务器端返回策略信息";
+	g_debugMap[CLIENT_SEND_CHECKRESULT_FLAG]="客户端返回安检结果";
+	g_debugMap[CLIENT_SEND_CHECKRESULT_FLAG+HP_C_OFFSETVALUE]="服务器端返回接收到安检结果";
+	g_debugMap[CLIENT_GET_TIMESTAMP_FLAG]="客户端请求服务器当前时间";
+	g_debugMap[CLIENT_GET_TIMESTAMP_FLAG+HP_C_OFFSETVALUE]="服务器返回当前时间";
+	g_debugMap[CLIENT_VERSION_FLAG]="客户端请求服务器当前版本";
+	g_debugMap[CLIENT_VERSION_FLAG+HP_C_OFFSETVALUE]="服务器返回服务器端的客户端版本";
+	g_debugMap[CLIENT_DIRECTION_ADDRESS_FLAG]="客户端请求重定向URL";
+	g_debugMap[CLIENT_DIRECTION_ADDRESS_FLAG+HP_C_OFFSETVALUE]="服务器端返回重定向URL";
+	g_debugMap[CLIENT_ONLINE_UNINSTALL_FLAG]="客户端发送用户卸载码";
+	g_debugMap[CLIENT_ONLINE_UNINSTALL_FLAG+HP_C_OFFSETVALUE]="服务器接收到客户端发送用户卸载码";
+	g_debugMap[CLIENT_LOGFILE_UPLOAD_FLAG]="客户端向服务器发送Log信息";
+	g_debugMap[CLIENT_LOGFILE_UPLOAD_FLAG+HP_C_OFFSETVALUE]="服务器端接收到客户端发送的Log信息";
+	g_debugMap[SERVER_NOTICE_CLIENT_CHANGESTATE_FLAG]="客户端请求当前状态";
+	g_debugMap[SERVER_NOTICE_CLIENT_CHANGESTATE_FLAG+HP_C_OFFSETVALUE]="服务器端返回客户端的当前状态";
+	g_debugMap[CLIENT_GET_AUTH_POLICY_FLAG]="客户端请求用户的认证流程策略";
+	g_debugMap[CLIENT_GET_AUTH_POLICY_FLAG+HP_C_OFFSETVALUE]="服务器返回用户认证流程策略";
+	g_debugMap[CLIENT_REQUST_ONLINE_FLAG]="客户端客户端请求上/下线 ";
+	g_debugMap[CLIENT_REQUST_ONLINE_FLAG+HP_C_OFFSETVALUE]="服务器发送上/下线消息";
+	g_debugMap[CLIENT_REQUST_ALARM_POLICY_FLAG]="客户端请求警报日志";
+	g_debugMap[CLIENT_REQUST_ALARM_POLICY_FLAG+HP_C_OFFSETVALUE]="服务器回传警报日志配置";
+	g_debugMap[CLIENT_SEND_ALARM_EVENTINFO_FLAG]="客户端上传警报日志";
+	g_debugMap[CLIENT_SEND_ALARM_EVENTINFO_FLAG+HP_C_OFFSETVALUE]="服务器接收到警报日志";
+
+	g_debugMap[CONNECTED_SERVER_FLAG]="客户端与服务器建立长连接";
+	g_debugMap[CONNECTED_SERVER_FLAG+HP_C_OFFSETVALUE]="服务器返回长连接信息";
+	g_debugMap[SERVER_NOTICE_CLIENT_START_CHECK_FLAG+HP_C_OFFSETVALUE]="服务器通知客户端进行安检";
+	g_debugMap[SERVER_NOTICE_CLIENT_START_CHECK_FLAG]="客户端返回安检总项和当前的第一项";
+	g_debugMap[SERVER_NOTICE_CLIENT_AUTO_REPAIR_FLAG+HP_C_OFFSETVALUE]="服务器端通知客户端自动修复";
+	g_debugMap[SERVER_NOTICE_CLIENT_AUTO_REPAIR_FLAG]="客户端通知服务器自动修复完成";
+	g_debugMap[SERVER_NOTICE_CLIENT_USER_LOGNO_FLAG+HP_C_OFFSETVALUE]="服务器端通知客户端有用户登陆";
+	g_debugMap[SERVER_NOTICE_CLIENT_USER_LOGNO_FLAG]="客户端回复接收用户成功";
+	g_debugMap[SERVER_SEND_DEBUG_ON_OR_OFF_FLAG]="客户端回复服务器调试日志结果";
+	g_debugMap[SERVER_SEND_DEBUG_ON_OR_OFF_FLAG+HP_C_OFFSETVALUE]="服务器通知客户端关闭调试日志";
+	g_debugMap[SERVER_SEND_NAT_INDEX+HP_C_OFFSETVALUE]="服务器通知客户端NAT发现";
+
+	g_debugMap[SERVER_SEND_NAC_TECHNOLOGY+HP_C_OFFSETVALUE]="服务器通知客户端准入技术类型";
+	g_debugMap[CLIENT_GET_ADDOMAININFO]="客户端请求服务器AD域配置";
+	g_debugMap[CLIENT_GET_ADDOMAININFO+HP_C_OFFSETVALUE]="服务器通知客户端AD域配置";
+	g_debugMap[CLIENT_SEND_LOCALLANGUAGE]="客户端上传本地语言";
+	g_debugMap[CLIENT_GET_ADDOMAININFO+HP_C_OFFSETVALUE]="服务器接收本地上传语言成功";
+	g_debugMap[SERVICE_NOTIFY_REPAIRESFITEM+HP_C_OFFSETVALUE]="服务器通知客户端手动修复某一项";
+	g_debugMap[CLIENT_SEND_NETWORKLIST]="客户端上传本地网卡列表信息";
+	g_debugMap[CLIENT_SEND_DOMAINIDENTIFYINFO]="客户端上传域用户验证的验证信息";
+}
+

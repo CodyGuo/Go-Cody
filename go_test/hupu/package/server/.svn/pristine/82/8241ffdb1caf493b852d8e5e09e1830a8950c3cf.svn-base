@@ -1,0 +1,30 @@
+#include "..\GlobalDate.h"
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKSERVICE_H_
+#define _CHECKSERVICE_H_ 1
+
+#define START_SERVICE_FLAG 1
+#define STOP_SERVICE_FLAG 2
+
+string CheckServiceIsExist(IN const char* pServiceName, 
+							IN int iCheckCondition, 
+							IN LANGUAGETYPE language,
+							IN int iTrigger, 
+							OUT string& strTrigrSucc);
+
+string CheckServiceStatus(IN const char* pServiceName,
+						IN int iCheckCondition, 
+						IN LANGUAGETYPE language, 
+						IN int iTrigger, 
+						OUT string& strTrigrSucc);
+
+LONG StartOrShutdownService(IN const char* pServiceName, IN int iSetFlag);
+
+#endif

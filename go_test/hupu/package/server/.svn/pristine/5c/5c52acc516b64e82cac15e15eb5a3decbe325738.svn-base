@@ -1,0 +1,276 @@
+#include "StdAfx.h"
+#include "TipInfodlg.h"
+#include "ControlName.h"
+#include "TipInfodlg.h"
+
+
+CTipInfodlg *CTipInfodlg::tipdlgThis = NULL;
+
+const wchar_t TITLENAME[] = {L"title"};
+const wchar_t  CLOSEBUTTON[] = {L"closebtn"};
+const wchar_t RICHEDIT[] = {L"input_richedit"};
+
+CTipInfodlg::CTipInfodlg()
+{
+	tipdlgThis = this;
+	 m_currtime = 0;
+	 m_timeout = 0;
+	 m_titlename= L"";
+	 m_content= L"";
+	 m_xmlpath= L"";
+	 m_bsetfocus = FALSE;
+	 m_blink = FALSE;
+	 m_bClicked = FALSE;
+	 m_bClose = FALSE;
+	 ZeroMemory(&m_guisetting,sizeof(GUISETTING));
+}
+
+LPCTSTR CTipInfodlg::GetWindowClassName() const
+{ 
+	return _T("TipInfoDlg"); 
+}
+
+UINT CTipInfodlg::GetClassStyle() const
+{
+	 return UI_CLASSSTYLE_DIALOG; 
+};
+
+void CTipInfodlg::OnFinalMessage(HWND /*hWnd*/) 
+{ 
+	m_pm.RemovePreMessageFilter(this);
+	delete this; 
+};
+
+ void CALLBACK CTipInfodlg::TimeProc(HWND hwnd, UINT message,UINT idTimer,DWORD dwTime)
+{
+	UNREFERENCED_PARAMETER(hwnd);
+	UNREFERENCED_PARAMETER(message);
+	UNREFERENCED_PARAMETER(idTimer);
+	UNREFERENCED_PARAMETER(dwTime);
+	DWORD currTime = GetTickCount();
+	UINT second = (currTime-tipdlgThis->m_currtime)/1000;
+	if ( (second >= tipdlgThis->m_timeout) || (tipdlgThis->m_bClose) )
+	{
+		KillTimer(tipdlgThis->GetHWND(),1);
+		tipdlgThis->Close();
+	}
+}
+
+
+ 	void CTipInfodlg::Init(wchar_t *xmlpath,wchar_t *titlename,wchar_t *content,int itimeout,BOOL bsetfocus,BOOL bLinkEvent) 
+	{
+		if (xmlpath != NULL)
+		{
+			m_xmlpath=xmlpath;
+		}
+		if (titlename != NULL)
+		{
+			m_titlename = titlename;
+		}
+		if (content != NULL)
+		{
+			m_content = content;
+		}
+		 m_timeout = itimeout;
+		 m_bsetfocus = bsetfocus;
+		 m_blink = bLinkEvent;
+	}
+
+void CTipInfodlg::Notify(TNotifyUI& msg)
+{
+		if( msg.sType == _T("click") ) {
+			if( msg.pSender->GetName() == _T("closebtn") )
+			{
+				KillTimer(*this,1); 
+				Close();
+				return; 
+			}		
+		}
+}
+
+LRESULT CTipInfodlg::OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	tipdlgThis = this;
+	LONG styleValue = ::GetWindowLong(*this, GWL_STYLE);
+	styleValue &= ~WS_CAPTION;
+	::SetWindowLong(*this, GWL_STYLE, styleValue | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);
+
+	m_pm.Init(m_hWnd);
+	m_pm.AddPreMessageFilter(this);
+	CDialogBuilder builder;
+	CControlUI* pRoot = builder.Create(m_xmlpath.GetData(), (UINT)0,(UINT)0, &m_pm);
+	ASSERT(pRoot && "Failed to parse XML");
+	if (pRoot == NULL )
+	{
+		MessageBox(NULL,L"CTipInfodlgpRoot==NULL",L"error",0);
+		return 0;
+	}
+	
+	if (GetGuiSizeAndFontSize(TRUE,&m_guisetting))
+	{
+		m_pm.SetInitSize(m_guisetting.xsize,m_guisetting.ysize);
+		m_pm.SetDefaultFont(L"微软雅黑",m_guisetting.fontsize,FALSE,FALSE,FALSE);
+	}
+
+	m_pm.AttachDialog(pRoot);
+	m_pm.AddNotifier(this);
+
+	CLabelUI *labelui = (CLabelUI *)tipdlgThis->m_pm.FindControl(TITLENAME);
+	if (labelui)
+	{
+		labelui->SetText((LPCTSTR)m_titlename.GetData());
+		labelui->SetAttribute(L"width",m_guisetting.lefttextwidth);
+	}
+
+	CRichEditUI *richeditui = (CRichEditUI *)tipdlgThis->m_pm.FindControl(RICHEDIT);
+	if (richeditui)
+	{
+		richeditui->ReplaceSel((LPCTSTR)m_content.GetData(),false);
+		if ( m_blink )
+		{
+			CHARFORMAT2 cf ;
+			memset(&cf,0,sizeof(CHARFORMAT2));
+			cf.cbSize = sizeof(CHARFORMAT2);
+			cf.dwMask = CFM_COLOR|CFM_FACE|CFM_SIZE|CFM_LINK;//CFM_COLOR|CFM_FACE|CFM_SIZE|CFM_UNDERLINE|CFM_UNDERLINETYPE|CFM_LINK;
+			cf.dwEffects = CFE_LINK; //CFE_LINK|CFE_UNDERLINE;
+			cf.crTextColor = RGB(128, 0, 0); 
+			cf.yHeight=200;
+			int iEndPos = richeditui->GetTextLength();
+			richeditui->SetSel(0, iEndPos);
+			richeditui->SetSelectionCharFormat(cf);
+			// 使RichEdit响应ENM_LINK事件
+			richeditui->SetEventMask(ENM_LINK);
+		}
+		richeditui->LineScroll(1);
+		richeditui->SetReadOnly(true);
+	}
+	m_currtime = GetTickCount();
+
+	SetTimer(*this,1,1000,TimeProc);
+	
+	RECT rcDlg;
+	::GetClientRect(*this, &rcDlg);
+	RECT rcParent;
+	HWND hWndParent = GetDesktopWindow();
+	SystemParametersInfo(SPI_GETWORKAREA, 0, (PVOID)&rcParent, 0);
+	POINT ptParentInScreen;
+	ptParentInScreen.x = rcParent.left;
+	ptParentInScreen.y = rcParent.top;
+	::ClientToScreen(hWndParent, (LPPOINT)&ptParentInScreen);
+	SetWindowPos(*this, NULL,  ptParentInScreen.x+(rcParent.right - rcParent.left)- (rcDlg.right - rcDlg.left) , 
+		ptParentInScreen.y+(rcParent.bottom - rcParent.top)- (rcDlg.bottom - rcDlg.top) , 0, 0,  
+		SWP_NOZORDER | SWP_NOSIZE);
+
+	return 0;
+}
+
+LRESULT CTipInfodlg::OnNcActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	if( ::IsIconic(*this) ) bHandled = FALSE;
+	return (wParam == 0) ? TRUE : FALSE;
+}
+
+LRESULT CTipInfodlg::OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	return 0;
+}
+
+LRESULT CTipInfodlg::OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	return 0;
+}
+
+LRESULT CTipInfodlg::OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	POINT pt; pt.x = GET_X_LPARAM(lParam); pt.y = GET_Y_LPARAM(lParam);
+	::ScreenToClient(*this, &pt);
+
+	RECT rcClient;
+	::GetClientRect(*this, &rcClient);
+
+	RECT rcCaption = m_pm.GetCaptionRect();
+	if( pt.x >= rcClient.left + rcCaption.left && pt.x < rcClient.right - rcCaption.right \
+		&& pt.y >= rcCaption.top && pt.y < rcCaption.bottom ) {
+			CControlUI* pControl = static_cast<CControlUI*>(m_pm.FindControl(pt));
+			if( pControl && _tcscmp(pControl->GetClass(), _T("ButtonUI")) != 0 )
+				return HTCAPTION;
+	}
+
+	return HTCLIENT;
+}
+
+LRESULT CTipInfodlg::OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	SIZE szRoundCorner = m_pm.GetRoundCorner();
+	if( !::IsIconic(*this) && (szRoundCorner.cx != 0 || szRoundCorner.cy != 0) ) {
+		DuiLib::CRect rcWnd;
+		::GetWindowRect(*this, &rcWnd);
+		rcWnd.Offset(-rcWnd.left, -rcWnd.top);
+		rcWnd.right++; rcWnd.bottom++;
+		HRGN hRgn = ::CreateRoundRectRgn(rcWnd.left, rcWnd.top, rcWnd.right, rcWnd.bottom, szRoundCorner.cx, szRoundCorner.cy);
+		::SetWindowRgn(*this, hRgn, TRUE);
+		::DeleteObject(hRgn);
+	}
+
+	bHandled = FALSE;
+	return 0;
+}
+
+LRESULT CTipInfodlg::OnLButtonClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+	
+	CControlUI * pControl = this->m_pm.FindControl(pt);
+	if (pControl != NULL)
+	{	
+		CStdString mytest = pControl->GetName();
+		if ( mytest == RICHEDIT )
+		{
+			CRichEditUI *richeditui = (CRichEditUI*)pControl;
+			int len = richeditui->GetTextLength();
+			richeditui->SetSel(0,len);
+		   ::PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd,WM_TIPLINKEVENT,0,0);
+			m_bClicked = TRUE;
+			//Close();
+		}
+	else if ( mytest == CLOSEBUTTON )
+		{
+			KillTimer(*this,1); 
+			Close();
+		}
+	}
+	return 0;
+}
+LRESULT CTipInfodlg::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	LRESULT lRes = 0;
+	BOOL bHandled = TRUE;
+	switch( uMsg ) {
+	case WM_CREATE:        lRes = OnCreate(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCACTIVATE:    lRes = OnNcActivate(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCCALCSIZE:    lRes = OnNcCalcSize(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCPAINT:       lRes = OnNcPaint(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCHITTEST:     lRes = OnNcHitTest(uMsg, wParam, lParam, bHandled); break;
+	case WM_SIZE:          lRes = OnSize(uMsg, wParam, lParam, bHandled); break;
+	case WM_LBUTTONDBLCLK:  
+	case WM_LBUTTONDOWN:    if (m_blink){lRes = OnLButtonClick(uMsg, wParam, lParam, bHandled);break;}
+	case WM_LANGCHANGE:
+		{
+			m_bClose = TRUE;
+			KillTimer(tipdlgThis->GetHWND(),1);
+			tipdlgThis->Close();
+			return 0;
+		}
+		break;
+	default:
+		bHandled = FALSE;
+	}
+	if( bHandled ) return lRes;
+	if( m_pm.MessageHandler(uMsg, wParam, lParam, lRes) ) return lRes;
+	return CWindowWnd::HandleMessage(uMsg, wParam, lParam);
+}
+
+LRESULT CTipInfodlg::MessageHandler(UINT uMsg, WPARAM wParam, LPARAM lParam, bool& bHandled)
+{
+	return false;
+}

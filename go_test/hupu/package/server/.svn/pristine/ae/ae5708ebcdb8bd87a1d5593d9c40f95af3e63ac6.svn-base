@@ -1,0 +1,332 @@
+
+// hpidmnacDlg.h : header file
+//
+
+#pragma once
+#include "explorer1.h"
+#include "AutoFindService.h"
+#include "EstablishSocket.h"
+#include  "SafeResult.h"
+
+//添加侦测网卡信息变化
+#include <Dbt.h>
+#include <setupapi.h>
+
+#include "networkchange/NetworkChangeInfo.h"
+
+#include "UIMenu.h"
+
+#include "GetAdapterInfo.h"
+#include "DomainDelayOfflineTip.h"
+
+#include "LSP\OpLsp.h"
+
+#define CALC_PROGRAM_EXECTIME 1
+#define AUTO_CHECK_TIMERID 2
+#define MONITOR_ICON_PROCESS_TIMERID 3
+
+static const GUID GUID_DEVINTERFACE_LIST = { 0xad498944, 0x762f, 0x11d0, { 0x8d, 0xcb, 0x00, 0xc0, 0x4f, 0xc3, 0x35, 0x8c } };
+
+// ChpidmnacDlg dialog
+class ChpidmnacDlg : public CDialogEx
+{
+// Construction
+public:
+	ChpidmnacDlg(CWnd* pParent = NULL);	// standard constructor
+
+	 ~ChpidmnacDlg();
+// Dialog Data
+	enum { IDD = IDD_HPIDMNAC_DIALOG };
+
+	protected:
+	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV support
+
+
+protected:
+	HICON m_hIcon;
+
+	// Generated message map functions
+	virtual BOOL OnInitDialog();
+	afx_msg void OnPaint();
+	afx_msg HCURSOR OnQueryDragIcon();
+
+	DECLARE_MESSAGE_MAP()
+
+public:
+	NOTIFYICONDATA m_nid;
+	HICON m_hIconState[STATELESS];
+
+    ///安装文件夹路径
+	wchar_t m_DirPath[MAX_PATH];      
+	char m_dirpath[MAX_PATH];                                              
+
+    //ini文件路径
+	wchar_t m_IniPath[MAX_PATH];                                            
+	char  m_inipath[MAX_PATH];                          
+
+	//客户端自动发送的http请求的路径
+	wstring m_wstrRequestUrl;     
+
+    //电脑的初始TTL值
+	int  m_InitialTTL;                                                           
+
+	//注册表中的TTL值
+	int m_InitialTTLReg;
+
+     //webtoken值
+    string m_webToken;
+
+    //鼠标的右键操作
+	afx_msg LRESULT OnShowTask(WPARAM wParam,LPARAM lParam);
+
+    //认证流程页面
+	afx_msg void OnCheckAndLogin();         
+
+    //查看安检结果
+   	afx_msg void OnBrowserResult(); 
+
+	void ChangeTrayInfoWithLanguage();
+	void ChangeTrayInfo(const wchar_t *info, const wchar_t *title,int iHideinfo);
+	void ChangeTrayInfo(HICON ICON, const wchar_t *tip, const wchar_t *info, const wchar_t *title,int iHideinfo);  
+	void ChangeTrayInfo(const wchar_t *tip,const wchar_t *info,const wchar_t *title,int iHideinfo);  
+	afx_msg void OnSize(UINT nType, int cx, int cy);
+	//CExplorer1 m_WebBrowser;                  
+       
+	BOOL EnablePrivilege(LPCTSTR pszPrivName, BOOL fEnable);
+
+	static unsigned  __stdcall  AddJobThread(LPVOID pvParam);
+	static unsigned  __stdcall  startprotectprogram(LPVOID pvParam);
+
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
+	virtual BOOL PreTranslateMessage(MSG* pMsg);
+	afx_msg void OnClose();
+	virtual void OnOK();
+	virtual void OnCancel();
+
+    //卸载客户端程序
+	afx_msg void OnUnInstallProgram();
+	void ClearResources();
+	int UninstallProg();
+
+	//显示图标
+	bool EnumNotifyWindow(HWND hWnd);
+	bool GetTray();
+	HWND FindTrayWnd();
+	HWND FindNotifyIconOverflowWindow();  
+
+	//自动登录部分
+	afx_msg void OnShowAllowNetWork();
+	afx_msg void OnRestart();
+	afx_msg void OnAutologon();
+
+    void RestartMainProgram();
+
+	/************************************************************
+	Description: 备份安装目录
+	*************************************************************/
+	void BackupSetupDir(IN string& strFromDir, IN string& strToDir);
+
+	afx_msg void OnShowProgramInfo();
+
+    //清除程序内存
+	DWORD m_EmptyWorkSetTime;
+
+	//获取服务器的ip地址
+	CAutoFindService m_autofindser;
+	static unsigned  __stdcall  StartFindServiceIp(LPVOID pvParam);
+	unsigned int  m_FSThreadId;
+
+	HANDLE m_hSocket;
+	HANDLE m_hTimer;
+	HANDLE m_hShowDlg;
+	HANDLE m_hFindServer;
+	HANDLE m_hUpdateDevThread;
+	
+	bool  m_IsUnInstall;
+
+	//根是否开启来宾或者员工认证
+	int m_openUserRegister;
+	int m_openGuestRegister;
+	int m_openDomainRegister;
+	int m_showDefaultUser;
+	int m_showDomainServ;
+	BOOL m_bGetadDamaindate;//获取到网卡数据
+
+	//是否开启定时安检
+	BOOL m_bstartSFOntimer;
+
+	//web页面的TOKEN值
+	char m_webToekn[HP_C_USERCONTENTLEN];
+
+	//域用户验证延时下线信息
+	BOOL m_bdomainidenontimer;
+	//DWORD m_idenstarttime;
+	CDomainDelayOfflineTip m_delayoffline;
+	 void RecordWebRegisterUser();
+
+	afx_msg void OnDestroy();
+
+   void LoadIconHandle();
+   void GetExePath();
+   void UpdateNotifyAreaIcons();
+   void ChpidmnacDlg::RegisterDeviceNotificationFunction();
+   BOOL SetProgramRunOnce();
+   void GetDataFromIni();
+   void SetDialogStyle();
+   void SetprogramPrivilege();
+
+   //iHideinfo表示是否弹气泡消息
+   bool AddSysTrayIcon(HICON ICON, const wchar_t *tip,const wchar_t *info,const wchar_t *title,int iHideinfo);
+   void EmptyProgramMemSize();
+   void ChangeLogOffIcon(int flag,HICON ICON,const wchar_t *tip,const wchar_t *info,const wchar_t *title,int iHideinfo);
+   void HandleSeverNatNotiy(int originalnatsetting);
+
+   //bstartontimer:是否开启定时安检,bclientrgetcurrstat:是否为客户端请求当前状态信息
+   void StartOrEndSafeCheckTimer(BOOL bstartontimer,BOOL bclientrgetcurrstat);
+
+   CEstablishSocket pestablishJob;
+
+   //向服务器数据库上传信息
+   void  UpLoadEventInfo(int numIndex,char* errerresult);
+
+   void UploadDebugFile();
+   static unsigned  __stdcall  StartUploadFile(LPVOID pvParam);
+   HANDLE  m_hFile;
+
+   //ftp文件上传的时间间隔
+
+   DWORD  m_ftptime;
+   void  UploadFileInterval();
+
+   virtual LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam);
+
+   //添加禁用对话框窗口的放大，缩小和移动
+   afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
+
+   //调用WebBrowse控件
+  static unsigned  __stdcall  RegisterPageThread(LPVOID pvParam);
+  static unsigned  __stdcall  ResultPageThread(LPVOID pvParam);
+   int ShowWebPage(char*  filepath,char* fileparam);
+
+   //判断程序是否为管理员权限运行
+   BOOL IsAdmin(void);  
+
+   afx_msg void OnSetRepairSafeCheckByHandle();
+
+   afx_msg void OnJinyongrestart();
+   afx_msg void OnJinyonguninstall();
+   afx_msg void OnJinyongabout();
+
+   //
+   static ChpidmnacDlg *dlgPthis;
+   static void CALLBACK CBFunction(int iflag, char *Msg, int Len);
+   //客户端连接上服务器
+   void Connecttoserver();
+
+   //客户端进行版本更新
+   int UpdateCurrVersion(IN char* urlrelativepath);
+   //上传设备信息和获取认证流程策略
+    void SendServiceDeviceAndGetRegisterPolicy(IN char* ascmac);
+	//转换客户端气泡的提示信息
+	void ThanseformTipMsg();
+	//拆分提示信息,若是协议的正常格式则返回TRUE,若是协议的错误格式则返回失败
+	BOOL splitTipMsg(const char* Msg,int MsgLen,wstring &TipStr,wstring &InfoStr,wstring &TitleStr);
+	//客户端图标状态变化和冒泡提示
+	void ChangeIconStateAndShowTip(char* Msg,int MsgLen,BOOL bclientrgetcurrstat);
+	//修改长连接标志
+	void ModifyConnectMark(const char* Msg,int MsgLen);
+	//重新抓包侦听
+	void ReSniffer();
+	//显示关于对话框
+	void ShowAboutDlg();
+	//显示卸载小助手对话框
+	void ShowUninstallDlg();
+	virtual LRESULT DefWindowProc(UINT message, WPARAM wParam, LPARAM lParam);
+   
+    //判断日志是否上传结束,上传结束设置为TRUE
+    bool m_bEndUpload;
+
+    //查询数据库显示日志信息
+    void ShowSystemLogInfo();
+
+    afx_msg void OnTraypopmenu32793();
+    afx_msg void OnShowSocketMsgInfo();
+
+    //开启线程处理回调函数中接收到的数据
+
+    void dlgHandleCallBackFun(int iflag, char *Msg, int Len);
+
+	///////////////////////////////////////////////////////////////////////////////////
+	//处理网卡事件变更
+	//注册侦测网卡信息变更的消息
+	BOOL GetNetworkChangeInfo();
+    CNetworkChangeInfo m_netwkchange;
+	afx_msg LRESULT OnNetWorkStateChange(WPARAM wParam, LPARAM lParam);
+	static int CBNetworkChange(int Param1, int Param2);
+	afx_msg LRESULT OnMyDeviceChange(WPARAM wParam, LPARAM lParam);
+	BOOL  HandleNetworkEvent(DWORD eventtime);
+    void UpdateNetworkInfoToservice(BOOL bChange);
+
+	HDEVNOTIFY m_hDevNotify;
+	//接收到网卡事件的消息时间
+	DWORD m_nkeventtime;
+	//执行获取网卡信息的时间
+   DWORD m_nkexecstarttime;
+   //网卡信息存储
+   CGetAdapterInfo m_adapterinfo;
+	/////////////////////////////////////////////////////////////////////////////////////
+
+	afx_msg void On802AuthenWin();
+	afx_msg void On802DisableNet();
+	afx_msg void On802Restart();
+	afx_msg void On802Uninstall();
+	afx_msg void On802About();
+	afx_msg LRESULT OnLogonStatusNotify(WPARAM wparam, LPARAM lparam);
+
+	///////////////////////////////////////////////////////////////////////////////////////////
+	//多语言
+	CPaintManagerUI m_PaintManager;
+	afx_msg LRESULT OnRightMenuClick(WPARAM wParam,LPARAM lParam);
+   //弹出右键菜单
+	void popUpRightMenu(RIGHTMENUSTAT menustat);
+	int GetLocalLanguage();
+	int m_langtype;
+	void InitControlText(CMenuWnd* pMenu,RIGHTMENUSTAT menustat);
+	void ModifySocketClassLang();
+	void SendServerLocalLanguageInfo();
+
+	//////////////////////////////////////////////////////////////////////////////////////////////
+
+	LRESULT OnDeviceForbitMsg(WPARAM wParam, LPARAM lParam);
+	LRESULT OnDomainidentifyTip(WPARAM wParam, LPARAM lParam);
+	LRESULT OnDomainidenDelayOffline(WPARAM wParam, LPARAM lParam);
+	LRESULT OnTipLinkEvent(WPARAM wParam, LPARAM lParam);
+	LRESULT OnLocalUserLogin(WPARAM wParam, LPARAM lParam);
+	LRESULT OnUninstallMsg(WPARAM wParam,LPARAM lParam);
+	LRESULT OnNetMonMsg(WPARAM wParam,LPARAM lParam);
+	LRESULT OnSFStgChange(WPARAM wParam,LPARAM lParam);
+
+	///域用户验证延时下线验证
+	BOOL ShowDomainIdentifyTip(time_t currenttime,DWORD timediff);
+	//域用户验证下线
+	void DomainIdentifyOffline(char* identifydes);
+
+	//关闭已经显示的对话框(在语言切换时使用)
+	void FindAlreadyOpenDlgAndClose();
+
+	//判断是否由上线或者上线隔离区进入完全下线的状态
+	void EmptyUserAndSafeCheckStg(CLIENTSTATE clientstat);
+
+	void HandleNetMonSafeCheckStg(BOOL bStartNetMon);
+
+	static unsigned  __stdcall  RestartClientThread(LPVOID pvParam);
+
+	void StartSnifferInfo(BOOL bSendHttp);
+
+	COpLsp m_oplsp;
+	string CalcCurrServTime();
+	void ExecNetLimitOnTimer();
+	void ExecSFCheckOnTimer();
+	void MonitorClientIcon();
+
+};

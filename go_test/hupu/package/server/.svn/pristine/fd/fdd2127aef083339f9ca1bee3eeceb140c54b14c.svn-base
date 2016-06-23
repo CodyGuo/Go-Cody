@@ -1,0 +1,62 @@
+#pragma once
+
+#include <WinInet.h>
+
+class CFtp
+{
+public:
+	CFtp(void);
+	~CFtp(void);
+
+	//Public Member variables
+	BOOL          m_bDownload;   //TRUE if it's a download, FALSE if an upload
+	CString       m_sServer;     //e.g. "ftp.microsoft.com"
+	CString       m_sRemoteFile; //e.g. "/pub/somefile.ext"
+	CString       m_sLocalFile;  //e.g. "c:\temp\somfile.txt"
+	CString       m_sUserName;   //Username to login to the server with
+	CString       m_sPassword;   //password to login to the server with
+	INTERNET_PORT m_nPort;       //If you want to change the port to make access on, by default it will be 21
+	BOOL          m_bBinary;     //TRUE if binary transfer, FALSE for ascii transfer
+	wchar_t  m_dir[MAX_PATH];    ////安装包目录
+	wchar_t  m_ftpreltidir[MAX_PATH];   ////ftp服务器上文件夹的相对路径
+    wchar_t   m_localip[20];                       ////本机的IP地址
+
+	//Public methods
+    int ReadFileAndUpload();
+
+	void TransferThread();
+	void GetInstallDir();
+
+    //压缩Log文件
+    int CompressLogFile(char* infilename,char* outzipfilename);
+
+    /************************************************************
+     Description: 程序出现异常上传dmp、所有日志文件
+     Return: NULL
+    *************************************************************/
+    void UploadExcepttionDebugFile(IN wchar_t* pDmpFilename);
+
+protected:
+	static void CALLBACK _OnStatusCallBack(HINTERNET hInternet, DWORD dwContext, DWORD dwInternetStatus, 
+		LPVOID lpvStatusInformation, DWORD dwStatusInformationLength);
+	void OnStatusCallBack(HINTERNET hInternet, DWORD dwInternetStatus, 
+		LPVOID lpvStatusInformation, DWORD dwStatusInformationLength);
+	static UINT _TransferThread(LPVOID pParam);
+
+	void HandleThreadErrorWithLastError(UINT nIDError, DWORD dwLastError=0);
+	void HandleThreadError(UINT nIDError);
+
+	CString       m_sError;
+	HINTERNET     m_hInternetSession;
+	HINTERNET     m_hFTPConnection;
+	HINTERNET     m_hFTPFile;
+	BOOL          m_bAbort;
+	BOOL          m_bSafeToClose;
+	CFile         m_LocalFile;
+	CWinThread*   m_pThread;
+
+    BOOL m_uploadend;
+
+    void exceptAppInFireWall();
+
+};

@@ -1,0 +1,46 @@
+#pragma once
+
+//获取的计算机中的某一样硬件信息的个数，例如若一台电脑有20个cpu，程序只获取10个
+const int HP_DEVICEPROPERTY_MAXNUM = 10;
+
+
+typedef struct _T_WQL_QUERY
+{
+	char*	szSelect;		// SELECT语句
+	wchar_t*	szProperty;		// 属性字段
+} T_WQL_QUERY;
+
+
+#define PROPERTY_MAX_LEN	128	// 属性字段最大长度
+
+typedef struct _T_DEVICE_PROPERTY
+{
+	wchar_t  szProperty[PROPERTY_MAX_LEN];
+} T_DEVICE_PROPERTY;
+
+typedef enum _QUERYHARDWARETYPE
+{
+	DISKDRIVESERIAL=0,
+	DISKDRIVEMDL,
+	CPUPROCESSID,
+	BIOSSERIAL,
+	BASEBOARDSERIAL,
+	PERMANENTMAC,//原生mac,包括USB的
+	TOTALNUM,
+}QUERYHARDWARETYPE;
+
+ extern const T_WQL_QUERY szWQLQuery[TOTALNUM];
+
+//WMI请求属性值返回成功
+const unsigned int WMI_QUERYPROPERTY_SUCCESS = 0;
+
+//属性值超出范围
+const unsigned int WMI_QUERYPROPERTY_OUTMEMORY = 1000;
+
+//WMI获取属性值失败
+const unsigned int WMI_QUERYPROPERTY_FAIL = 1001;
+
+
+
+
+

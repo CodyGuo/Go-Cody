@@ -1,0 +1,60 @@
+#pragma once
+// UninstallDlg dialog
+
+#include "DuilibConfig.h"
+
+#include "UserInfo.h"
+#include "DebugInfo.h"
+#include "GUISetting.h"
+
+class UninstallDlg : public CWindowWnd, public INotifyUI, public IMessageFilterUI
+{
+public:
+	UninstallDlg();
+	LPCTSTR GetWindowClassName() const ;
+	UINT GetClassStyle() const ;
+	void OnFinalMessage(HWND /*hWnd*/);
+
+	void Init(wchar_t *xmlpath,LANGUAGETYPE lang,int noUninstallcode);
+
+	void Notify(TNotifyUI& msg);
+
+	LRESULT OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnLButtonClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+	LRESULT MessageHandler(UINT uMsg, WPARAM wParam, LPARAM lParam, bool& bHandled);
+
+	void  InitControlText();
+
+	void  HandleUninstall();
+
+	//卸载码不符合规格时返回FALSE,符合规格时返回TRUE,然后可以卸载
+	BOOL SendApplyCodeAndIndetifyCode();
+
+public:
+	CPaintManagerUI m_pm;
+	CStdString m_xmlpath;
+
+	LANGUAGETYPE m_lang;
+
+	wchar_t m_langinipath[MAX_PATH];
+
+	int m_noUninstallcode;
+	
+	CEditUI *papplyedit;
+	CEditUI *pidentifyedit;
+	GUISETTING  m_guisetting;
+};

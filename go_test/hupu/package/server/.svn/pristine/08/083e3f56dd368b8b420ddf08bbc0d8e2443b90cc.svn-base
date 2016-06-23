@@ -1,0 +1,521 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{6AED9D1D-B313-44F5-9906-7C34AEA175F9}</ProjectGuid>
+    <RootNamespace>hpidmnac</RootNamespace>
+    <Keyword>MFCProj</Keyword>
+    <ProjectName>hpidmnac</ProjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+    <UseOfMfc>Static</UseOfMfc>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+    <UseOfMfc>Static</UseOfMfc>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+    <UseOfMfc>Static</UseOfMfc>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+    <UseOfMfc>Static</UseOfMfc>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+    <OutDir>..\..\..\exe\</OutDir>
+    <IntDir>.\Debug\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <OutDir>..\..\..\exe\</OutDir>
+    <IntDir>.\Debug\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>..\..\..\exe\</OutDir>
+    <IntDir>.\Release\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>..\..\..\exe\</OutDir>
+    <IntDir>.\Release\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AssemblerListingLocation>.\Debug\</AssemblerListingLocation>
+      <ObjectFileName>.\Debug\</ObjectFileName>
+      <ProgramDataBaseFileName>.\Debug\</ProgramDataBaseFileName>
+      <AdditionalIncludeDirectories>xml;JobThread;SafeCheckItem;zlib;networkchange;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <MinimalRebuild>false</MinimalRebuild>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <OutputFile>..\..\..\exe\hpidmnac.exe</OutputFile>
+      <ProgramDatabaseFile>.\Debug\hpidmnac.pdb</ProgramDatabaseFile>
+      <MapFileName>.\Debug\hpidmnac.map</MapFileName>
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
+      <UACUIAccess>false</UACUIAccess>
+      <StackReserveSize>
+      </StackReserveSize>
+      <StackCommitSize>
+      </StackCommitSize>
+      <GenerateMapFile>true</GenerateMapFile>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <Midl>
+      <MkTypLibCompatible>false</MkTypLibCompatible>
+      <ValidateAllParameters>true</ValidateAllParameters>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </Midl>
+    <ResourceCompile>
+      <Culture>0x0409</Culture>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AssemblerListingLocation>.\Debug\</AssemblerListingLocation>
+      <ObjectFileName>.\Debug\</ObjectFileName>
+      <ProgramDataBaseFileName>.\Debug\</ProgramDataBaseFileName>
+      <AdditionalIncludeDirectories>xml;JobThread;SafeCheckItem;zlib;networkchange;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <MinimalRebuild>false</MinimalRebuild>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <OutputFile>..\..\..\exe\hpidmnac.exe</OutputFile>
+      <ProgramDatabaseFile>.\Debug\hpidmnac.pdb</ProgramDatabaseFile>
+      <MapFileName>.\Debug\hpidmnac.map</MapFileName>
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
+      <UACUIAccess>false</UACUIAccess>
+      <StackReserveSize>
+      </StackReserveSize>
+      <StackCommitSize>
+      </StackCommitSize>
+      <GenerateMapFile>true</GenerateMapFile>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <Midl>
+      <MkTypLibCompatible>false</MkTypLibCompatible>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </Midl>
+    <ResourceCompile>
+      <Culture>0x0409</Culture>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AssemblerListingLocation>.\Release\</AssemblerListingLocation>
+      <ObjectFileName>.\Release\</ObjectFileName>
+      <ProgramDataBaseFileName>.\Release\</ProgramDataBaseFileName>
+      <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalIncludeDirectories>xml;JobThread;zlib;SafeCheckItem;..\..\hpDriverIoctl;..\..\..\lib;networkchange;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerOutput>All</AssemblerOutput>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <OutputFile>..\..\..\exe\hpidmnac.exe</OutputFile>
+      <ProgramDatabaseFile>.\Release\hpidmnac.pdb</ProgramDatabaseFile>
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
+      <MapFileName>.\Release\hpidmnac.map</MapFileName>
+      <StackReserveSize>
+      </StackReserveSize>
+      <StackCommitSize>
+      </StackCommitSize>
+    </Link>
+    <Midl>
+      <MkTypLibCompatible>false</MkTypLibCompatible>
+      <ValidateAllParameters>true</ValidateAllParameters>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </Midl>
+    <ResourceCompile>
+      <Culture>0x0409</Culture>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AssemblerListingLocation>.\Release\</AssemblerListingLocation>
+      <ObjectFileName>.\Release\</ObjectFileName>
+      <ProgramDataBaseFileName>.\Release\</ProgramDataBaseFileName>
+      <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalIncludeDirectories>xml;JobThread;zlib;SafeCheckItem;..\..\hpDriverIoctl;..\..\..\lib;networkchange;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerOutput>All</AssemblerOutput>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <OutputFile>..\..\..\exe\hpidmnac.exe</OutputFile>
+      <ProgramDatabaseFile>.\Release\hpidmnac.pdb</ProgramDatabaseFile>
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
+      <MapFileName>.\Release\hpidmnac.map</MapFileName>
+      <StackReserveSize>
+      </StackReserveSize>
+      <StackCommitSize>
+      </StackCommitSize>
+    </Link>
+    <Midl>
+      <MkTypLibCompatible>false</MkTypLibCompatible>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </Midl>
+    <ResourceCompile>
+      <Culture>0x0409</Culture>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <None Include="ReadMe.txt" />
+    <None Include="res\ASCESCAPE_OR_FORBIT.ico" />
+    <None Include="res\favicon.ico" />
+    <None Include="res\hpidmnac.ico" />
+    <None Include="res\hpidmnac.rc2" />
+    <None Include="res\LOGOFFISOLATION.ico" />
+    <None Include="res\LOGONISOLATION.ico" />
+    <None Include="res\OFFLINE.ico" />
+    <None Include="res\search.bmp" />
+    <None Include="res\search1.ico" />
+    <None Include="res\Skin.bmp" />
+    <None Include="res\小助手2.ico" />
+    <None Include="res\小助手3.ico" />
+    <None Include="res\小助手4.ico" />
+    <None Include="res\小助手5.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\common\CalcuPacket.h" />
+    <ClInclude Include="..\..\common\com_class\WmiClass.h" />
+    <ClInclude Include="..\..\common\lspcommon.h" />
+    <ClInclude Include="..\..\common\preheader.h" />
+    <ClInclude Include="8021x\Hp8021x.h" />
+    <ClInclude Include="AboutDlg.h" />
+    <ClInclude Include="AssistRunAlarm.h" />
+    <ClInclude Include="AutoFindService.h" />
+    <ClInclude Include="Base64.h" />
+    <ClInclude Include="CertificationStg.h" />
+    <ClInclude Include="CommPub.h" />
+    <ClInclude Include="ControlName.h" />
+    <ClInclude Include="CustomCheck\CheckFile.h" />
+    <ClInclude Include="CustomCheck\CheckPort.h" />
+    <ClInclude Include="CustomCheck\CheckProcess.h" />
+    <ClInclude Include="CustomCheck\CheckReg.h" />
+    <ClInclude Include="CustomCheck\CheckService.h" />
+    <ClInclude Include="CustomCheck\CommData.h" />
+    <ClInclude Include="CustomCheck\HpMntIoCtrl.h" />
+    <ClInclude Include="DebugInfo.h" />
+    <ClInclude Include="DomainDelayOfflineTip.h" />
+    <ClInclude Include="DuilibConfig.h" />
+    <ClInclude Include="DuiRect.h" />
+    <ClInclude Include="DuiString.h" />
+    <ClInclude Include="EstablishSocket.h" />
+    <ClInclude Include="explorer1.h" />
+    <ClInclude Include="FileinfoCheckSum.h" />
+    <ClInclude Include="Ftp.h" />
+    <ClInclude Include="GetAdapterInfo.h" />
+    <ClInclude Include="GetLangValue.h" />
+    <ClInclude Include="GlobalDate.h" />
+    <ClInclude Include="GlobalFunction.h" />
+    <ClInclude Include="GUISetting.h" />
+    <ClInclude Include="HandleRecvData.h" />
+    <ClInclude Include="HandleTTLValue.h" />
+    <ClInclude Include="hpidmnac.h" />
+    <ClInclude Include="hpidmnacDlg.h" />
+    <ClInclude Include="HttpClient.h" />
+    <ClInclude Include="JobThread\HandleJob1.h" />
+    <ClInclude Include="JobThread\HandleJob2.h" />
+    <ClInclude Include="JobThread\Job.h" />
+    <ClInclude Include="JobThread\JobExecuter.h" />
+    <ClInclude Include="JobThread\MThreadedJobQ.h" />
+    <ClInclude Include="LogOn.h" />
+    <ClInclude Include="lsp\instlsp.h" />
+    <ClInclude Include="lsp\OpLsp.h" />
+    <ClInclude Include="mdump.h" />
+    <ClInclude Include="networkchange\NetworkChangeInfo.h" />
+    <ClInclude Include="networkchange\NLANetwork.h" />
+    <ClInclude Include="networkchange\NLMNetwork.h" />
+    <ClInclude Include="OpStgClass.h" />
+    <ClInclude Include="RepairByHand.h" />
+    <ClInclude Include="Resource.h" />
+    <ClInclude Include="SafeCheckItem\Antivirus.h" />
+    <ClInclude Include="SafeCheckItem\ARP.h" />
+    <ClInclude Include="SafeCheckItem\CheckCustom.h" />
+    <ClInclude Include="SafeCheckItem\CheckDeskWallPaper.h" />
+    <ClInclude Include="SafeCheckItem\CheckDiskSpace.h" />
+    <ClInclude Include="SafeCheckItem\CheckIEExtensions.h" />
+    <ClInclude Include="SafeCheckItem\CheckIEMain.h" />
+    <ClInclude Include="SafeCheckItem\CheckJunkFiles.h" />
+    <ClInclude Include="SafeCheckItem\CheckNetShareResource.h" />
+    <ClInclude Include="SafeCheckItem\checkpwd.h" />
+    <ClInclude Include="SafeCheckItem\CheckPwdPolicy.h" />
+    <ClInclude Include="SafeCheckItem\CheckSystemPatchs.h" />
+    <ClInclude Include="SafeCheckItem\CheckSystemTime.h" />
+    <ClInclude Include="SafeCheckItem\DomainIdentydlg.h" />
+    <ClInclude Include="SafeCheckItem\DomainUser.h" />
+    <ClInclude Include="SafeCheckItem\Download.h" />
+    <ClInclude Include="SafeCheckItem\ExeProcess.h" />
+    <ClInclude Include="SafeCheckItem\FireWall.h" />
+    <ClInclude Include="SafeCheckItem\FireWallEx.h" />
+    <ClInclude Include="SafeCheckItem\GetAntivirusInfo.h" />
+    <ClInclude Include="SafeCheckItem\GetHardDiskInfo.h" />
+    <ClInclude Include="SafeCheckItem\GetOsInfo.h" />
+    <ClInclude Include="SafeCheckItem\Guest.h" />
+    <ClInclude Include="SafeCheckItem\HardwareManage.h" />
+    <ClInclude Include="SafeCheckItem\Httpdownload.h" />
+    <ClInclude Include="SafeCheckItem\MD5Checksum.h" />
+    <ClInclude Include="SafeCheckItem\MD5ChecksumDefines.h" />
+    <ClInclude Include="SafeCheckItem\NetMon.h" />
+    <ClInclude Include="SafeCheckItem\NetWorkConnect.h" />
+    <ClInclude Include="SafeCheckItem\OperationSystem.h" />
+    <ClInclude Include="SafeCheckItem\Port.h" />
+    <ClInclude Include="SafeCheckItem\ProcessInfo.h" />
+    <ClInclude Include="SafeCheckItem\RegExp.h" />
+    <ClInclude Include="SafeCheckItem\RegisterInfo.h" />
+    <ClInclude Include="SafeCheckItem\RemoteDesk.h" />
+    <ClInclude Include="SafeCheckItem\SafeCheckFuntion.h" />
+    <ClInclude Include="SafeCheckItem\SafeCheckRealTime.h" />
+    <ClInclude Include="SafeCheckItem\SafeCheckServices.h" />
+    <ClInclude Include="SafeCheckItem\ScreenSave.h" />
+    <ClInclude Include="SafeCheckItem\SinglePageItem.h" />
+    <ClInclude Include="SafeCheckItem\SingServerPage.h" />
+    <ClInclude Include="SafeCheckItem\SoftWare.h" />
+    <ClInclude Include="SafeCheckItem\TimeCalculation.h" />
+    <ClInclude Include="SafeCheckItem\UsbStorageDevMana.h" />
+    <ClInclude Include="SafeCheckItem\UsingIllegalInternet.h" />
+    <ClInclude Include="SafeCheckItem\wmi.h" />
+    <ClInclude Include="SafeCheckItem\WSUSConfig.h" />
+    <ClInclude Include="SafeResult.h" />
+    <ClInclude Include="ShowAllowNetWorkDlg.h" />
+    <ClInclude Include="SocketComm.h" />
+    <ClInclude Include="SocketMakeTip.h" />
+    <ClInclude Include="sqlite3.h" />
+    <ClInclude Include="stdafx.h" />
+    <ClInclude Include="strconvert.h" />
+    <ClInclude Include="SymbolEdit.h" />
+    <ClInclude Include="SystemLog.h" />
+    <ClInclude Include="targetver.h" />
+    <ClInclude Include="TipInfodlg.h" />
+    <ClInclude Include="UIMenu.h" />
+    <ClInclude Include="UninstallDlg.h" />
+    <ClInclude Include="UserInfo.h" />
+    <ClInclude Include="xml\tinystr.h" />
+    <ClInclude Include="xml\tinyxml.h" />
+    <ClInclude Include="zlib\zip.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\common\CalcuPacket.cpp" />
+    <ClCompile Include="..\..\common\com_class\WmiClass.cpp" />
+    <ClCompile Include="..\..\common\provider.cpp" />
+    <ClCompile Include="8021x\Hp8021x.cpp" />
+    <ClCompile Include="AboutDlg.cpp" />
+    <ClCompile Include="AssistRunAlarm.cpp" />
+    <ClCompile Include="AutoFindService.cpp" />
+    <ClCompile Include="Base64.cpp" />
+    <ClCompile Include="CertificationStg.cpp" />
+    <ClCompile Include="CustomCheck\CheckFile.cpp" />
+    <ClCompile Include="CustomCheck\CheckPort.cpp" />
+    <ClCompile Include="CustomCheck\CheckProcess.cpp" />
+    <ClCompile Include="CustomCheck\CheckReg.cpp" />
+    <ClCompile Include="CustomCheck\CheckService.cpp" />
+    <ClCompile Include="CustomCheck\HpMntIoCtrl.cpp" />
+    <ClCompile Include="dlgInfoExtern.cpp" />
+    <ClCompile Include="DomainDelayOfflineTip.cpp" />
+    <ClCompile Include="DuilibConfig.cpp" />
+    <ClCompile Include="DuiRect.cpp" />
+    <ClCompile Include="DuiString.cpp" />
+    <ClCompile Include="EstablishSetting.cpp" />
+    <ClCompile Include="EstablishSocket.cpp" />
+    <ClCompile Include="explorer1.cpp" />
+    <ClCompile Include="FileinfoCheckSum.cpp" />
+    <ClCompile Include="Ftp.cpp" />
+    <ClCompile Include="GetAdapterInfo.cpp" />
+    <ClCompile Include="GetLangValue.cpp" />
+    <ClCompile Include="GlobalDate.cpp" />
+    <ClCompile Include="GlobalFunction.cpp" />
+    <ClCompile Include="GUISetting.cpp" />
+    <ClCompile Include="HandleRecvData.cpp" />
+    <ClCompile Include="HandleTTLValue.cpp" />
+    <ClCompile Include="hpidmnac.cpp" />
+    <ClCompile Include="hpidmnacDlg.cpp" />
+    <ClCompile Include="HttpClient.cpp" />
+    <ClCompile Include="JobThread\HandleJob1.cpp" />
+    <ClCompile Include="JobThread\HandleJob2.cpp" />
+    <ClCompile Include="JobThread\Job.cpp" />
+    <ClCompile Include="JobThread\JobExecuter.cpp" />
+    <ClCompile Include="JobThread\MThreadedJobQ.cpp" />
+    <ClCompile Include="LogOn.cpp" />
+    <ClCompile Include="lsp\lspadd.cpp" />
+    <ClCompile Include="lsp\lspdel.cpp" />
+    <ClCompile Include="lsp\lspmap.cpp" />
+    <ClCompile Include="lsp\lsputil.cpp" />
+    <ClCompile Include="lsp\OpLsp.cpp" />
+    <ClCompile Include="lsp\prnpinfo.cpp" />
+    <ClCompile Include="mdump.cpp" />
+    <ClCompile Include="networkchange\NetworkChangeInfo.cpp" />
+    <ClCompile Include="networkchange\NLANetwork.cpp" />
+    <ClCompile Include="networkchange\NLMNetwork.cpp" />
+    <ClCompile Include="OpStgClass.cpp" />
+    <ClCompile Include="RepairByHand.cpp" />
+    <ClCompile Include="SafeCheckItem\Antivirus.cpp" />
+    <ClCompile Include="SafeCheckItem\ARP.cpp" />
+    <ClCompile Include="SafeCheckItem\CheckCustom.cpp" />
+    <ClCompile Include="SafeCheckItem\CheckDeskWallPaper.cpp" />
+    <ClCompile Include="SafeCheckItem\CheckDiskSpace.cpp" />
+    <ClCompile Include="SafeCheckItem\CheckIEExtensions.cpp" />
+    <ClCompile Include="SafeCheckItem\CheckIEMain.cpp" />
+    <ClCompile Include="SafeCheckItem\CheckJunkFiles.cpp" />
+    <ClCompile Include="SafeCheckItem\CheckNetShareResource.cpp" />
+    <ClCompile Include="SafeCheckItem\checkpwd.cpp" />
+    <ClCompile Include="SafeCheckItem\CheckPwdPolicy.cpp" />
+    <ClCompile Include="SafeCheckItem\CheckSystemPatchs.cpp" />
+    <ClCompile Include="SafeCheckItem\CheckSystemTime.cpp" />
+    <ClCompile Include="SafeCheckItem\DomainIdentydlg.cpp" />
+    <ClCompile Include="SafeCheckItem\DomainUser.cpp" />
+    <ClCompile Include="SafeCheckItem\Download.cpp" />
+    <ClCompile Include="SafeCheckItem\ExeProcess.cpp" />
+    <ClCompile Include="SafeCheckItem\FireWall.cpp" />
+    <ClCompile Include="SafeCheckItem\FireWallEx.cpp" />
+    <ClCompile Include="SafeCheckItem\GetAntivirusInfo.cpp" />
+    <ClCompile Include="SafeCheckItem\GetHardDiskInfo.cpp" />
+    <ClCompile Include="SafeCheckItem\GetOsInfo.cpp" />
+    <ClCompile Include="SafeCheckItem\Guest.cpp" />
+    <ClCompile Include="SafeCheckItem\HardwareManage.cpp" />
+    <ClCompile Include="SafeCheckItem\Httpdownload.cpp" />
+    <ClCompile Include="SafeCheckItem\MD5Checksum.cpp" />
+    <ClCompile Include="SafeCheckItem\NetMon.cpp" />
+    <ClCompile Include="SafeCheckItem\NetWorkConnect.cpp" />
+    <ClCompile Include="SafeCheckItem\OperationSystem.cpp" />
+    <ClCompile Include="SafeCheckItem\Port.cpp" />
+    <ClCompile Include="SafeCheckItem\ProcessInfo.cpp" />
+    <ClCompile Include="SafeCheckItem\RegisterInfo.cpp" />
+    <ClCompile Include="SafeCheckItem\RemoteDesk.cpp" />
+    <ClCompile Include="SafeCheckItem\SafeCheckFuntion.cpp" />
+    <ClCompile Include="SafeCheckItem\SafeCheckRealTime.cpp" />
+    <ClCompile Include="SafeCheckItem\SafeCheckServices.cpp" />
+    <ClCompile Include="SafeCheckItem\ScreenSave.cpp" />
+    <ClCompile Include="SafeCheckItem\SinglePageItem.cpp" />
+    <ClCompile Include="SafeCheckItem\SingServerPage.cpp" />
+    <ClCompile Include="SafeCheckItem\SoftWare.cpp" />
+    <ClCompile Include="SafeCheckItem\TimeCalculation.cpp" />
+    <ClCompile Include="SafeCheckItem\UsbStorageDevMana.cpp" />
+    <ClCompile Include="SafeCheckItem\UsingIllegalInternet.cpp" />
+    <ClCompile Include="SafeCheckItem\wmi.cpp" />
+    <ClCompile Include="SafeCheckItem\WSUSConfig.cpp" />
+    <ClCompile Include="SafeResult.cpp" />
+    <ClCompile Include="ShowAllowNetWorkDlg.cpp" />
+    <ClCompile Include="SocketComm.cpp" />
+    <ClCompile Include="SocketMakeTip.cpp" />
+    <ClCompile Include="stdafx.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="strconvert.cpp" />
+    <ClCompile Include="SymbolEdit.cpp" />
+    <ClCompile Include="SystemLog.cpp" />
+    <ClCompile Include="TipInfodlg.cpp" />
+    <ClCompile Include="UIMenu.cpp" />
+    <ClCompile Include="UninstallDlg.cpp" />
+    <ClCompile Include="UserInfo.cpp" />
+    <ClCompile Include="xml\tinystr.cpp" />
+    <ClCompile Include="xml\tinyxml.cpp" />
+    <ClCompile Include="xml\tinyxmlerror.cpp" />
+    <ClCompile Include="xml\tinyxmlparser.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="hpidmnac.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="..\..\..\lib\GetDeviceUniqueInfo.lib" />
+    <Library Include="..\..\..\lib\hpDriverIoctl.lib" />
+    <Library Include="zlib1.lib" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+  <ProjectExtensions>
+    <VisualStudio>
+      <UserProperties RESOURCE_FILE="hpidmnac.rc" _x007B_8856F961-340A-11D0-A96B-00C04FD705A2_x007D_="CExplorer1" />
+    </VisualStudio>
+  </ProjectExtensions>
+</Project>

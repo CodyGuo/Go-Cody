@@ -1,0 +1,538 @@
+#include "StdAfx.h"
+#include "SoftWare.h"
+#include "..\strconvert.h"
+#include "..\DebugInfo.h"
+#include  "SafeCheckFuntion.h"
+#include "Download.h"
+
+#include <Sddl.h>
+#pragma  comment(lib,"Advapi32.lib")
+
+#include <algorithm>
+
+SoftWare::SoftWare(void):
+	m_sfCnt(0),
+	m_sfInfo(NULL),
+	m_failsfnum(0),
+	m_failsfInfo(NULL)
+{
+
+}
+
+SoftWare::~SoftWare(void)
+{
+	if (m_sfInfo!=NULL)
+	{
+		delete[] m_sfInfo;
+		m_sfInfo=NULL;
+	}
+	if (m_failsfInfo!=NULL)
+	{
+		delete[] m_failsfInfo;
+		m_failsfInfo=NULL;
+	}
+	
+	list<stuStupSoftwareInfo>::iterator  iter;
+	for (iter = softwareInfo.begin( ); iter != softwareInfo.end( );  )
+	{
+		softwareInfo.erase(iter++);
+	}
+}
+
+
+int SoftWare::GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday)
+{
+	/////从数据库中查询总的策略项和当前要开始检查的策略项及所有的安检结果
+	int ret = SQLITE_OK;
+
+	if (HP_openDB(dirpath) == HP_DB_OPENFAIL)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOFTWARE, LOGLOCATION, "打开数据库失败");
+		return HP_DB_OPENFAIL;
+	}
+	else
+	{
+		DeleteData();
+		//获取process数据
+		char sql[HP_C_SQLDATA]={'0'}; 
+		char sqlReal[HP_C_SQLDATA]={'0'};
+		char **pszResult='\0';
+		CHAR *szErrMsg='\0';
+		INT nRow = 0;
+		INT nCloumn = 0;
+
+		sprintf_s(sql, HP_C_SQLDATA, "SELECT %s,softname,srepairmethod,srepairpath,srepairparam FROM \
+						   (SELECT * FROM tstgsoftware a, tstgsoftwarecontent b WHERE (a.ipolicyauthid=b.ipolicyauthid) AND (a.iuserid=%d) AND (a.usertype=\'%s\')AND (dstartdate<=\'%s\') \
+						   AND (denddate>=\'%s\') AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\") \
+						   ORDER BY a.ipriority DESC) AS tb  GROUP BY tb.softname ORDER BY ipriority ASC ",HP_ATTRIBUTE_SQLNAME,
+						   atoi(userid),usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));	
+
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_SOFTWARE, LOGLOCATION, "查询软件策略的SQL语句:", sql);
+		Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+	//	EnterCriticalSection(&g_opdbcs);
+		if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+		{
+			//LeaveCriticalSection(&g_opdbcs);
+			sqlite3_free_table(pszResult);
+			ret = sqlite3_close(g_db);
+			g_db=NULL;
+			return HP_DB_GETTABLEFAIL;
+		}
+		if ((nRow>0) && (nCloumn> 0))
+		{	
+			m_sfCnt = nRow;
+
+			m_sfInfo = new XMLSOFTWARECONTENT[nRow];
+			memset(m_sfInfo,0,sizeof(XMLSOFTWARECONTENT));
+			for (int i=0;i<nRow;i++)
+			{
+				for (int j=0;j<nCloumn;j++)
+				{
+					if(strcmp(pszResult[j],"spolicyaction")==0){				
+						memset(m_sfInfo[i].attriinfo.spolicyaction,0,sizeof(m_sfInfo[i].attriinfo.spolicyaction));
+						Convert(pszResult[(i+1)*nCloumn+j],m_sfInfo[i].attriinfo.spolicyaction,sizeof(m_sfInfo[i].attriinfo.spolicyaction),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"ipriority")==0){			
+						memset(m_sfInfo[i].attriinfo.ipriority,0,sizeof(m_sfInfo[i].attriinfo.ipriority));
+						Convert(pszResult[(i+1)*nCloumn+j],m_sfInfo[i].attriinfo.ipriority,sizeof(m_sfInfo[i].attriinfo.ipriority),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"spromptinfo")==0){
+						memset(m_sfInfo[i].attriinfo.spromptinfo,0,sizeof(m_sfInfo[i].attriinfo.spromptinfo));
+						Convert(pszResult[(i+1)*nCloumn+j],m_sfInfo[i].attriinfo.spromptinfo,sizeof(m_sfInfo[i].attriinfo.spromptinfo),CP_UTF8,CP_ACP);					
+					}	
+					else if(strcmp(pszResult[j],"warningcont")==0){
+						memset(m_sfInfo[i].attriinfo.warningcont,0,sizeof(m_sfInfo[i].attriinfo.warningcont));
+						Convert(pszResult[(i+1)*nCloumn+j],m_sfInfo[i].attriinfo.warningcont,sizeof(m_sfInfo[i].attriinfo.warningcont),CP_UTF8,CP_ACP);					
+					}				
+					else if(strcmp(pszResult[j],"warninglevel")==0){
+						memset(m_sfInfo[i].attriinfo.warninglevel,0,sizeof(m_sfInfo[i].attriinfo.warninglevel));
+						Convert(pszResult[(i+1)*nCloumn+j],m_sfInfo[i].attriinfo.warninglevel,sizeof(m_sfInfo[i].attriinfo.warninglevel),CP_UTF8,CP_ACP);					
+					}	
+					else if(strcmp(pszResult[j],"srcevent")==0){
+						memset(m_sfInfo[i].attriinfo.srcevent,0,sizeof(m_sfInfo[i].attriinfo.srcevent));
+						Convert(pszResult[(i+1)*nCloumn+j],m_sfInfo[i].attriinfo.srcevent,sizeof(m_sfInfo[i].attriinfo.srcevent),CP_UTF8,CP_ACP);					
+					}	
+					else if(strcmp(pszResult[j],"softname")==0){
+						memset(m_sfInfo[i].softname,0,sizeof(m_sfInfo[i].softname));
+						Convert(pszResult[(i+1)*nCloumn+j],m_sfInfo[i].softname,sizeof(m_sfInfo[i].softname),CP_UTF8,CP_ACP);					
+					}
+
+					else if(strcmp(pszResult[j],"srepairpath")==0){
+						memset(m_sfInfo[i].sfrepairpath,0,sizeof(m_sfInfo[i].sfrepairpath));
+						Convert(pszResult[(i+1)*nCloumn+j],m_sfInfo[i].sfrepairpath,sizeof(m_sfInfo[i].sfrepairpath),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"srepairmethod")==0){
+						memset(m_sfInfo[i].sfrepairmethod,0,sizeof(m_sfInfo[i].sfrepairmethod));
+						Convert(pszResult[(i+1)*nCloumn+j],m_sfInfo[i].sfrepairmethod,sizeof(m_sfInfo[i].sfrepairmethod),CP_UTF8,CP_ACP);					
+					}				
+					else if(strcmp(pszResult[j],"srepairparam")==0){
+						memset(m_sfInfo[i].sfrepairparam,0,sizeof(m_sfInfo[i].sfrepairparam));
+						Convert(pszResult[(i+1)*nCloumn+j],m_sfInfo[i].sfrepairparam,sizeof(m_sfInfo[i].sfrepairparam),CP_UTF8,CP_ACP);					
+					}	
+				}
+			}
+		}
+		sqlite3_free_table(pszResult);
+		//LeaveCriticalSection(&g_opdbcs);
+	}
+	return HP_SUCCESS;
+}
+
+string SoftWare::ExecSoftWareItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int *IsSuccess)
+{
+    StupSoftwareInfo(softwareInfo,FALSE);
+    _GetCurrentUserReg(softwareInfo,FALSE);
+	SYSTEM_INFO  si;
+	::GetNativeSystemInfo(&si);
+	if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||   
+		si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 )  
+	{  
+		StupSoftwareInfo(softwareInfo,TRUE);
+		_GetCurrentUserReg(softwareInfo,TRUE);
+	} 
+	char tempheader[512]={"0"};
+	sprintf_s(tempheader,512,"%s;%s;%d;%d;1;%d;%s;",servertime,g_deviceid.c_str(),totalitem,curritem,nextitem,mac);
+
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"ExecSoftWareItem");
+	//拼接向服务器发送的xml
+	string xmlstring;
+	char *Info= new char[MAX_PATH*2*m_sfCnt+1]();
+    memset(Info,0,MAX_PATH*2*m_sfCnt+1);
+	bool bIsSucces = true;
+	if (m_sfCnt>0)
+	{
+		m_failsfInfo = new XMLSOFTWARECONTENT[m_sfCnt];
+		memset(m_failsfInfo, 0, sizeof(XMLSOFTWARECONTENT));
+
+		for(int m=0;m<m_sfCnt;m++)
+		{
+			int execRes=IsInstallSoftware(m_sfInfo[m]);
+
+			if(INSTALLEDSOFT==execRes)
+			{
+				if(atoi(m_sfInfo[m].attriinfo.spolicyaction) == REFUSE )//需要禁止
+				{
+					m_failsfInfo[m_failsfnum] = m_sfInfo[m];
+					bIsSucces= false;
+					sprintf_s(Info,MAX_PATH*2*m_sfCnt+1,
+                        "%s<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"安装了禁止安装的软件%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%d\"/>",
+						Info,m_failsfnum,m_sfInfo[m].attriinfo.spolicyaction,m_sfInfo[m].softname,m_sfInfo[m].softname,m_sfInfo[m].attriinfo.warningcont,m_sfInfo[m].attriinfo.warninglevel,atoi(m_sfInfo[m].attriinfo.srcevent));
+					m_failsfnum++;
+				}
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"执行禁止的软件项");
+			}
+			else
+			{
+				if( atoi(m_sfInfo[m].attriinfo.spolicyaction) == ALLOW )
+				{
+					m_failsfInfo[m_failsfnum]=m_sfInfo[m];
+					bIsSucces= false;
+					sprintf_s(Info,MAX_PATH*2*m_sfCnt+1,
+                        "%s<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"没有安装软件%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%d\"/>",
+						Info,m_failsfnum,m_sfInfo[m].attriinfo.spolicyaction,m_sfInfo[m].softname,m_sfInfo[m].softname,m_sfInfo[m].attriinfo.warningcont,m_sfInfo[m].attriinfo.warninglevel,
+						atoi(m_sfInfo[m].attriinfo.srcevent));
+					m_failsfnum++;
+				}
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"执行需要安装的软件项");
+			}
+		}
+	}
+	if(bIsSucces)
+	{
+		IsSuccess[SOFTWARE] = HP_SUCCESS;
+
+		xmlstring = SendSingleItemSafeCheckSuccess(tempheader);
+	}
+	else
+	{
+		IsSuccess[SOFTWARE]=HP_SF_SAFECHECKFAIL;
+
+		char *sendprocess=new char[MAX_PATH*2*m_sfCnt+MAX_PATH];
+		sprintf_s(sendprocess,MAX_PATH*2*m_sfCnt+MAX_PATH,"<iman succflag =\"0\">%s</iman>",Info);
+		string SendProcessItem = sendprocess;
+		string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+		string  xmltail ="</nac>";
+		xmlstring = tempheader+xmlHeader+SendProcessItem+xmltail;
+		delete[] sendprocess;
+	}
+	delete[] Info;
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"exit ExecSoftWareItem");
+	return xmlstring;
+}
+
+int SoftWare::RestoreFailItem(int index)
+{
+	int startindex = 0;
+	int endindex = m_failsfnum;
+	if ( INFINITE != index )
+	{
+		startindex =  index;
+		endindex = index+1;
+	}
+    for (int i=startindex;i<endindex;i++)
+    {
+        if (atoi(m_failsfInfo[i].attriinfo.spolicyaction) == REFUSE )
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"Software action=2");
+            CDownload dwfile("invalidurl",strlen("invalidurl"));
+            dwfile.RunDownLoadFile(m_failsfInfo[i].descrip,m_failsfInfo[i].sfrepairparam);
+        }
+        else
+        {
+            CDownload downloadfile(m_failsfInfo[i].sfrepairpath, strlen(m_failsfInfo[i].sfrepairpath));
+            char localfilepath[MAX_PATH] = {0};
+
+            downloadfile.StartDownLoad(localfilepath,sizeof(localfilepath));
+            downloadfile.RunDownLoadFile(localfilepath,m_failsfInfo[i].sfrepairparam);
+        }
+    }
+    return HP_SUCCESS;
+}
+
+
+void SoftWare::DeleteData()
+{
+	if (m_sfInfo!=NULL)
+	{
+		delete[] m_sfInfo;
+		m_sfInfo=NULL;
+	}
+	if (m_failsfInfo!=NULL)
+	{
+		delete[] m_failsfInfo;
+		m_failsfInfo=NULL;
+	}
+	
+	for (iter = softwareInfo.begin( ); iter != softwareInfo.end( );  )
+	{
+		softwareInfo.erase(iter++);
+	}
+	m_sfCnt=0;
+	m_failsfnum=0;
+}
+
+int SoftWare::_GetCurrentUserReg(list<stuStupSoftwareInfo> &stupInfo,BOOL bWin64)  
+{  
+	WriteDebugInfomation(LEVEL_DEBUG, MODULE_SOFTWARE, LOGLOCATION, "enter software _GetCurrentUserReg");
+	HANDLE hUserToken = NULL;  
+	BOOL bIsOK = GetProcessUserToken( L"explorer.exe", &hUserToken );  
+	if ( bIsOK )  
+	{  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"WTSQueryUserToken success");
+		DWORD dwLength = 0;  
+		bIsOK = GetTokenInformation(hUserToken, TokenUser, NULL, 0, &dwLength );  
+		TOKEN_USER *pUser = static_cast<TOKEN_USER*>(malloc( dwLength + 1 ));  
+		if ( NULL == pUser )  
+		{  
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"NULL == pUser");
+            CloseHandle(hUserToken);
+            hUserToken=NULL;
+			return -1;  
+		}  
+		bIsOK = GetTokenInformation( hUserToken, TokenUser, pUser, dwLength, &dwLength );  
+		if ( !bIsOK )  
+		{  
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"GetTokenInformation Fail");
+			free(pUser);  
+            CloseHandle(hUserToken);
+            hUserToken=NULL;
+			return -1;  
+		}  
+		LPWSTR lpUserToken = NULL;  
+		bIsOK = ConvertSidToStringSid( pUser->User.Sid, &lpUserToken );  
+		free(pUser);  
+		if ( !bIsOK )  
+		{         
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"ConvertSidToStringSid Fail");
+            CloseHandle(hUserToken);
+            hUserToken=NULL;
+			return -1;  
+		}  
+		//HKEY_USERS/S-1-5-21-362780079-2926010819-742269287-1000  
+		wchar_t lpszPath[MAX_PATH]={L"0"};
+		 wsprintf(lpszPath, L"%s\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", lpUserToken);
+		 return GetSoftWareInfoFromRegister(REGUSER,lpszPath,stupInfo,bWin64);
+	
+	}  
+	return FALSE;
+}  
+
+BOOL SoftWare::StupSoftwareInfo(list<stuStupSoftwareInfo> &stupInfo,BOOL bWin64)
+{
+	return GetSoftWareInfoFromRegister(REGCLM,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",stupInfo,bWin64);
+}
+
+
+BOOL SoftWare::GetSoftWareInfoFromRegister(REGROOTTYPE roottype,wchar_t* regsubkeypath,list<stuStupSoftwareInfo> &stupInfo,BOOL bWin64)
+{
+	BOOL bRes = FALSE;
+	HKEY hRootKey = NULL;
+	int type = roottype;
+	switch (type)
+	{
+	case 1:
+		hRootKey=HKEY_CLASSES_ROOT;
+		break;
+	case 2:
+		hRootKey=HKEY_CURRENT_USER;
+		break;
+	case 3:
+		hRootKey=HKEY_LOCAL_MACHINE;
+		break;
+	case 4:
+		hRootKey=HKEY_USERS;
+		break;
+	case 5:
+		hRootKey=HKEY_CURRENT_CONFIG;
+		break;
+	default:
+		break;
+	}
+	if (hRootKey != NULL)
+	{
+		bRes = TRUE;
+		const int  MAX_LEG = 256 * sizeof(TCHAR);
+		HKEY hKey;
+		DWORD dwRegNum = MAX_LEG;
+		TCHAR regBufferName[MAX_LEG] = {0};
+
+		 REGSAM flag= KEY_READ;
+		 if (bWin64)
+		 {
+			 flag=flag|KEY_WOW64_64KEY;
+		 }
+		if(RegOpenKeyEx(hRootKey, 
+		regsubkeypath,
+			NULL,
+			flag, 
+			&hKey) == ERROR_SUCCESS	)
+		{
+			if(RegQueryInfoKey(hKey, NULL, NULL, NULL, &dwRegNum, NULL, NULL, NULL, 
+				NULL, NULL, NULL, NULL)	==	ERROR_SUCCESS)
+			{
+				for(unsigned int i = 0; i < dwRegNum; i++)	
+				{	
+					DWORD dwRegSize = MAX_LEG;
+					RegEnumKeyEx(hKey, i, regBufferName, &dwRegSize, NULL, NULL, 
+						NULL, NULL);
+					DWORD dwType;	
+					HKEY hSubKey;
+					if(	RegOpenKeyEx(hKey, regBufferName, NULL, KEY_READ, &hSubKey) == ERROR_SUCCESS)
+					{
+
+						stuStupSoftwareInfo info;
+
+						memset(info.displayName,0,sizeof(info.displayName));
+						memset(info.displayVersion,0,sizeof(info.displayVersion));
+						memset(info.installDate,0,sizeof(info.installDate));
+						memset(info.publisher,0,sizeof(info.publisher));
+						memset(info.uninstallString,0,sizeof(info.uninstallString));
+
+						TCHAR regBufferValue[MAX_LEG] = {_T("0")};
+						char   buffVal[MAX_PATH]={0};
+
+						dwRegSize = MAX_LEG;
+						RegQueryValueEx(hSubKey, _T("DisplayName"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize);
+						ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+
+						memcpy(info.displayName, buffVal, sizeof(buffVal));//软件名称
+
+						dwRegSize = MAX_LEG;
+						_tcscpy_s(regBufferValue, _T(""));
+						strcpy_s(buffVal,"");
+						RegQueryValueEx(hSubKey, _T("Publisher"), 0, &dwType,(LPBYTE)regBufferValue, &dwRegSize);
+						ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+						memcpy(info.publisher,buffVal,strlen(buffVal));//发行商
+
+						dwRegSize = MAX_LEG;
+						_tcscpy_s(regBufferValue,_T(""));
+						strcpy_s(buffVal,"");
+						RegQueryValueEx(hSubKey, _T("DisplayVersion"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize);
+						ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+						memcpy(info.displayVersion, buffVal, strlen(buffVal));//版本
+
+						dwRegSize = MAX_LEG;
+						_tcscpy_s(regBufferValue,_T(""));
+						strcpy_s(buffVal,"");
+
+						// 判断是否能在注册表中获取到安装时间, 否取子项创建时间
+						if(RegQueryValueEx(hSubKey, _T("InstallDate"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+						{
+							ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+							memcpy(info.installDate,buffVal,strlen(buffVal));
+						}
+						else
+						{
+							FILETIME fileLastTime;
+
+							RegQueryInfoKey(hSubKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
+								NULL, NULL, NULL, &fileLastTime);
+
+							SYSTEMTIME sTime, stLocal ;
+
+							FileTimeToSystemTime(&fileLastTime, &sTime);
+							SystemTimeToTzSpecificLocalTime(NULL, &sTime, &stLocal);
+
+							char tchTime[MAX_LEG] = {0};
+
+							sprintf_s(tchTime,MAX_LEG,"%d%02d%02d",stLocal.wYear,stLocal.wMonth,stLocal.wDay);
+							memcpy(info.installDate,tchTime,strlen(tchTime));
+						}
+						dwRegSize = MAX_LEG;
+						_tcscpy_s(regBufferValue,_T(""));
+						strcpy_s(buffVal,"");
+						RegQueryValueEx(hSubKey, _T("UninstallString"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize);
+						ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+						memcpy(info.uninstallString, buffVal,strlen(buffVal));//卸载命令及参数
+
+						dwRegSize = MAX_LEG;
+						_tcscpy_s(regBufferValue, _T(""));
+						strcpy_s(buffVal,"");
+						// 取ParentKeyName键值,判断是否是补丁信息, 是补丁信息键值为"OperatingSystem"
+						RegQueryValueEx(hSubKey, _T("ParentKeyName"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize);
+
+						TCHAR tchLocal[MAX_LEG] = {0};
+
+						_tcscpy_s(tchLocal, regBufferValue);
+
+						_tcscpy_s(regBufferValue, _T(""));
+						strcpy_s(buffVal, "");
+						dwRegSize = MAX_LEG;
+						RegQueryValueEx(hSubKey, _T("QuietUninstallString"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize);
+						if( _tcscmp(regBufferValue, _T("")))
+						{
+							if (strcmp(info.displayName, " ") ==0 )
+							{
+								char buffname[MAX_PATH]={0};
+
+								ConvertW2A(regBufferName, buffname, MAX_PATH);
+								memcpy(info.displayName, buffname, strlen(buffname));
+							}
+
+							ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+							memcpy(info.uninstallString, buffVal, strlen(buffVal));
+						}
+						if( (strcmp(info.displayName,""))
+							&&( _tcscmp( tchLocal,_T("OperatingSystem") ) )) //判断是否是补丁信息 
+						{
+							stupInfo.push_back(info);
+						}
+					} 		
+					RegCloseKey(hSubKey);
+				}//end for(; ;)
+			}
+		}
+		else 
+		{
+			RegCloseKey(hKey);
+			return FALSE; //打开键失败
+		}
+		RegCloseKey(hKey);
+	}
+    return bRes;
+}
+///////////返回1表示已经安装，返回0表示没有安装
+int SoftWare::IsInstallSoftware(_XMLSOFTWARECONTENT  &softwareItem)
+{
+    list<stuStupSoftwareInfo>::iterator  iter;
+
+    for (iter = softwareInfo.begin( ); iter != softwareInfo.end( ); ++iter)
+    {
+		char srcsfname[MAX_PATH] = {"0"};
+		sprintf_s(srcsfname,sizeof(srcsfname),"%s",softwareItem.softname);
+        char softwarename[MAX_PATH] = {0};
+        strcat_s(softwarename,trim_all(srcsfname));
+        char serverconfname[MAX_PATH] = {0};
+        strcat_s(serverconfname, trim_all( (*iter).displayName));
+        if ( _strnicmp( softwarename, serverconfname, MAX_PATH)==0 )
+        {
+            memset(softwareItem.descrip, 0, sizeof(softwareItem.descrip));
+            memcpy(softwareItem.descrip, (*iter).uninstallString, strlen((*iter).uninstallString));
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_SOFTWARE,LOGLOCATION, "uninstall=", softwareItem.descrip);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+ /*************************************************
+Function Name:trim_all
+Description: 去除字符串中的空格
+Input and output:  
+        s: 要清除空格的字符串
+RetVal:
+       返回去除空格后的字符串
+**************************************************/ 
+char* SoftWare::trim_all(char *s)
+{
+
+    char *p=s, *sa=s;
+    while (*p) 
+    {
+        if(*p!=' ')
+            *s++ = *p;
+        p++;
+    }
+    *s=0;
+    return sa;
+}

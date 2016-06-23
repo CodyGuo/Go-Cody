@@ -1,0 +1,47 @@
+#include "stdafx.h"
+#include "UsbStorageDevMana.h"
+#include "..\GlobalDate.h"
+#include "..\DebugInfo.h"
+#include "..\CommPub.h"
+
+#include <string>
+#include <vector>
+using namespace std;
+
+#define MAX_USB_DEV_CLASS_NUM 2
+#define USB_STROAGE_DEV_MANAGE_DLL_NAME "UsbStorageDevMana.dll"
+
+//是否更新USB存储设备标志
+BOOL bUpdateUsbStorageDevFlag = TRUE;
+
+int iUSBStorageDevDevNum = 0;
+
+void GetAlUSBStorageDevInfo(OUT int* piUSBStorageDevDevNum)
+{
+	char usbStorageDevManaDllPath[MAX_PATH] = {0};
+	HINSTANCE hUsbDevManageDll = NULL;	
+
+	sprintf_s(usbStorageDevManaDllPath, "%s\\%s", g_nacdirpath, USB_STROAGE_DEV_MANAGE_DLL_NAME);
+	hUsbDevManageDll = LoadLibraryA(usbStorageDevManaDllPath); 
+
+	if (hUsbDevManageDll == NULL)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_HARDWAREMANAGE, LOGLOCATION, "HardwareManage.Dll文件加载失败");
+		return;
+	}
+
+	pFnGetAllUSBStorageDevInfo fGetAllUSBStorageDevInfo = NULL;
+	fGetAllUSBStorageDevInfo = (pFnGetAllUSBStorageDevInfo)GetProcAddress(hUsbDevManageDll, "GetAllUSBStorageDevInfo");
+
+	if(fGetAllUSBStorageDevInfo == NULL)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_HARDWAREMANAGE, LOGLOCATION, "GetAllUSBStorageDevInfo函数加载失败");
+		FreeLibrary(hUsbDevManageDll);
+		return;
+	}
+
+	fGetAllUSBStorageDevInfo(piUSBStorageDevDevNum);
+
+	FreeLibrary(hUsbDevManageDll);
+	hUsbDevManageDll = NULL;
+}

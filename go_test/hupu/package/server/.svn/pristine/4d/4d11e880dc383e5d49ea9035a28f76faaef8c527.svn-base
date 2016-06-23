@@ -1,0 +1,79 @@
+#include "stdafx.h"
+#include "HandleJob2.h"
+#include "..\GlobalDate.h"
+
+HandleJob2::HandleJob2(void):m_flag(0),
+	m_msglen(0)
+{
+	m_outmsg.clear();
+	m_msgstr.clear();
+	m_sockhandle = INVALID_HANDLE_VALUE;
+}
+
+
+HandleJob2::~HandleJob2(void)
+{
+
+}
+
+void HandleJob2::InitParam(HANDLE sock,int flag, DWORD len, char* msg)
+{
+	if (sock != INVALID_HANDLE_VALUE )
+	{
+		m_sockhandle = sock;
+	}
+
+	 m_flag = flag;
+	 m_msglen = len;
+
+	 if (msg != NULL)
+	 {
+		m_msgstr = (string)msg;
+	 }
+}
+
+int HandleJob2::execute()
+{
+    try
+    {
+		if ( (m_sockhandle == g_EstliSocket.m_hComm) &&
+			(g_EstliSocket.IsOpen())&&
+			m_sockhandle != INVALID_HANDLE_VALUE )
+		{
+			string strStgType= "";
+			string strStgToken = "0";
+			string strUseType = "";
+			string strUserId = "";
+			string strstgsize = "0";
+			wchar_t currentexepath[MAX_PATH] = {L"0"};
+
+			MultiByteToWideChar(CP_ACP, 0, g_nacdirpath, -1, currentexepath, MAX_PATH);
+			int Res = dbstg.SaveXMLStgToDB((char*)m_msgstr.c_str(), currentexepath, strStgType, strUserId, strUseType,strstgsize);
+
+			if(Res == HP_SUCCESS)
+			{
+				m_outmsg = strStgType;
+				m_outmsg += ";";
+				m_outmsg += strUseType;
+				m_outmsg += ";";
+				m_outmsg += strStgToken;
+				m_outmsg += ";";
+				m_outmsg += strstgsize;
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "±£´æ²ßÂÔÊ§°Ü");
+				return -1;
+			}
+		}
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        ::MessageBox(NULL, L"HandleJob2::execute Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleJob2::execute Exception");
+    }
+	
+	return HP_SUCCESS;
+}

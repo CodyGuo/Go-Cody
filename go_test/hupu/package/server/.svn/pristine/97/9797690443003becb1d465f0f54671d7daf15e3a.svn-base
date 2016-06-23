@@ -1,0 +1,10 @@
+#pragma once
+
+#include <Windows.h>
+#include "Config.h"
+
+
+
+int GetWqlPropertyValue(const T_WQL_QUERY szWQLQuery, int iQueryType, T_DEVICE_PROPERTY *properties,int uSize);
+
+

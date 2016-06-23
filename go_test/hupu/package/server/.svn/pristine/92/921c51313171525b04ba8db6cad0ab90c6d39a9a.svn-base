@@ -1,0 +1,94 @@
+#pragma once
+
+typedef struct  NETWORKDATA
+{
+	int failindex;///失败项的下标:默认值设置和被例外的值均为99999
+	string ip;
+	string mac;
+	char guid[MAX_PATH];
+	char description[MAX_PATH];
+	//0表示网卡是禁用状态,1表示网卡是开启状态,2表示不是我们关心的状态
+	char  state[HP_C_USERCONTENTLEN];
+}_NETWORKDATA;
+
+
+class  CNetWorkConnect
+{
+public:
+
+    CNetWorkConnect(void);
+
+    ~CNetWorkConnect(void);
+
+    //网络状态检查策略数据
+    int GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday);
+
+    string ExecNetWorkItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsnetworkSuccess);
+
+    int RestoreFailItem();
+
+	//结束某一个固定的网卡
+	int RestoreFailItemByIndex(int failindex,BOOL bDoubleNet);
+
+    int m_netwkCnt;
+
+   XMLNETWORKEXEC  m_netwkinfo;
+        
+    int m_netwkfailCnt;
+
+    //拨号链接失败
+    int m_inmodefail;
+
+    //双网卡链接失败
+    int m_indbnkfail;
+
+private:
+    void InitData();
+
+    //拨号上网的连接状态
+    int ConnectInModemState();
+
+    //双网卡的连接状态
+    int ConnectDoubleState();
+
+    //结束拨号上网
+    int TerminateConnectInModem();
+
+    //结束双网卡
+    int TerminateConnectDoubleAdapt();
+
+    int ForbitNetWorkAdapter(char*  adaptername,BOOL Enable);
+
+    bool EnableConnection(GUID guidId, bool bEnable);
+
+    //判断是否属于例外网卡信息
+    BOOL IsInExcept(char* adaptername,char* mac);
+
+    BOOL IsInExcept(char* adaptername);
+
+    int EnableForbitNetWorkAdapter();
+
+    int EnumNetwork();
+
+    DWORD ErrorCOMToWin32(HRESULT hr);
+
+    //是否使用拨号上网:使用为TRUE,没有使用为FALSE
+    bool m_bInmodel;
+
+    //是否使用双网卡上网:使用为TRUE,没有使用为FALSE
+    bool m_bIndobleAdapt;
+
+    //连接的网卡的数量
+    int m_nknumber;
+
+    //禁用的网卡的数量
+    int m_forbitnumber;
+
+    list<NETWORKDATA> m_netwkstatedata;
+
+    //从数据库中查询出来的网络状态数据,可能有多条
+    list<XMLNETWORKEXEC>  m_networkdbdata;
+
+	//失败项的内容
+	 list<NETWORKDATA> m_failiteminfo;
+};

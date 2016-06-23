@@ -1,0 +1,405 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "..\GlobalDate.h"
+#include "..\GetLangValue.h"
+#include "CheckPwdPolicy.h"
+#include "..\DebugInfo.h"
+#include "..\GlobalFunction.h"
+#include "..\CustomCheck\CommData.h"
+#include <lm.h>
+
+/************************************************************ 
+Description: 初始化主页策略
+input: pItemName[字段名]、pItemValue[字段值]、pDiskSpacePolicy[密码检查策略]
+*************************************************************/
+void InitCheckPwdPolicy(IN char* pItemName, IN char* pItemValue, OUT PCHECKPWDPOLICY pCheckPwdPolicy)
+{
+	char writeLog[MAX_WRITE_BUF*2] = {0};
+
+	if(strcmp(pItemName, "ipwdcomplexity")==0)
+	{
+		pCheckPwdPolicy->iPwdComplexity = atoi(pItemValue);
+	}
+	else if (strcmp(pItemName, "iminlength")==0)
+	{
+		pCheckPwdPolicy->iPwdMinLen = atoi(pItemValue);
+	}
+	else if (strcmp(pItemName, "imaxretentionperiod")==0)
+	{
+		pCheckPwdPolicy->iPwdMaxAge =atoi(pItemValue);
+	}
+
+	sprintf_s(	writeLog, 
+				MAX_WRITE_BUF*2, 
+				"ipwdcomplexity[%d] ipwdlen[%d] ipwdage[%d]\n", 
+				pCheckPwdPolicy->iPwdComplexity, 
+				pCheckPwdPolicy->iPwdMinLen, 
+				pCheckPwdPolicy->iPwdMaxAge);
+
+	WriteDebugInfomation(LEVEL_RELEASE, MODULE_PWDPOLICY, LOGLOCATION, "密码策略检查=", writeLog);
+}
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input: 
+ Return: 
+*************************************************************/
+bool PwdPolicyRetShowMsg(IN int iCheckState,  IN safecheckattr checkItem,  IN PPWDPOLICYCHECKRESULT pPwdPolicyCheckResult, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language)
+{
+    bool ret = true;
+    std::string errorMsg("");
+
+    if (iCheckState)
+    {
+		char strPwdPolicyName[MAX_BUF_LEN] = {0};
+		char strPwdPolicyMsg[MAX_BUF_LEN] = {0};
+
+		GetLangValueByKeyA(language, 
+			PWDPOLICY_APPNAME, 
+			pSfPwdPolicyKeyStr[SF_PWDPOLICY_NAME], 
+			"密码策略检查", 
+			strPwdPolicyName, 
+			MAX_BUF_LEN);
+
+		GetLangValueByKeyA(language, 
+			PWDPOLICY_APPNAME, 
+			pSfPwdPolicyKeyStr[SF_PWDPOLICY_FALSE], 
+			pSfPwdPolicyKeyStr[SF_PWDPOLICY_FALSE], 
+			strPwdPolicyMsg, 
+			MAX_BUF_LEN);
+
+        (*pFailNum)++;
+        ret = false;
+
+		if (pPwdPolicyCheckResult->bPwdComplexity)
+		{  
+			char strLangMsg[MAX_BUF_LEN] = {0};
+
+			GetLangValueByKeyA(language, 
+				PWDPOLICY_APPNAME, 
+				pSfPwdPolicyKeyStr[SF_PWDCOMPLEXITY_FALSE], 
+				pSfPwdPolicyKeyStr[SF_PWDCOMPLEXITY_FALSE], 
+				strLangMsg, 
+				MAX_BUF_LEN);
+			errorMsg = (string)strLangMsg;	
+		}
+
+		if (pPwdPolicyCheckResult->bPwdMinLen)
+		{
+			char strLangMsg[MAX_BUF_LEN] = {0};
+
+			GetLangValueByKeyA(language, 
+				PWDPOLICY_APPNAME, 
+				pSfPwdPolicyKeyStr[SF_PWDMINLEN_FALSE], 
+				pSfPwdPolicyKeyStr[SF_PWDMINLEN_FALSE], 
+				strLangMsg, 
+				MAX_BUF_LEN);
+			errorMsg += (string)strLangMsg;	
+		}
+
+		if (pPwdPolicyCheckResult->bPwdMaxAge)
+		{
+			char strLangMsg[MAX_BUF_LEN] = {0};
+
+			GetLangValueByKeyA(language, 
+				PWDPOLICY_APPNAME, 
+				pSfPwdPolicyKeyStr[SF_PWDMAXAGE_FALSE], 
+				pSfPwdPolicyKeyStr[SF_PWDMAXAGE_FALSE], 
+				strLangMsg, 
+				MAX_BUF_LEN);
+			errorMsg += (string)strLangMsg;	
+		}
+
+		errorMsg += (string)strPwdPolicyMsg;
+
+		sprintf_s(  pMsgBuf, 
+					msgBufLen,
+					"<subitem checkItemId=\"0\" faildes=\"%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+					errorMsg.c_str(),
+					strPwdPolicyName,
+					checkItem.warningcont, 
+					checkItem.warninglevel, 
+					checkItem.srcevent);
+
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_PWDPOLICY, LOGLOCATION, pMsgBuf);
+    }
+
+    return ret;
+}
+
+/************************************************************
+ Description: 获取密码复杂性要求
+ input: pCurPath[当前路径]
+ Return: TRUE[密码复杂性要求修复]；FALSE[密码复杂性符合要求]
+*************************************************************/
+BOOL GetPasswordComplexity(IN char* pCurPath, IN int iPwdComplexity)
+{
+    BOOL ret =FALSE;
+    string writeBuf = "secedit /export /cfg ";
+    char* policyFileName = NULL;
+    size_t policyFileLen = 0;
+    char* batFileName = NULL;
+    size_t batFileLen = 0;
+    FILE *pfile = NULL;
+    errno_t err = 0;
+
+    policyFileLen = (strlen(pCurPath) + strlen("Policy.cfg"))*sizeof(char) + 2;
+    policyFileName = (char*)malloc(policyFileLen);
+    memset(policyFileName, 0, policyFileLen);
+
+    batFileLen = (strlen(pCurPath)+strlen("gp.bat"))*sizeof(char) + 2;
+    batFileName = (char*)malloc(batFileLen);
+    memset(batFileName, 0, batFileLen);
+
+    memcpy_s(policyFileName, policyFileLen, pCurPath, strlen(pCurPath));
+    strcat_s(policyFileName, policyFileLen, "Policy.cfg");
+
+    memcpy_s(batFileName, batFileLen, pCurPath, strlen(pCurPath));
+    strcat_s(batFileName, batFileLen, "gp.bat");
+
+    writeBuf += policyFileName;
+    //writeBuf += " /quiet";
+
+    if ( err = fopen_s(&pfile, batFileName, "w+") == 0)
+    {
+        fwrite(writeBuf.c_str(), sizeof(CHAR), writeBuf.length(), pfile);
+        fclose(pfile);
+        pfile = NULL;
+
+        if (RunProcess(batFileName, INFINITE))
+        {
+            if ( err = fopen_s(&pfile, policyFileName, "r, ccs=UNICODE") == 0)
+            {
+                wchar_t readBuf[MAX_READBUF_LEN] = {0};
+
+                while(fgetws(readBuf, MAX_READBUF_LEN, pfile))
+                {
+                    if (_wcsnicmp(readBuf, L"PasswordComplexity", wcslen(L"PasswordComplexity")) == 0)
+                    {
+                        if ((int)(readBuf[wcslen(L"PasswordComplexity = ")] - '0') != iPwdComplexity)
+                        {
+                            ret = TRUE;
+                        }
+                        break;
+                    }
+                    memset( readBuf, 0, 100 );
+                }
+
+                fclose(pfile);
+                pfile = NULL;
+            }
+        }
+
+    }
+
+    DeleteFileA(policyFileName);
+    DeleteFileA(batFileName);
+
+    free(batFileName);
+    free(policyFileName);
+
+    return ret;
+}
+
+/************************************************************
+ Description: 设置密码复杂性要求
+ input: pCurPath[当前路径]
+        isStartUp[是否启动密码复杂性要求:"1"启动； "0"禁用]
+ Return: TRUE[成功]；FALSE[失败]
+*************************************************************/
+BOOL SetPasswordComplexity(IN CHAR* pCurPath, IN CHAR* isStartUp)
+{
+    BOOL ret =FALSE;
+
+    if (isStartUp)
+    {
+        CHAR* gpInfFile= NULL;
+        size_t gpInfFileLen = 0;
+        CHAR* pwdPolicyBatFile = NULL;
+        size_t batFileLen = 0;
+        CHAR* gpSdbFile = NULL;
+        size_t gpSdbFileLen = 0;
+        FILE *pfile = NULL;
+        errno_t err = 0;
+        string writeGpFileBuf = "[version]\r\nsignature=\"$CHICAGO$\"\r\n[System Access]\r\nPasswordComplexity = " ;
+        string writeBatFileBuf = "secedit /configure /db gp.sdb /cfg " ;
+
+        writeGpFileBuf += isStartUp;
+        writeGpFileBuf += "\r\n";
+
+        gpInfFileLen = (strlen(pCurPath)+strlen("gp.inf"))*sizeof(char) + 2;
+        gpInfFile = (char*)malloc(gpInfFileLen);
+
+        batFileLen = (strlen(pCurPath)+strlen("pwdPolicy.bat"))*sizeof(char) + 2;
+        pwdPolicyBatFile = (char*)malloc(batFileLen);
+
+        gpSdbFileLen = (strlen(pCurPath)+strlen("gp.sdb"))*sizeof(char) + 2;
+        gpSdbFile = (char*)malloc(gpSdbFileLen);
+
+        sprintf_s(gpInfFile, gpInfFileLen, "%s\\gp.inf", pCurPath);
+        sprintf_s(pwdPolicyBatFile, batFileLen, "%s\\pwdPolicy.bat", pCurPath);
+        sprintf_s(gpSdbFile, gpSdbFileLen, "%s\\gp.sdb", pCurPath);
+
+        writeBatFileBuf += gpInfFile;
+        //writeBatFileBuf += "/quiet"; 
+
+        if ( err = fopen_s(&pfile, gpInfFile, "w+") == 0)
+        {
+             fwrite(writeGpFileBuf.c_str(), sizeof(CHAR), writeGpFileBuf.length(), pfile);
+             fclose(pfile);
+             pfile = NULL;
+        }
+
+        if ( err = fopen_s(&pfile, pwdPolicyBatFile, "w+") == 0)
+        {
+            fwrite(writeBatFileBuf.c_str(), sizeof(CHAR), writeBatFileBuf.length(), pfile);
+            fclose(pfile);
+            pfile = NULL;
+        }   
+
+        if (RunProcess(pwdPolicyBatFile, INFINITE))
+        {
+            ret = TRUE;
+        }
+
+        DeleteFileA(gpInfFile);
+        DeleteFileA(pwdPolicyBatFile);
+        DeleteFileA(gpSdbFile);
+
+        free(gpSdbFile);
+        free(pwdPolicyBatFile);
+        free(gpInfFile);
+
+    }
+    return ret;
+}
+
+/************************************************************
+ Description: 检查或修复密码复杂性要求
+ input: pCurPath[当前路径]
+        fixFlag[修复标志：TRUE,修复;FALSE,不修复]
+ Return: TRUE[不符合要求需要修复或修复成功]；FALSE[符合要求或修复失败]
+*************************************************************/
+BOOL CheckPasswordComplexity(IN char* pCurPath, IN int iPwdComplexity, IN BOOL fixFlag)
+{
+    BOOL ret = FALSE;
+
+    if (!fixFlag)
+    {
+       ret = GetPasswordComplexity(pCurPath, iPwdComplexity);
+    }
+    else
+    {
+        if (iPwdComplexity == 0)
+        {
+            ret = SetPasswordComplexity(pCurPath, "0");
+        }
+        else if (iPwdComplexity == 1)
+        {
+            ret = SetPasswordComplexity(pCurPath, "1");
+        }
+    }
+
+    return ret;
+}
+
+/************************************************************
+ Description: 设置密码长度及密码使用期限策略
+ input: dwMinPasswdLen[设置密码长度]
+        dwMaxPasswdAge[密码使用期限]
+        fixFlag[修复标志：TRUE,修复;FALSE,不修复]
+ Return: TRUE[不符合要求需要修复或修复成功]；FALSE[符合要求或修复失败]
+*************************************************************/
+BOOL CheckPwdLenAndAge(_Inout_ PPWDPOLICYPOLICY pPwdPolicy, IN BOOL fixFlag)
+{
+    PUSER_MODALS_INFO_0 pui = NULL;
+    USER_MODALS_INFO_0 ui = {0};
+    NET_API_STATUS nStatus;
+    BOOL ret = FALSE;
+
+    nStatus = NetUserModalsGet(NULL, 0, (LPBYTE*)&pui);
+
+    if (nStatus == NERR_Success)
+    {
+        if (pui != NULL)
+        {
+            if (fixFlag)
+            {
+                ui.usrmod0_min_passwd_len = pPwdPolicy->checkPwdPolicy.iPwdMinLen;
+                ui.usrmod0_max_passwd_age = (86400 * pPwdPolicy->checkPwdPolicy.iPwdMaxAge);
+                ui.usrmod0_min_passwd_age = pui->usrmod0_min_passwd_age;
+                ui.usrmod0_force_logoff =  pui->usrmod0_force_logoff; 
+                ui.usrmod0_password_hist_len = pui->usrmod0_password_hist_len;
+
+                nStatus = NetUserModalsSet(NULL, 0, (LPBYTE)&ui, NULL);
+
+                if (nStatus == NERR_Success)
+                {
+                    ret = TRUE;
+                }
+            }
+            else
+            {
+                if (pPwdPolicy->checkPwdPolicy.iPwdMinLen != (int)pui->usrmod0_min_passwd_len)
+                {
+					pPwdPolicy->pwdPolicyCheckResult.bPwdMinLen = TRUE;
+                    ret = TRUE;
+                }
+                else
+                {
+                        pPwdPolicy->pwdPolicyCheckResult.bPwdMinLen = FALSE;
+                }
+
+				if (pPwdPolicy->checkPwdPolicy.iPwdMaxAge != (int)pui->usrmod0_max_passwd_age/86400)
+				{
+					pPwdPolicy->pwdPolicyCheckResult.bPwdMaxAge = TRUE;
+					ret = TRUE;
+				}
+                else
+                {
+                    pPwdPolicy->pwdPolicyCheckResult.bPwdMaxAge = FALSE;
+                }
+            }
+        }
+    }
+
+    if (pui != NULL)
+        NetApiBufferFree(pui);
+
+    return ret;
+}
+
+/************************************************************
+ Description: 检查策略
+ input: fixFlag[修复标志：TRUE,修复;FALSE,不修复]
+ Return: TRUE[不符合要求需要修复或修复成功]；FALSE[符合要求或修复失败]
+*************************************************************/
+BOOL CheckPwdPolicy(IN char* pCurPath, IN BOOL fixFlag, _Inout_ PPWDPOLICYPOLICY pPwdPolicy)
+{
+	BOOL ret = FALSE;
+
+    ret = CheckPasswordComplexity(pCurPath, pPwdPolicy->checkPwdPolicy.iPwdComplexity, fixFlag);
+    pPwdPolicy->pwdPolicyCheckResult.bPwdComplexity = ret;
+
+
+	if (pPwdPolicy->checkPwdPolicy.iPwdMinLen || pPwdPolicy->checkPwdPolicy.iPwdMaxAge)
+	{
+		CheckPwdLenAndAge(pPwdPolicy, fixFlag);
+	}
+
+    if (pPwdPolicy->pwdPolicyCheckResult.bPwdComplexity ||
+        pPwdPolicy->pwdPolicyCheckResult.bPwdMaxAge ||
+        pPwdPolicy->pwdPolicyCheckResult.bPwdMinLen)
+    {
+            ret = TRUE;
+    }
+
+    return ret;
+}

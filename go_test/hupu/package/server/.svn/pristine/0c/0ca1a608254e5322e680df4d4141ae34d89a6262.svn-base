@@ -1,0 +1,403 @@
+#include "StdAfx.h"
+#include "CertificationStg.h"
+#include "string.h"
+#include "DebugInfo.h"
+#include "xml\tinyxml.h"
+#include "8021x\Hp8021x.h"
+
+using namespace std;
+
+CertificationStg::CertificationStg(void)
+{
+	try
+	{
+		memset(&m_certifiproc,0,sizeof(CERTIFICATIONPROCESS));
+
+		//设置默认设备入网
+		m_certifiproc.enbleDeviceToRegister = 1;
+		//默认允许设置自动上线
+		m_certifiproc.iAutoRegisterOnline = 1;
+
+		//默认的定时安检的单位：
+		m_certifiproc.frequeryunit = SFMINUTE;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"CertificationStg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "CertificationStg Exception");
+	}
+}
+
+
+CertificationStg::~CertificationStg(void)
+{
+	
+}
+
+
+int  CertificationStg::Getusercertification()
+{
+  return m_certifiproc.usercertification;
+}
+
+int  CertificationStg::Getguestcertification()
+{
+	return m_certifiproc.iGuestCertification;
+}
+
+int CertificationStg::Getuserdynamicform()
+{
+	return m_certifiproc.userdynamicforms;
+}
+
+int CertificationStg::Getdevicecertification()
+{
+	return m_certifiproc.devicecertification;
+}
+
+int CertificationStg::Getdeviceinfoaudit()
+{
+	return m_certifiproc.deviceinfoaudit;
+}
+
+int CertificationStg::Getdevicedynamicforms()
+{
+	return m_certifiproc.devicedynamicForms;
+}
+
+int CertificationStg::Getinstallhelp()
+{
+	return m_certifiproc.installhelp;
+}
+
+int CertificationStg::Getsystemsafecheck()
+{
+	int iRet = 0;
+
+	if (!g_bEnable8021x)
+	{
+		iRet = m_certifiproc.systemsafecheck;
+	}
+
+	return iRet;
+}
+
+ unsigned long CertificationStg::Getfrequency()
+{
+	unsigned long frequeryres = m_certifiproc.frequency;
+	if ( frequeryres != 0 )
+	{
+		switch (m_certifiproc.frequeryunit)
+		{
+		case SFMINUTE:
+			frequeryres=frequeryres*60*1000;
+			break;
+		case SFHOUR:
+			frequeryres=frequeryres*60*60*1000;
+			break;
+		case SFDAY:
+			frequeryres=frequeryres*24*60*60*1000;
+			break;
+		}
+	}
+	return frequeryres;
+}
+
+int CertificationStg::Getfrequencyunit()
+{
+	return m_certifiproc.frequeryunit;
+}
+
+int CertificationStg::GetapplicationAuthen()
+{
+	return m_certifiproc.applicationAuthen;
+}
+
+int CertificationStg::GetNetAPPcheck(OUT char*  weidunparam,OUT unsigned int outputLen)
+{
+	try
+	{
+		ASSERT(weidunparam);
+
+		memcpy(weidunparam,m_certifiproc.networkAppCheck, min(outputLen-1, strlen(m_certifiproc.networkAppCheck)));
+		if (strcmp(m_certifiproc.networkAppCheck, "0")==0)
+		{
+			return false;
+		}
+		else
+		{
+			return true;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetCertificationStg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetCertificationStg Exception");
+	}
+	return false;
+}
+
+int CertificationStg::GetStgId(OUT char* stgid, OUT unsigned int outputLen)
+{
+	try
+	{
+		ASSERT(stgid);
+
+		if ( strcmp(m_certifiproc.stgid, "")==0 )
+		{
+			return false;
+		}
+		else
+		{
+			memcpy(stgid,m_certifiproc.stgid, min(outputLen-1, strlen(m_certifiproc.stgid)));
+			return true;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetStgId Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetStgId Exception");
+	}
+   return false;
+}
+
+int CertificationStg::GetUserId(OUT char* userid,OUT int useridlen)
+{
+	try
+	{
+		ASSERT(userid);
+
+		if ( strcmp(m_certifiproc.userid, "")==0 )
+		{
+			return FALSE;
+		}
+		else
+		{
+			memcpy(userid, m_certifiproc.userid, min(useridlen-1, strlen(m_certifiproc.userid)));
+			return TRUE;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetUserId Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetUserId Exception");
+	}
+	return FALSE;
+}
+
+ int CertificationStg::GetUserType()
+ {
+	 return m_certifiproc.usertype;
+ }
+
+int CertificationStg::GetSilenceConfig()
+{
+    return m_certifiproc.tipmsgsilent;
+}
+
+int CertificationStg::GetUninstallCodeConfig()
+{
+	return m_certifiproc.noUninstallCode;
+}
+int  CertificationStg::parseCertificationXml(IN char *xmlBuffer)
+{
+    try
+    {
+
+        TiXmlDocument* myDocument = new TiXmlDocument();
+        if (myDocument==NULL)
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "new TiXmlDocument Fail");
+            return HP_XML_LOADXMLFAILED;
+        }
+
+        myDocument->Parse(xmlBuffer);
+        if (myDocument->Error())
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "new TiXmlDocument Fail");
+            delete myDocument;
+            return HP_XML_LOADXMLFAILED;
+        }
+        TiXmlElement *rootElement = myDocument->RootElement();//<nac>
+        if (rootElement==NULL)
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION,"RootElement Fail");
+            delete myDocument;
+            return HP_XML_LOADXMLFAILED;
+        }
+        TiXmlElement *imanElement = rootElement->FirstChildElement();//<authstg>
+        if (imanElement==NULL)
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION,"FirstChildElement Fail");
+            delete myDocument;
+            return HP_XML_LOADXMLFAILED;
+        }
+
+        while(imanElement)
+        {
+            TiXmlElement *subitemElement = imanElement->FirstChildElement();//<sauthid>
+            if (subitemElement==NULL)
+            {
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "获取认证流程xml错误");
+            }
+
+            while(subitemElement)
+            {
+                    if (strcmp((char*)subitemElement->Value(),"sauthid")==0)
+                    {
+                        memset(m_certifiproc.stgid,0,sizeof(m_certifiproc.stgid));
+                        memcpy(m_certifiproc.stgid,(char*)subitemElement->GetText(), min(sizeof(m_certifiproc.stgid)-1,strlen((char*)subitemElement->GetText())));
+                    }
+                    else if (strcmp((char*)subitemElement->Value(),"iuserid")==0)
+                    {
+                        memset(m_certifiproc.userid,0,sizeof(m_certifiproc.userid));
+                        memcpy(m_certifiproc.userid,(char*)subitemElement->GetText(), min(sizeof(m_certifiproc.userid)-1,strlen((char*)subitemElement->GetText())));
+                        WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "m_certifiproc.userid",m_certifiproc.userid);
+                    }
+					else if (strcmp((char*)subitemElement->Value(),"usertype")==0)
+					{
+						m_certifiproc.usertype = atoi((char*)subitemElement->GetText());
+					}
+                    else if (strcmp((char*)subitemElement->Value(),"userauth")==0)
+                    {
+                        m_certifiproc.usercertification = atoi((char*)subitemElement->GetText());
+                    }
+                    else if (strcmp((char*)subitemElement->Value(),"guestauth")==0)
+                    {
+                        m_certifiproc.iGuestCertification = atoi((char*)subitemElement->GetText());
+                    }
+                    else if (strcmp((char*)subitemElement->Value(),"userdynamicforms")==0){
+                        m_certifiproc.userdynamicforms=atoi((char*)subitemElement->GetText());
+                    }
+                    else if (strcmp((char*)subitemElement->Value(),"deviceauth")==0){
+                        m_certifiproc.devicecertification=atoi((char*)subitemElement->GetText());
+                    }
+                    else if (strcmp((char*)subitemElement->Value(),"deviceauthaudit")==0){
+                        m_certifiproc.deviceinfoaudit=atoi((char*)subitemElement->GetText());
+                    }
+                    else if (strcmp((char*)subitemElement->Value(),"devicedynamicForms")==0){
+                        m_certifiproc.devicedynamicForms = atoi((char*)subitemElement->GetText());
+                    }
+                    else if (strcmp((char*)subitemElement->Value(),"installclient")==0){
+                        m_certifiproc.installhelp = atoi((char*)subitemElement->GetText());
+                    }
+                    else if (strcmp((char*)subitemElement->Value(),"securitycheck")==0){
+                        m_certifiproc.systemsafecheck=atoi((char*)subitemElement->GetText());
+                    }
+                    else if (strcmp((char*)subitemElement->Value(),"securitycheckinterval")==0){
+                        m_certifiproc.frequency=atoi((char*)subitemElement->GetText());
+                    }
+					else if(strcmp((char*)subitemElement->Value(),"isecuritycheckunit")==0){
+					    m_certifiproc.frequeryunit=atoi((char*)subitemElement->GetText());
+					}
+                    else if (strcmp((char*)subitemElement->Value(),"appauth")==0){
+                        m_certifiproc.applicationAuthen=atoi((char*)subitemElement->GetText());
+                    }
+                    else if (strcmp((char*)subitemElement->Value(),"netappcheck")==0){
+                         memset(m_certifiproc.networkAppCheck,0,sizeof(m_certifiproc.networkAppCheck));
+                        memcpy(m_certifiproc.networkAppCheck,(char*)subitemElement->GetText(),min(sizeof(m_certifiproc.networkAppCheck)-1, strlen((char*)subitemElement->GetText())));
+                    }
+                    else if ( strcmp((char*)subitemElement->Value(),"msgsilence")==0 )
+                    {
+                        m_certifiproc.tipmsgsilent = atoi((char*)subitemElement->GetText());
+                    }
+					else if ( strcmp((char*)subitemElement->Value(),"uninstall")==0 )
+					{
+						m_certifiproc.noUninstallCode = atoi((char*)subitemElement->GetText());
+					}
+					else if ( strcmp((char*)subitemElement->Value(),"senabledevice")==0 )
+					{
+						m_certifiproc.enbleDeviceToRegister = atoi((char*)subitemElement->GetText());
+					}
+					else if ( strcmp((char*)subitemElement->Value(),"senableinfo")==0 )
+					{
+						memset(m_certifiproc.enbleDeviceMsg,0,sizeof(m_certifiproc.enbleDeviceMsg));
+						memcpy(m_certifiproc.enbleDeviceMsg,(char*)subitemElement->GetText(),
+							min(sizeof(m_certifiproc.enbleDeviceMsg)-1, strlen((char*)subitemElement->GetText())));
+					}
+					else if ( strcmp((char*)subitemElement->Value(),"idomainlogin")==0 ){
+					     m_certifiproc.istartdomainregist = atoi((char*)subitemElement->GetText());
+					}
+					else if ( strcmp((char*)subitemElement->Value(),"iautoauth")==0 ){
+						m_certifiproc.iAutoRegisterOnline = atoi((char*)subitemElement->GetText());
+					}
+					else if ( strcmp((char*)subitemElement->Value(),"ifenableautorepair")==0 ){
+						m_certifiproc.iAutoRepari = atoi((char*)subitemElement->GetText());
+					}
+					else if ( strcmp((char*)subitemElement->Value(),"idomaindefault")==0 ){
+						m_certifiproc.showdefaultindomain = atoi((char*)subitemElement->GetText());
+					}
+					else if ( strcmp((char*)subitemElement->Value(),"idomainname")==0 ){
+						m_certifiproc.usedomainservname = atoi((char*)subitemElement->GetText());
+					}
+                subitemElement=subitemElement->NextSiblingElement();
+            }//while(subitemElement)
+
+            imanElement = imanElement->NextSiblingElement();
+        }//while(imanElement)
+
+        delete myDocument;
+
+        return HP_SUCCESS;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        ::MessageBox(NULL, L"GetCertificationStg Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetCertificationStg Exception");
+        return HP_XML_LOADXMLFAILED;
+    }
+}
+
+int CertificationStg::GetEnableDeviceToregisterConfig()
+{
+	return m_certifiproc.enbleDeviceToRegister;
+}
+
+int CertificationStg::GetEnableDeviceMsg(OUT char* msginfo,IN int msginfolen)
+{
+	if ( strcmp(m_certifiproc.enbleDeviceMsg, "")==0 )
+	{
+		return false;
+	}
+	else
+	{
+		memcpy(msginfo,m_certifiproc.enbleDeviceMsg, min(msginfolen-1, strlen(m_certifiproc.enbleDeviceMsg)));
+		return true;
+	}
+}
+
+int CertificationStg::GetStartdomainregist()
+{
+	return m_certifiproc.istartdomainregist;
+}
+
+int CertificationStg::GetAutoRepariConfig()
+{
+	return m_certifiproc.iAutoRepari;
+}
+
+
+int CertificationStg::GetAutoRegisterOnline()
+{
+	return m_certifiproc.iAutoRegisterOnline;
+}
+
+int CertificationStg::GetShowDefaultInFDomain()
+{
+	return m_certifiproc.showdefaultindomain;
+}
+
+int CertificationStg::GetShowDomainServerName()
+{
+	return m_certifiproc.usedomainservname;
+}

@@ -1,0 +1,10 @@
+#ifndef _INSTALL_WPCAP_H
+#define _INSTALL_WPCAP_H 1
+
+BOOL InstallWpcap();
+BOOL UnloadWpcap();
+
+BOOL InstallNacMntor();
+BOOL UnloadNacMntor();
+
+#endif

@@ -1,0 +1,60 @@
+#pragma once
+#include "afxcmn.h"
+#include "DlgLogInfo.h"
+#include "DlgNicSet.h"
+#include "DlgHelp.h"
+
+#define MAX_BUF_LEN 256 
+
+// CAuthenticationWindow dialog
+
+class CAuthenticationWindow : public CDialogEx
+{
+	DECLARE_DYNAMIC(CAuthenticationWindow)
+
+public:
+	CAuthenticationWindow(CWnd* pParent = NULL);   // standard constructor
+	virtual ~CAuthenticationWindow();
+
+// Dialog Data
+	enum { IDD = IDD_DLG_AUTHEN_WIN };
+
+protected:
+	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
+
+	DECLARE_MESSAGE_MAP()
+
+public:
+	virtual BOOL OnInitDialog();
+	afx_msg void OnBnClickedBtnLogon();
+	afx_msg void OnBnClickedBtnLogoff();
+	afx_msg void OnBnClickedBtnHidewin();
+	void SaveUserInfo();
+	afx_msg void OnBnClickedChkSaveUsername();
+	afx_msg void OnSelchangeTabOptions(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg LRESULT OnDiaplayInfoNotify(WPARAM wparam,LPARAM lparam);
+	afx_msg LRESULT OnDisconnectedNotify(WPARAM wparam, LPARAM lparam);
+	afx_msg void OnDestroy();
+
+	void GetSavedUserNameAndPwd(OUT wstring& wstrUserName, OUT wstring& wstrPwd, OUT wstring& wstrSaveUserFlag);
+	int WriteAuthenLog(IN const char* pWriteBuf);
+	string ReadAuthenLog();
+	static DWORD WINAPI ConThread(LPVOID lpParameter);
+
+	CTabCtrl m_tab_authen_window;
+	CDlgLogInfo m_dlg_loginfo;
+	CDlgNicSet m_dlg_nicset;
+	CDlgHelp m_dlg_help;
+	BOOL m_isConnect;
+};
+
+extern CAuthenticationWindow *pAuthenticationWindowDlg;
+extern HANDLE hThread;
+extern HWND g_hMainWnd;
+extern wchar_t wstrShareBuf[MAX_BUF_LEN];
+
+HWND ShowAuthenWindowsDlg(IN HWND hMainWnd);
+void ConnectingNetwork();
+void DisconnectNetwork();
+void ClearResource();
+void GetShareBuf(wchar_t* pShareBuf);

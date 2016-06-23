@@ -1,0 +1,2366 @@
+#include "stdafx.h"
+#include "SafeCheckFuntion.h"
+#include "..\DebugInfo.h"
+
+#include <shlwapi.h>
+#pragma comment(lib,"shlwapi.lib")///////PathIsDirectoryA()
+
+#include <lm.h>//获取计算机的组名
+#pragma comment(lib, "Netapi32.lib")
+
+
+#include <UserEnv.h>
+#pragma comment(lib,"UserEnv.lib")
+#include <Wtsapi32.h>
+#pragma comment(lib,"Wtsapi32.lib")
+
+#include <sddl.h>
+#pragma comment(lib,"Advapi32.lib")
+#include "ARP.h"
+#include <map>
+#include <vector>
+#include <string>
+using namespace std;
+
+#include "..\GlobalDate.h"
+#include   "..\strconvert.h"
+#include "..\HttpClient.h"
+#include "HandleJob1.h"
+#include "GetHardDiskInfo.h"
+#include "OperationSystem.h"
+#include "..\GlobalFunction.h"
+#include "..\8021x\Hp8021x.h"
+#include "..\UserInfo.h"
+#include "..\..\..\GetDeviceUniqueInfo\GetDeviceUniqueInfo\GetDeviceUniqueInfo.h"
+
+ PFNAllocateAndGetTcpExTableFromStack pAllocateAndGetTcpExTableFromStack;
+ PFNInternalGetTcpTable2 pInternalGetTcpTable2;
+ PFNAllocateAndGetUdpExTableFromStack pAllocateAndGetUdpExTableFromStack;
+ PFNInternalGetUdpTableWithOwnerPid pInternalGetUdpTableWithOwnerPid;
+
+ int UrlEncodeUtf8(LPCSTR pszUrl, LPSTR pszEncode, int nEncodeLen)
+{
+	try
+	{
+		int nRes = 0;
+		wchar_t* pWString = NULL;
+		char* pString = NULL;
+		char* pResult = NULL;
+
+		do 
+		{
+			if( pszUrl == NULL )
+				break;
+
+			//先将字符串由多字节转换成UTF-8编码  
+			int nLength = MultiByteToWideChar(CP_ACP, 0, pszUrl, -1, NULL, 0);
+
+			//分配Unicode空间  
+			pWString = new wchar_t[nLength+1];
+			if (pWString == NULL)
+				break;
+
+			memset(pWString, 0, (nLength+1)*sizeof(wchar_t));
+			//先转换成Unicode
+			MultiByteToWideChar(CP_ACP, 0, pszUrl, -1, pWString, nLength);
+
+			//分配UTF-8空间
+			nLength = WideCharToMultiByte(CP_UTF8, 0, pWString, -1, NULL, 0, NULL, NULL);
+			pString = new char[nLength+1];
+			if (pString == NULL)
+				break;
+
+			memset(pString, 0, nLength+1);
+			//Unicode转到UTF-8
+			nLength = WideCharToMultiByte(CP_UTF8, 0, pWString, -1, pString, nLength, NULL, NULL);
+
+			pResult = new char[nLength*2];
+			if (pResult == NULL)
+				break;
+
+			memset(pResult, 0, nLength*2);
+			char* pTmp = pResult;
+			static char hex[]={'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+
+			for(int i = 0; i < nLength; i++)
+			{
+				unsigned char c = pString[i];
+				if (c == 0)
+				{
+					break;
+				}
+
+				if(c > 0x20 && c < 0x7f)// 数字或字母
+				{
+					*pTmp++ = c;
+				}
+				else if(c == 0x20)// 包含空格  
+				{
+					*pTmp++ = '%';
+					*pTmp++ = hex[c / 16];
+					*pTmp++ = hex[c % 16];
+				}
+				else// 进行编码
+				{
+					*pTmp++ = '%';
+					*pTmp++ = hex[c / 16];
+					*pTmp++ = hex[c % 16];
+				}
+			}
+			nLength = strlen(pResult);
+			nRes = nLength;
+			if( pszEncode == NULL || nEncodeLen < nLength)
+				break;
+
+			memcpy(pszEncode, pResult, nLength);
+		} while (0);
+
+		if (pWString != NULL)
+			delete []pWString;
+
+		if (pString != NULL)
+			delete []pString;
+
+		if (pResult != NULL)
+			delete []pResult;
+
+		return nRes;
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"UrlEncodeUtf8 except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "UrlEncodeUtf8 except");
+	}
+
+	return 0;
+}
+
+ int UrlEncodeUtf8(LPCWSTR pszUrl, LPWSTR pszEncode, int nEncodeLen)
+{
+	try
+	{
+		int nRes = 0;
+		const int nBufferSize = MAX_PATH;
+		char* pStringA = new char[nBufferSize];
+		char* pCodeA = new char[nBufferSize];
+		wchar_t* pCodeW = new wchar_t[nBufferSize];
+
+		do
+		{
+			if (pszUrl == NULL)
+				break;
+
+			if (pStringA == NULL || pCodeA == NULL || pCodeW == NULL)
+				break;
+
+			memset(pStringA, 0, nBufferSize);
+			memset(pCodeA, 0, nBufferSize);
+			memset(pCodeW, 0, nBufferSize*2);
+
+			WideCharToMultiByte(CP_ACP, 0, pszUrl, -1, pStringA, nBufferSize, 0, 0);
+			nRes = UrlEncodeUtf8(pStringA, pCodeA, nBufferSize);
+			if (nRes == 0)
+				break;
+
+			nRes = MultiByteToWideChar(CP_ACP, 0, pCodeA, -1, pCodeW, nBufferSize);
+			if (nRes >= nEncodeLen)
+				break;
+
+			if (pszEncode != NULL)
+			{
+				memset(pszEncode, 0, nEncodeLen*2);
+				memcpy(pszEncode, pCodeW, nRes*2);
+			}
+		} while (0);
+
+		if (pStringA != NULL)
+			delete []pStringA;
+
+		if (pCodeA != NULL)
+			delete []pCodeA;
+
+		if (pCodeW != NULL)
+			delete []pCodeW;
+
+		return nRes;
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"UrlEncodeUtf8W except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "UrlEncodeUtf8W except");
+	}
+	return 0;
+}
+
+bool DownLoadFileFromUrl(wchar_t *hostIp, char *UrlPath, char *szLocalFile, bool bFailIfExist, bool bIsexeProg)
+{
+	try
+	{
+		if(bFailIfExist && !PathIsDirectoryA(szLocalFile) &&(GetFileAttributesA(szLocalFile)!=INVALID_FILE_ATTRIBUTES))
+		{
+			return false;
+		} 
+
+        string urlstr = UrlPath;
+        int urlpos = urlstr.find(".exe",0);
+
+        if(urlpos == string::npos)
+        {
+            urlpos = urlstr.find(".EXE",0);
+            if(urlpos == string::npos)
+            {
+                if (bIsexeProg)
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (!bIsexeProg)
+                {
+                    return false;
+                }
+            }
+        }
+
+		wchar_t pszUrl[1024]={L"0"};
+		MultiByteToWideChar(CP_ACP,0,UrlPath,-1,pszUrl,1024);
+		int nEncodeLen = wcslen(pszUrl);
+		int nRes = 0;
+
+		const int nBufferSize = 1024;
+		char* pStringA = new char[nBufferSize];
+		char* pCodeA = new char[nBufferSize];
+		wchar_t* pCodeW = new wchar_t[nBufferSize];
+
+		do
+		{
+			if (pszUrl == NULL)
+				break;
+
+			if (pStringA == NULL || pCodeA == NULL || pCodeW == NULL)
+				break;
+
+			memset(pStringA, 0, nBufferSize);
+			memset(pCodeA, 0, nBufferSize);
+			memset(pCodeW, 0, nBufferSize*2);
+
+			WideCharToMultiByte(CP_ACP, 0, pszUrl, -1, pStringA, nBufferSize, 0, 0);
+			nRes = UrlEncodeUtf8(pStringA, pCodeA, nBufferSize);
+			if (nRes == 0)
+				break;
+
+			nRes = MultiByteToWideChar(CP_ACP, 0, pCodeA, -1, pCodeW, nBufferSize);
+			if (nRes >= nEncodeLen)
+				break;
+
+		} while (0);
+
+		if (pStringA != NULL)
+			delete []pStringA;
+
+		if (pCodeA != NULL)
+			delete []pCodeA;
+
+
+		CHttpClient downloadClient(pCodeW);
+
+		wchar_t headers[1024]={L"0"};
+
+		wsprintf(headers,L"Accept: image/gif, image/jpeg, image/pjpeg, image/pjpeg, application/x-shockwave-flash, application/x-ms-application,"
+			L"application/x-ms-xbap, application/vnd.ms-xpsdocument, application/xaml+xml, application/vnd.ms-excel, application/vnd.ms-powerpoint,"
+			L"application/msword, */*\r\n"
+			L"Accept-Language: en-us\r\n"
+			L"Connection: close\r\n"
+			L"Host:%s\r\n",hostIp);
+
+		downloadClient.SetAdditionalRequestHeaders(headers);
+		if (!downloadClient.SendHttpRequest())
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"SendHttpRequest=fail");
+			return false;
+		}
+
+		wchar_t LocalFileName[MAX_PATH]={L"0"};
+
+		MultiByteToWideChar(CP_ACP, 0, szLocalFile, -1, LocalFileName,MAX_PATH);
+
+		wstring  statcode = downloadClient.GetResponseStatusCode();
+
+		if(statcode.find(L"200") != wstring::npos)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "statcode包含200");
+			downloadClient.SaveResponseToFile(LocalFileName);
+			return true;
+		}
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"DownLoadFileFromUrl except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "DownLoadFileFromUrl except");
+	}
+
+	return false;
+}
+
+ /*************************************************
+Function Name: processName
+Description:根据进程名称结束进程
+Input and output:  
+      processName   :要结束的进程的名称
+     Retval: 结束成功返回HP_SUCCESS
+     打开进程句柄失败返回HP_PROCESS_OPENPROCFAIL
+**************************************************/
+int TerminateProcessByName(char *processName)
+{
+	try
+	{
+		wchar_t  PROCESSNAME[MAX_PATH] = {L"0"};
+		ConvertA2W(processName,PROCESSNAME,MAX_PATH);
+		return TerminateProcessByName(PROCESSNAME);
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"TerminateProcessByName except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "TerminateProcessByName except");
+	}
+    return HP_PROCESS_OPENPROCFAIL;
+}
+
+ /*************************************************
+Function Name: processName
+Description:根据进程名称结束进程
+Input and output:  
+      processName   :要结束的进程的名称
+     Retval: 结束成功返回HP_SUCCESS
+     打开进程句柄失败返回HP_PROCESS_OPENPROCFAIL
+**************************************************/
+ int TerminateProcessByName(wchar_t  *processName)
+{
+    try
+    {
+        PROCESSENTRY32 pe32; 
+        pe32.dwSize = sizeof(pe32); 
+        HANDLE hProcessSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0); 
+        if (hProcessSnap == INVALID_HANDLE_VALUE)
+        { 
+            return HP_PROCESS_OPENPROCFAIL; 
+        } 
+        BOOL bMore = ::Process32First(hProcessSnap,&pe32);
+        while (bMore)
+        { 
+            if(_wcsnicmp(pe32.szExeFile,processName , MAX_PATH)==0)
+            {
+                HANDLE hProcessHandle=::OpenProcess(PROCESS_TERMINATE,FALSE,pe32.th32ProcessID);
+                if (hProcessHandle == NULL )
+                {
+#ifdef _DEBUG
+					MessageBox(NULL,L"TerminateProcessByName hProcessHandle NULL",L"Msg",0);
+#endif
+                }
+                else
+                {
+                    DWORD dwExitCode = 0;
+                    if (!TerminateProcess(hProcessHandle,GetExitCodeProcess(hProcessHandle,&dwExitCode)))
+                    {
+#ifdef _DEBUG
+						MessageBox(NULL,L"TerminateProcess Fail",L"Msg",0);
+#endif
+                    }
+                    CloseHandle(hProcessHandle);
+                    hProcessHandle = NULL;
+                }
+                
+            }
+            bMore = ::Process32Next(hProcessSnap,&pe32); 
+        }
+        ::CloseHandle(hProcessSnap);
+        hProcessSnap = NULL;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+		MessageBox(NULL,L"TerminateProcessByName exception",L"Msg",0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"TerminateProcessByName exception");
+    }
+
+	return HP_SUCCESS;
+}
+
+//返回CANTFINDPORT表示找不到该端口
+HMODULE  InitPortFunc()
+{
+	try
+	{
+		HMODULE hModule = LoadLibraryW(L"iphlpapi.dll");
+		if (hModule == NULL)
+		{
+			return NULL;
+		}
+		OSVERSIONINFOEX os;
+		os.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+		if(GetVersionEx((OSVERSIONINFO*)&os))
+		{
+			if (os.dwMajorVersion==6)//Win7的系统
+			{
+				pInternalGetTcpTable2 = (PFNInternalGetTcpTable2)GetProcAddress(hModule, "InternalGetTcpTable2");
+				pInternalGetUdpTableWithOwnerPid = (PFNInternalGetUdpTableWithOwnerPid)GetProcAddress(hModule, "InternalGetUdpTableWithOwnerPid");
+				if ((pInternalGetTcpTable2==NULL)||(pInternalGetUdpTableWithOwnerPid==NULL))
+				{
+					return NULL;
+				}
+			}
+			else//XP的系统
+			{
+				pAllocateAndGetTcpExTableFromStack = (PFNAllocateAndGetTcpExTableFromStack)GetProcAddress(hModule, "AllocateAndGetTcpExTableFromStack");
+				pAllocateAndGetUdpExTableFromStack = (PFNAllocateAndGetUdpExTableFromStack)GetProcAddress(hModule,"AllocateAndGetUdpExTableFromStack");
+				if ((pAllocateAndGetTcpExTableFromStack==NULL)||(pAllocateAndGetUdpExTableFromStack==NULL))
+				{
+					return NULL;
+				}
+			}
+		}
+		return hModule;
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"InitPortFunc except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "InitPortFunc except");
+	}
+	return NULL;
+}
+
+ DWORD GetProcessIdByTcpPort(HMODULE hModule, DWORD Port)
+{
+	try
+	{
+		DWORD dwProcessId= 0;
+		OSVERSIONINFOEX os;
+		os.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+		if(GetVersionEx((OSVERSIONINFO*)&os))
+		{
+			if(os.dwMajorVersion>=6)
+			{
+				PMIB_TCPEXTABLE_VISTA pTcpExTable = NULL;
+				if (pInternalGetTcpTable2(&pTcpExTable, GetProcessHeap(), 1))
+				{
+					if (pTcpExTable)
+					{
+						HeapFree(GetProcessHeap(), 0, pTcpExTable);
+					}
+
+					FreeLibrary(hModule);
+					hModule = NULL;
+
+					return dwProcessId;
+				}
+				for (UINT i = 0;i < pTcpExTable->dwNumEntries; i++)
+				{
+					// 过滤掉数据，只获取我们要查询的进程的 TCP Port 信息
+					DWORD dwPort=ntohs(0x0000FFFF & pTcpExTable->table[i].dwLocalPort);
+					if((dwPort==Port)&&( pTcpExTable->table[i].dwState == MIB_TCP_STATE_LISTEN))
+					{
+						dwProcessId=pTcpExTable->table[i].dwProcessId;
+						break;
+					}
+				}
+
+				if (pTcpExTable)
+				{
+					HeapFree(GetProcessHeap(), 0, pTcpExTable);
+				}
+				FreeLibrary(hModule);
+				hModule = NULL;
+				return dwProcessId;
+			}
+			else//xp系统
+			{
+				PMIB_TCPEXTABLE pTcpExTable = NULL;
+				if (pAllocateAndGetTcpExTableFromStack(&pTcpExTable, TRUE, GetProcessHeap(), 0, AF_INET) != 0)
+				{
+					if (pTcpExTable)
+					{
+						HeapFree(GetProcessHeap(), 0, pTcpExTable);
+					}
+
+					FreeLibrary(hModule);
+					hModule = NULL;
+
+					return dwProcessId;
+				}
+				// 表明为 XP 或者 Server 2003 操作系统
+				for (UINT i = 0; i < pTcpExTable->dwNumEntries; i++)
+				{
+					// 过滤掉数据，只获取我们要查询的进程的 Port 信息
+					DWORD dwPort = ntohs(0x0000FFFF & pTcpExTable->table[i].dwLocalPort);
+					if((dwPort==Port)&&(pTcpExTable->table[i].dwState == MIB_TCP_STATE_LISTEN))
+					{
+						dwProcessId=pTcpExTable->table[i].dwProcessId;
+						break;
+					}
+				}
+				if (pTcpExTable)
+				{
+					HeapFree(GetProcessHeap(), 0, pTcpExTable);
+				}
+				FreeLibrary(hModule);
+				hModule = NULL;
+				return dwProcessId;
+			}
+		}
+		return dwProcessId;
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetUdpPortByProcessId except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetUdpPortByProcessId except");
+	}
+	return 0;
+}
+
+DWORD GetUdpPortByProcessId(HMODULE hModule,DWORD Port)
+{
+	try
+	{
+		DWORD dwProcessId = 0;
+		OSVERSIONINFOEX os;
+
+		os.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+		if(GetVersionEx((OSVERSIONINFO*)&os))
+		{
+			PMIB_UDPEXTABLE pUdpExTable = NULL;
+			if(os.dwMajorVersion>=6)
+			{
+				if (pInternalGetUdpTableWithOwnerPid(&pUdpExTable, GetProcessHeap(), 1))
+				{
+					if (pUdpExTable)
+						HeapFree(GetProcessHeap(), 0, pUdpExTable);
+					FreeLibrary(hModule);
+					hModule = NULL;
+					return dwProcessId;
+				}
+
+				for (UINT i = 0; i < pUdpExTable->dwNumEntries; i++)
+				{
+					// 过滤掉数据，只获取我们要查询的进程的 UDP Port信息
+					DWORD dwPort = ntohs(0x0000FFFF & pUdpExTable->table[i].dwLocalPort);
+					if(dwPort==Port)
+					{
+						dwProcessId=pUdpExTable->table[i].dwProcessId;
+						break;
+					}
+				}
+				if (pUdpExTable)
+				{
+					HeapFree(GetProcessHeap(), 0, pUdpExTable);
+				}
+				FreeLibrary(hModule);
+				hModule = NULL;
+				return dwProcessId;
+			}
+			else
+			{
+				if (pAllocateAndGetUdpExTableFromStack(&pUdpExTable, TRUE, GetProcessHeap(), 0, AF_INET) != 0)
+				{
+					if (pUdpExTable)
+					{
+						HeapFree(GetProcessHeap(), 0, pUdpExTable);
+					}
+					FreeLibrary(hModule);
+					hModule = NULL;
+					return dwProcessId;
+				}
+
+				for (UINT i = 0; i < pUdpExTable->dwNumEntries; i++)
+				{
+					// 过滤掉数据，只获取我们要查询的进程的 UDP Port信息
+					DWORD dwPort = ntohs(0x0000FFFF & pUdpExTable->table[i].dwLocalPort);
+					if(dwPort==Port)
+					{
+						dwProcessId = pUdpExTable->table[i].dwProcessId;
+						break;
+					}
+				}
+				if (pUdpExTable)	
+					HeapFree(GetProcessHeap(), 0, pUdpExTable);
+				FreeLibrary(hModule);
+				hModule = NULL;
+				return dwProcessId;
+			}
+		}
+		return dwProcessId;
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetUdpPortByProcessId except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetUdpPortByProcessId except");
+	}
+	return 0;
+}
+
+bool  TerminateProcessForOccupiedTcpPort(HMODULE hModule,DWORD Port)
+{
+	try
+	{
+		DWORD dwProcessId= 0;
+		OSVERSIONINFOEX os;
+		os.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+		if(GetVersionEx((OSVERSIONINFO*)&os))
+		{
+			if(os.dwMajorVersion>=6)//Win7
+			{
+				PMIB_TCPEXTABLE_VISTA pTcpExTable = NULL;
+				if (pInternalGetTcpTable2(&pTcpExTable, GetProcessHeap(), 1))
+				{
+					if (pTcpExTable)
+					{
+						HeapFree(GetProcessHeap(), 0, pTcpExTable);
+					}
+
+					FreeLibrary(hModule);
+					hModule = NULL;
+
+					return false;
+				}
+				for (UINT i = 0;i < pTcpExTable->dwNumEntries; i++)
+				{
+					// 过滤掉数据，只获取我们要查询的进程的 TCP Port 信息
+					DWORD dwPort=ntohs(0x0000FFFF & pTcpExTable->table[i].dwLocalPort);
+					if(dwPort==Port)
+					{
+						dwProcessId=pTcpExTable->table[i].dwProcessId;
+						HANDLE hProcessHandle = NULL;
+						hProcessHandle=::OpenProcess(PROCESS_TERMINATE,FALSE,dwProcessId);
+						TerminateProcess(hProcessHandle,4);
+					}
+				}
+
+				if (pTcpExTable)
+				{
+					HeapFree(GetProcessHeap(), 0, pTcpExTable);
+				}
+				FreeLibrary(hModule);
+				hModule = NULL;
+				return true;
+			}
+			else//xp系统
+			{
+				PMIB_TCPEXTABLE pTcpExTable = NULL;
+				if (pAllocateAndGetTcpExTableFromStack(&pTcpExTable, TRUE, GetProcessHeap(), 0, AF_INET) != 0)
+				{
+					if (pTcpExTable)
+					{
+						HeapFree(GetProcessHeap(), 0, pTcpExTable);
+					}
+
+					FreeLibrary(hModule);
+					hModule = NULL;
+
+					return false;
+				}
+				// 表明为 XP 或者 Server 2003 操作系统
+				for (UINT i = 0; i < pTcpExTable->dwNumEntries; i++)
+				{
+					// 过滤掉数据，只获取我们要查询的进程的 Port 信息
+					DWORD dwPort = ntohs(0x0000FFFF & pTcpExTable->table[i].dwLocalPort);
+					if(dwPort==Port)
+					{
+						dwProcessId=pTcpExTable->table[i].dwProcessId;
+						HANDLE hProcessHandle = NULL;
+						hProcessHandle=::OpenProcess(PROCESS_TERMINATE,FALSE,dwProcessId);
+						TerminateProcess(hProcessHandle,4);
+					}
+				}
+				if (pTcpExTable)
+				{
+					HeapFree(GetProcessHeap(), 0, pTcpExTable);
+				}
+				FreeLibrary(hModule);
+				hModule = NULL;
+				return true;
+			}
+		}
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"TerminateProcessForOccupiedTcpPort except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "TerminateProcessForOccupiedTcpPort except");
+	}
+	return true;
+}
+
+DWORD TerminateProcessForOccupiedUdpPort(HMODULE hModule,DWORD Port)
+{
+	try
+	{
+		DWORD dwProcessId = 0;
+		OSVERSIONINFOEX os;
+		os.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+		if(GetVersionEx((OSVERSIONINFO*)&os))
+		{
+			PMIB_UDPEXTABLE pUdpExTable = NULL;
+			if(os.dwMajorVersion>=6)
+			{
+				if (pInternalGetUdpTableWithOwnerPid(&pUdpExTable, GetProcessHeap(), 1))
+				{
+					if (pUdpExTable)
+						HeapFree(GetProcessHeap(), 0, pUdpExTable);
+					FreeLibrary(hModule);
+					hModule = NULL;
+					return FALSE;
+				}
+
+				for (UINT i = 0; i < pUdpExTable->dwNumEntries; i++)
+				{
+					// 过滤掉数据，只获取我们要查询的进程的 UDP Port信息
+					DWORD dwPort = ntohs(0x0000FFFF & pUdpExTable->table[i].dwLocalPort);
+					if(dwPort==Port)
+					{
+						dwProcessId=pUdpExTable->table[i].dwProcessId;
+						HANDLE hProcessHandle = NULL;
+						hProcessHandle=::OpenProcess(PROCESS_TERMINATE,FALSE,dwProcessId);
+						TerminateProcess(hProcessHandle,4);
+					}
+				}
+				if (pUdpExTable)
+				{
+					HeapFree(GetProcessHeap(), 0, pUdpExTable);
+				}
+				FreeLibrary(hModule);
+				hModule = NULL;
+				return TRUE;
+			}
+			else
+			{
+				if (pAllocateAndGetUdpExTableFromStack(&pUdpExTable, TRUE, GetProcessHeap(), 0, AF_INET) != 0)
+				{
+					if (pUdpExTable)
+					{
+						HeapFree(GetProcessHeap(), 0, pUdpExTable);
+					}
+					FreeLibrary(hModule);
+					hModule = NULL;
+					return FALSE;
+				}
+
+				for (UINT i = 0; i < pUdpExTable->dwNumEntries; i++)
+				{
+					// 过滤掉数据，只获取我们要查询的进程的 UDP Port信息
+					DWORD dwPort = ntohs(0x0000FFFF & pUdpExTable->table[i].dwLocalPort);
+					if(dwPort==Port)
+					{
+						dwProcessId = pUdpExTable->table[i].dwProcessId;
+						HANDLE hProcessHandle = NULL;
+						hProcessHandle=::OpenProcess(PROCESS_TERMINATE,FALSE,dwProcessId);
+						TerminateProcess(hProcessHandle,4);
+					}
+				}
+				if (pUdpExTable)	
+					HeapFree(GetProcessHeap(), 0, pUdpExTable);
+				FreeLibrary(hModule);
+				hModule = NULL;
+				return TRUE;
+			}
+		}
+		return TRUE;
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"TerminateProcessForOccupiedUdpPort except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "TerminateProcessForOccupiedUdpPort except");
+	}
+	return FALSE;
+}
+
+ void FreePortLibrary(HMODULE hModule)
+{
+	try
+	{
+		if (hModule!=NULL)
+		{
+			FreeLibrary(hModule);
+			hModule = NULL;
+		}
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"FreePortLibrary except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "FreePortLibrary except");
+	}
+}
+
+/*************************************************
+Function Name: IsProcessExec
+Description:查询某个进程是否存在
+Input and output:  
+      processName   :要查询的进程的名称
+     Retval: 查询到进程运行返回HP_SUCCESS
+                  查询不到进程运行返回HP_PROCESS_NOTHISPROC
+                  打开进程句柄失败返回HP_PROCESS_OPENPROCFAIL
+**************************************************/
+int IsProcessExec(char* processName)
+{
+	try
+	{
+		wchar_t  PROCESSNAME[MAX_PATH]={L"0"};
+
+		int Len = MultiByteToWideChar(CP_ACP,0,processName,-1,NULL,0);
+		MultiByteToWideChar(CP_ACP,0,processName,-1,PROCESSNAME,Len);
+		PROCESSNAME[Len]=L'\0';
+
+		PROCESSENTRY32 pe32; 
+		pe32.dwSize = sizeof(pe32); 
+		HANDLE hProcessSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0); 
+
+		if (hProcessSnap == INVALID_HANDLE_VALUE)
+		{ 
+			return HP_PROCESS_OPENPROCFAIL; 
+		} 
+
+		BOOL bMore = ::Process32First(hProcessSnap,&pe32);
+		while (bMore)
+		{ 
+			if(_wcsnicmp(pe32.szExeFile, PROCESSNAME ,MAX_PATH) == 0)
+			{
+				::CloseHandle(hProcessSnap);
+				hProcessSnap = NULL;
+				return HP_SUCCESS;
+			}
+			bMore = ::Process32Next(hProcessSnap, &pe32); 
+		}
+		::CloseHandle(hProcessSnap);
+		hProcessSnap = NULL;
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"IsProcessExec except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "IsProcessExec except");
+	}
+
+	return HP_PROCESS_NOTHISPROC;
+}
+
+PMIB_IPFORWARDTABLE MyGetIpForwardTable(BOOL bOrder)  
+{  
+	try
+	{
+		PMIB_IPFORWARDTABLE pIpRouteTab = NULL;  
+		DWORD dwActualSize = 0;  
+
+		// 查询所需缓冲区的大小  
+		if(::GetIpForwardTable(pIpRouteTab, &dwActualSize, bOrder) == ERROR_INSUFFICIENT_BUFFER)  
+		{  
+			// 为MIB_IPFORWARDTABLE结构申请内存  
+			pIpRouteTab = (PMIB_IPFORWARDTABLE)::GlobalAlloc(GPTR, dwActualSize);  
+
+			// 获取路由表  
+			if(::GetIpForwardTable(pIpRouteTab, &dwActualSize, bOrder) == NO_ERROR)  
+				return pIpRouteTab;  
+
+			::GlobalFree(pIpRouteTab);  
+		}  
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"MyGetIpForwardTable except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "MyGetIpForwardTable except");
+	}
+    return NULL;  
+}  
+
+ void MyFreeIpForwardTable(PMIB_IPFORWARDTABLE pIpRouteTab)  
+{  
+	try
+	{
+		if(pIpRouteTab != NULL)  
+			::GlobalFree(pIpRouteTab);  
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"MyFreeIpForwardTable except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "MyFreeIpForwardTable except");
+	}
+} 
+
+
+ //2016/3/3:项目中添加关于多卡网的处理，小助手直接上传自己的socketip就可以,不需要看路由表
+int GetCurrentUsingIp(in_addr *DesIpAddr, in_addr *SourceIpAddr)  
+{  
+	if (g_EstliSocket.IsOpen())
+	{
+		*SourceIpAddr = g_EstliSocket.m_connsip.sin_addr;
+		*DesIpAddr = g_EstliSocket.m_connsip.sin_addr;
+		return HP_SUCCESS;
+	}
+	else
+		return HP_PORT_NOIPROUTETABLE;
+}  
+
+
+int GetLocalIp(OUT char *pLocalIp)
+{
+	int iRet = FALSE;
+
+	try
+	{
+		struct in_addr SourceIpAddr;
+		struct in_addr DesIpAddr;
+		char localIp[IPADDRESSLENGTH] = {0};
+
+		iRet = GetCurrentUsingIp(&DesIpAddr, &SourceIpAddr);
+		if(iRet == HP_SUCCESS)
+		{
+			sprintf_s(localIp, IPADDRESSLENGTH, "%s", inet_ntoa(SourceIpAddr));
+			memcpy(pLocalIp, localIp, strlen(localIp));
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, pLocalIp);
+			iRet = TRUE;
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetCurrentUsingIp fail");
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetLocalIp except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetLocalIp except");
+	}
+	return iRet;
+}
+
+int GetLocalMac(char *pMacInfo)
+{
+	try
+	{
+		char localIp[IPADDRESSLENGTH] = {0};
+		char localMac[MACADDRESSLEN] = {0};
+
+		if(GetLocalIp(localIp))
+		{
+			BYTE MacAddr[MACADDRESSBYTE] = {0};
+			DWORD phyLength = MACADDRESSBYTE;
+			IPAddr ipaddrsour = inet_addr(localIp);
+
+			SendARP(ipaddrsour, NULL, MacAddr, &phyLength);
+			sprintf_s(localMac, MACADDRESSLEN, "%02X-%02X-%02X-%02X-%02X-%02X", MacAddr[0], MacAddr[1], MacAddr[2], MacAddr[3], MacAddr[4], MacAddr[5]);
+
+			memcpy(pMacInfo, localMac, strlen(localMac));
+			pMacInfo[strlen(localMac)]='\0';
+
+			return HP_SUCCESS;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetLocalMac except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetLocalMac except");
+	}
+	return HP_MSG_GETMACFAIL;
+}
+
+int GetLocalIpAndMac(OUT char *pLocalIp, OUT char *pMacInfo)
+{
+	int iRet = FALSE;
+
+	try
+	{
+		char localIp[IPADDRESSLENGTH] = {0};
+		char localMac[MACADDRESSLEN] = {0};
+
+		if(GetLocalIp(localIp))
+		{
+			BYTE MacAddr[MACADDRESSBYTE] = {0};
+			DWORD phyLength = MACADDRESSBYTE;
+			IPAddr ipaddrsour = inet_addr(localIp);
+
+			SendARP(ipaddrsour, NULL, MacAddr, &phyLength);
+			sprintf_s(localMac, MACADDRESSLEN, "%02X-%02X-%02X-%02X-%02X-%02X", MacAddr[0], MacAddr[1], MacAddr[2], MacAddr[3], MacAddr[4], MacAddr[5]);
+
+			memcpy(pLocalIp, localIp, strlen(localIp));
+			pLocalIp[strlen(localIp)]='\0';
+
+			memcpy(pMacInfo, localMac, strlen(localMac));
+			pMacInfo[strlen(localMac)]='\0';
+			iRet = TRUE;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetLocalIpAndMac except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetLocalIpAndMac except");
+	}
+
+	return iRet;
+
+}
+
+//设备认证
+ string GetDeviceIdentification(char* ascmac)
+{
+	try
+	{
+		if ( strcmp(ascmac,HPMACINITVALUE) == 0 )
+		{
+			return "";
+		}
+		char localIp[IPADDRESSLENGTH] = {0};
+		char localMac[MACADDRESSLEN] = {0};
+
+		string sdevicetype ;           //设备类型
+		string sdevicename ;         //设备名称
+		string sdevicemac  ;          //设备MAC
+		string sdeviceip   ;            //设备IP
+		string sosplatform ;          //设备平台
+		string soskernel ;              //操作系统
+		char OsVersionDes[MAX_PATH]={0};
+
+		string tmpstr ;                  //临时数据
+		string computername;
+		char ComputeTotalName[MAX_PATH]={"0"};
+		LPWSTR lpDomainName = NULL;
+		NETSETUP_JOIN_STATUS njs = NetSetupWorkgroupName;
+		int iJoinGroupLen = 0;
+
+		string strHardDiskInfo = "";
+
+		char *pJoinGroup = NULL;
+		SYSTEM_INFO  si;
+
+		sdevicetype = "PC";
+
+		if (GetLocalIpAndMac(localIp, localMac))
+		{
+			sdeviceip = localIp ;
+			sdevicemac = localMac ;
+		}
+
+		sosplatform = "32";
+		::GetNativeSystemInfo(&si);
+		if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||   
+			si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 )  
+		{  
+			sosplatform = "64";
+		} 
+
+		if (SOCKET_ERROR != gethostname(ComputeTotalName, sizeof(ComputeTotalName)))
+		{
+			struct hostent* hp;
+			hp = gethostbyname(ComputeTotalName);
+			if (hp != NULL) 
+			{
+				strncpy_s(ComputeTotalName, hp->h_name, MAX_PATH);
+			}
+		}
+
+		sdevicename = ComputeTotalName;
+
+		::NetGetJoinInformation(NULL, &lpDomainName, &njs);
+
+		iJoinGroupLen = WideCharToMultiByte(CP_ACP,0,lpDomainName,-1,NULL,0,NULL,NULL);
+		pJoinGroup = new char[iJoinGroupLen+1];
+
+		WideCharToMultiByte(CP_ACP,0,lpDomainName,-1, pJoinGroup, iJoinGroupLen,NULL,NULL);
+		pJoinGroup[iJoinGroupLen]='\0';
+
+		computername = pJoinGroup;
+		computername += "\\\\";
+		computername += ComputeTotalName;
+
+		if (pJoinGroup != NULL)
+		{
+			delete[] pJoinGroup;
+			pJoinGroup = NULL;
+		}
+
+		if (lpDomainName != NULL)
+		{
+			NetApiBufferFree(lpDomainName);
+			lpDomainName=NULL;
+		}
+
+        OperationSystem systeminfo;
+        systeminfo.GetOSVersion(OsVersionDes);
+		soskernel = OsVersionDes;
+
+		GetHardDiskInfo(strHardDiskInfo, &g_iHardDiskNum);
+
+		char uniqueMake[50] = {'\0'};
+		int changserialNum = 0;
+		char olduniqueMake[50] = {'\0'};
+		GetHardWareUniqueIndetify(FALSE,uniqueMake,sizeof(uniqueMake),
+			&changserialNum,olduniqueMake,sizeof(olduniqueMake));
+
+		if ( changserialNum == 0 )
+		{
+			sprintf_s(olduniqueMake,sizeof(olduniqueMake),"%s",uniqueMake);
+		}
+		tmpstr =  "<iman devicetype=\""+sdevicetype+
+			"\" devicename=\""+sdevicename+
+			"\" devicemac=\""+sdevicemac+
+			"\" deviceip=\""+sdeviceip+
+			"\" osplatform=\""+sosplatform+
+			"\" computername=\""+computername+
+			"\" oskernel=\""+soskernel+
+			"\" oldhard=\""+olduniqueMake+
+			"\" newhard=\""+uniqueMake+
+			"\"  ascMac=\""+ascmac+"\">"+
+			strHardDiskInfo + "</iman>";
+
+		string xmlstring1 = "<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+		string xmlstring2= "</nac>";
+		string xmlstring = xmlstring1+tmpstr+xmlstring2;
+
+
+#ifdef _DEBUG
+		OutputDebugStringA(xmlstring.c_str());
+#endif
+
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, (char*)xmlstring.c_str());
+
+		return xmlstring;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetDeviceIdentification except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetDeviceIdentification except");
+	}
+	return "";
+}
+
+//发送长连接数据:输入参数为Token值和连接类型(0建立长连接或者1修改长连接),中间使用;分割
+string GetEstablishData(char* inputparam)
+{
+	try
+	{
+		string inputStr = inputparam;
+		int pos = inputStr.find(";");
+		if(pos == string::npos )
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetEstablishData 输入参数有误");
+			return "";
+		}
+		string Token= inputStr.substr(0,pos);
+		string clienttypestr = inputStr.substr(pos+1);
+		char localIp[IPADDRESSLENGTH] = {0};
+		char localMac[MACADDRESSLEN] = {0};
+		string sdeviceip;
+		string sdevicemac ;
+
+		if (GetLocalIpAndMac(localIp, localMac))
+		{
+			sdeviceip = localIp;
+			sdevicemac = localMac;
+		}
+
+		char uniqueMake[50] = {"0"};
+		int changserialNum = 0;
+		char olduniqueMake[50] = {"0"};
+		GetHardWareUniqueIndetify(FALSE,uniqueMake,sizeof(uniqueMake),
+			&changserialNum,olduniqueMake,sizeof(olduniqueMake));
+
+		//string xmlstring = sdevicemac+";"+ sdeviceip +";"+Token+";0;"+ clienttypestr;
+		string xmlstring = sdevicemac+";"+ sdeviceip +";"+Token+";0;"+ clienttypestr+";"+uniqueMake;
+
+		return xmlstring;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetEstablishData except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetEstablishData except");
+	}
+	return "";
+}
+
+//************************************
+// 函数名称:  GetDbUser
+// 函数说明:  从数据库中查询用户
+// 返回值:   std::string
+// 参数: int registerEnableUser：认证流程中开启的用户认证类型
+// 参数: char * Outparam:返回用户的信息
+// 作者: gaochunyan
+// 日期：2015/12/03
+//************************************
+string GetDbUser(SERVREGISTERUSERTYPE EnableUser,char* Outparam)
+{
+	try
+	{
+		string sdevicemac, tmpstr, xmlstring;
+		wchar_t LocaldbPath[MAX_PATH] = {L"0"};
+
+		USERINFO localuserinfo;
+		memset(&localuserinfo,0,sizeof(USERINFO));
+
+        wchar_t DirPath[MAX_PATH] = {L"0"};
+        ConvertA2W(g_nacdirpath,DirPath,sizeof(DirPath));
+		wsprintf(LocaldbPath, L"%s\\nacdata.db", DirPath);
+
+		USERINFO dbuser;
+		memset(&dbuser,0,sizeof(USERINFO));
+
+		CUserInfo getdbuser;
+		if(HP_SUCCESS == getdbuser.GetUserNameAndPassWordFromDB(LocaldbPath, 1, EnableUser,&dbuser))
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetUserNameAndPassWordFromDB success");
+			if(dbuser.username.length() == 0)
+				xmlstring= "exception";
+			else
+			{
+				char showMac[MACADDRESSLEN] = {0};
+
+				sprintf_s(Outparam, MAX_PATH, "%s;%s;%d", dbuser.username.c_str(), dbuser.userpwd.c_str(),dbuser.usertype);		
+				GetLocalMac(showMac);
+
+				char usertypestr[HP_C_USERCONTENTLEN] = {"0"};
+				sprintf_s(usertypestr,sizeof(usertypestr),"%d",dbuser.usertype);
+
+				sdevicemac = showMac ;
+				tmpstr =  "<userlogin devicemac=\""+sdevicemac+ 
+						"\" username=\""+dbuser.username+
+						"\" password=\""+dbuser.userpwd+
+						"\" pwdtype=\"1"+
+						"\" domainid=\""+dbuser.userdomain+
+						"\" usertype=\""+usertypestr+"\"/>";
+
+				xmlstring =  "<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>"+tmpstr+"</nac>";
+			}
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"GetUserNameAndPassWordFromDB fail");
+			xmlstring= "exception";
+		}
+		return xmlstring;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetDbUser except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetDbUser except");
+	}
+	return "";
+}
+
+string GetDeviceMAC()
+{
+	try
+	{
+		char showMac[MAX_PATH]={0};
+		string xmlstring;
+
+		GetLocalMac(showMac);
+		xmlstring = showMac;
+
+		return xmlstring;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetDeviceMAC except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetDeviceMAC except");
+	}
+	return "";
+}
+
+ string SendARPInfo(char*  ascmac)
+{
+	try
+	{
+		string strtmp;
+		CARP arp;
+
+		strtmp = arp.GetARPDynamicData(ascmac);
+
+		return strtmp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"SendARPInfo except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendARPInfo except");
+	}
+	return "";
+}
+
+ string SendARPInitInfo(char*  ascmac)
+{
+	try
+	{
+		string strtmp;
+		CARP arp;
+
+		strtmp = arp.InitDataAndGetARPDynamicData(ascmac);
+
+		return strtmp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"SendARPInitInfo except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendARPInitInfo except");
+	}
+	return "";
+}
+
+ string SendExceptInfo(char *Errorinfo)
+{
+	try
+	{
+		string strtmp;
+		char localMac[MACADDRESSLEN] = {0};
+
+		GetLocalMac(localMac);
+		strtmp=(string)localMac+";" + (string)Errorinfo;
+
+		return strtmp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"SendExceptInfo except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendExceptInfo except");
+	}
+	return "";
+}
+
+string SendGetClientState()
+{
+	try
+	{
+		string strtmp = "";
+
+		char localIp[IPADDRESSLENGTH] = {0};
+		char localMac[MACADDRESSLEN] = {0};
+
+		if (GetLocalIpAndMac(localIp, localMac))
+		{
+			strtmp=(string)localIp + ";" + (string)localMac;
+		}
+		return strtmp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"Sendgetclienticon except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "Sendgetclienticon except");
+	}
+	return "";
+}
+
+ //Inparam参数包含用户id和用户类型,中间使用;分割
+  string getuserregister(char* Inparam)
+ {
+	 try
+	 {
+		 string strtmp = "";
+		 string useridstr;
+		 string usertypestr;
+		 string paramstr = Inparam;
+		 int useridpos = paramstr.find(";",0);
+
+		 if (useridpos == string::npos)
+		 {
+			 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, " get userid  fail");
+			 return strtmp;
+		 }
+
+		 useridstr = paramstr.substr(0, useridpos);
+		 usertypestr = paramstr.substr(useridpos+1);
+
+		 char localIp[IPADDRESSLENGTH] = {0};
+		 char localMac[MACADDRESSLEN] = {0};
+
+		 if (GetLocalIpAndMac(localIp, localMac))
+		 {
+			 string strBody = "<policyauthorstg iuserid=\"";
+			 string xmlstring1 = "<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+			 string xmlstring2= "</nac>";
+
+			 strBody += useridstr;
+			 strBody += "\" usertype=\"";
+			 strBody += usertypestr;
+			 strBody += "\" devicemac=\"";
+			 strBody += (string)localMac;
+			 strBody += "\"  ip=\"";
+			 strBody += (string)localIp;
+			 strBody += "\"  ascmac=\"";
+			 strBody += g_strAscMac;
+			 strBody += "\"/>";
+
+			 strtmp= xmlstring1+strBody+xmlstring2;
+		 }
+		 return strtmp;
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 MessageBox(NULL, L"getuserregister except", L"err", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "getuserregister except");
+	 }
+	 return "";
+ }
+
+ //Inputparam参数包含认证流程策略id,用户id,用户类型,控制器MAC,上线或者下线,上线和下线原因，使用#区分
+  string  SendOnlineOrOffLineMsg(char*  Inputparam)
+  {
+      try
+      {
+          string tmpstr="";
+          string inputParamStr = Inputparam;
+          vector<string> paramVec;
+          paramVec = split(inputParamStr,"#");
+          if (paramVec.size()<6)
+          {
+              WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendOnlineOrOffLineMsg输入参数错误");
+              return tmpstr;
+          }
+          char localIp[IPADDRESSLENGTH] = {0};
+          char localMac[MACADDRESSLEN] = {0};
+          string strBody = "<authstg><result>";
+          string xmlstring1 = "<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+          string xmlstring2= "</nac>";
+
+          if (GetLocalIpAndMac(localIp, localMac))
+          {
+              strBody += paramVec[4];
+              strBody += "</result><reason>";
+              strBody += paramVec[5];
+              strBody += "</reason><userid>";
+              strBody += paramVec[1];
+              strBody += "</userid><usertype>";
+              strBody += paramVec[2];
+              strBody += "</usertype><deviceinfo>";
+              strBody += (string)localIp;
+              strBody += ",";
+              strBody += (string)localMac;
+              strBody += "</deviceinfo><sauthid>";
+              strBody += paramVec[0];
+              strBody += "</sauthid><ascmac>";
+              strBody += paramVec[3];
+              strBody += "</ascmac></authstg>";
+
+              tmpstr= xmlstring1 + strBody + xmlstring2;
+          }
+          return tmpstr;
+      }
+      catch (...)
+      {
+#ifdef _DEBUG
+          MessageBox(NULL, L"SendOnlineOrOffLineMsg except", L"err", 0);
+#endif
+          WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendOnlineOrOffLineMsg except");
+      }
+      return "";
+  }
+
+ string SendStgRequest(char*  inputparam)
+ {
+	 try
+	 {
+		 string xmlstring = "";
+		 string inputstr = inputparam;
+
+		 //用户id
+		 int userpos = inputstr.find(";",0);
+
+		 if (userpos == string::npos)
+		 {
+			 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "输入参数没有;");
+			 return xmlstring;
+		 }
+		 string strUserId = inputstr.substr(0, userpos);
+
+		 //用户类型
+		 int usertypepos = inputstr.find(";", userpos+1);
+		 if (usertypepos == string::npos)
+		 {
+			 WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "输入参数没有;");
+			 return xmlstring;
+		 }
+
+		 string usertype = inputstr.substr(userpos+1,usertypepos-userpos-1);
+
+		 //策略类型
+		 string stgtypestr = inputstr.substr(usertypepos+1);
+		 char stgtype[MAX_NUMBER_LEN]={0};
+
+		 memcpy(stgtype,stgtypestr.c_str(),stgtypestr.length());
+
+		 if (atoi(strUserId.c_str()) >= -1)
+		 {
+			 char showMac[MACADDRESSLEN]={0};
+			 string tmpstr = "";
+			 string xmlstring1 = "<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+			 string xmlstring2= "</nac>";
+
+			 GetLocalMac(showMac);
+
+			tmpstr = "<iman iuserid=\"";
+			tmpstr += strUserId;
+			tmpstr +="\" ";
+			tmpstr += "usertype=\"";
+			tmpstr += usertype;
+			tmpstr +="\" ";
+			tmpstr += "devicemac=\"";
+			tmpstr += showMac;
+			tmpstr +="\" mode=\"1\" ";
+			tmpstr += "policytype=\"";
+			tmpstr += stgtype;
+			tmpstr +="\"/>";
+
+			 xmlstring = xmlstring1+tmpstr+xmlstring2;
+		 }
+		 else
+			 WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有用户ID");
+
+		 return xmlstring;	 
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 MessageBox(NULL, L"SendStgRequest except", L"err", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendStgRequest except");
+	 }
+	 return "";
+ }
+
+ //参数使用；分割，分别表示是否为密码是否为密文，是否记住密码,自动登录,用户名，用户密码，用户类型
+ string LocalUserLogOn(char*  inputparam)
+ {
+     string tmpstr="";
+     string paramStr = inputparam;
+     vector<string> paramVec;
+     paramVec = split(paramStr,";");
+     if ( paramVec.size()<7 )
+     {
+         WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "LocalUserLogOn输入参数错误");
+         return "";
+     }
+
+     char sdevicemac[MACADDRESSLEN] = {0};
+    if ( GetLocalMac(sdevicemac) == HP_SUCCESS )
+    {
+        string macStr = sdevicemac;
+		string pwdtype = "0";
+        if(atoi(paramVec[0].c_str()))
+        {
+			pwdtype = "1";
+        }	
+    
+		tmpstr =  "<userlogin devicemac=\""+macStr+ 
+			"\" username=\""+paramVec[3]+
+			"\" password=\""+paramVec[4]+
+			"\" pwdtype=\""+pwdtype+
+			"\" domainid=\""+paramVec[6]+
+			"\" usertype=\"" + paramVec[5] + "\"/>";
+
+        string xmlHeader= "<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+        string xmlTail= "</nac>";
+        string xmlstring = xmlHeader+tmpstr+xmlTail;
+        return xmlstring;
+    }
+    else
+         return "";
+ }
+
+int GetSendData(IN int iflag, OUT RECVMSG *recvMsg, char* Inparam, char* Outparam)
+{
+    try
+    {
+        string DeviceIdeXML;
+
+        recvMsg->Flag = (short)iflag;
+        recvMsg->ReServe = (short)0;
+        switch(iflag)
+        {
+			case CLIENT_SEND_HEARBEAT_PACKET_FLAG:
+			case CLIENT_GET_ADDOMAININFO:
+				{
+					DeviceIdeXML ="0";
+				}
+				break;
+
+			case CLIENT_SEND_ARPINFO_FLAG:
+				{
+					assert(Inparam != NULL);
+					DeviceIdeXML = SendARPInfo(Inparam);
+				}
+				break;
+
+			case CONNECTED_SERVER_FLAG:
+				{
+                    assert(Inparam!=NULL);
+					DeviceIdeXML= GetEstablishData(Inparam);
+				}
+				break;
+
+			case CLIENT_VERSION_FLAG:
+			case CLIENT_DIRECTION_ADDRESS_FLAG:
+				{
+					DeviceIdeXML = GetDeviceMAC();
+				}
+				break;
+
+			case CLINET_DEVICE_REG_FLAG:
+				{
+					DeviceIdeXML = GetDeviceIdentification((char*)g_strAscMac.c_str());
+				}
+				break;
+
+			case CLIENT_GET_DEVICE_AUTH_INFO_FLAG:
+			case CLIENT_REQUST_ALARM_POLICY_FLAG:
+				{
+					DeviceIdeXML = GetClientMacAndIp();
+				}
+				break;
+
+			case CLIENT_GET_AUTH_POLICY_FLAG:
+				{
+                    assert(Inparam!=NULL);
+					DeviceIdeXML = getuserregister(Inparam);
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "获取认证流程信息=", (char*)DeviceIdeXML.c_str());
+				}
+				break;
+
+			case CLIENT_GET_TIMESTAMP_FLAG:
+				DeviceIdeXML = GetServiceTimeRequest(Inparam);
+				break;
+
+			case CLIENT_GET_SYSTEMCHECK_POLICY_FLAG:
+				{
+					assert(Inparam!=NULL);
+					DeviceIdeXML= SendStgRequest(Inparam);
+				}
+				break;
+			case CLIENT_REQUST_ONLINE_FLAG:
+				{
+					assert(Inparam!=NULL);
+					DeviceIdeXML = SendOnlineOrOffLineMsg(Inparam);
+				}
+				break;
+
+			case SERVER_NOTICE_CLIENT_CHANGESTATE_FLAG:
+				{
+					if (!g_bEnable8021x)
+					{
+						DeviceIdeXML = SendGetClientState();               
+					}
+				}
+				break;
+			case CLIENT_LOGNO_USRE_FLAG:
+				{
+					assert(Inparam!=NULL);
+					assert(Outparam!=NULL);
+					SERVREGISTERUSERTYPE servusertype = (SERVREGISTERUSERTYPE)atoi(Inparam);
+					DeviceIdeXML = GetDbUser(servusertype,Outparam);
+				}
+				break;
+			case SERVER_NOTICE_CLIENT_AUTO_REPAIR_FLAG:
+				{
+					assert(Inparam!=NULL);
+					DeviceIdeXML = Inparam;
+					DeviceIdeXML += ";";
+
+					DeviceIdeXML += SERVER_SUCCESS_STR;
+				}
+				break; 
+			case CLIENT_SEND_SYSTEM_EVENTINFO_FLAG:
+				{
+					DeviceIdeXML = GetClientEventData(Inparam);
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "重启系统、切换用户事件信息", (char*)DeviceIdeXML.c_str());
+				}
+				break;
+
+			case CLIENT_LOGFILE_UPLOAD_FLAG:
+				{
+					assert(Inparam!=NULL);
+					DeviceIdeXML = SendExceptInfo(Inparam);
+				}
+				break;
+			case SENDARPINITINFO:
+				{
+					assert(Inparam!=NULL);
+					recvMsg->Flag = CLIENT_SEND_ARPINFO_FLAG;
+					DeviceIdeXML = SendARPInitInfo(Inparam);
+				}
+				break;
+
+			case GETCHANGSTGINFO:
+				{
+					assert(Inparam!=NULL);
+					recvMsg->Flag = CLIENT_GET_SYSTEMCHECK_POLICY_FLAG;
+					DeviceIdeXML=Inparam;
+				}
+				break;
+
+			case LOCALLOGON:
+				{
+					recvMsg->Flag = CLIENT_LOGNO_USRE_FLAG;
+					assert(Inparam != NULL);
+					DeviceIdeXML = LocalUserLogOn(Inparam);
+				}
+				break;
+			case CLIENT_SEND_CHECKRESULT_FLAG:
+			case CLIENT_ONLINE_UNINSTALL_FLAG:
+			case SERVER_NOTICE_CLIENT_USER_LOGNO_FLAG:
+			case SERVER_NOTICE_CLIENT_START_CHECK_FLAG:
+			case CLIENT_SEND_ALARM_EVENTINFO_FLAG:
+			case SERVER_SEND_DEBUG_ON_OR_OFF_FLAG:
+			case SERVER_SEND_NAC_TECHNOLOGY:
+			case CLIENT_SEND_LOCALLANGUAGE:
+			case CLIENT_SEND_NETWORKLIST:
+			case CLIENT_SEND_DOMAINIDENTIFYINFO:
+				{
+					assert(Inparam!=NULL);
+					DeviceIdeXML=Inparam;
+				}
+				break;
+			default:
+				break;
+        }
+
+        if ((DeviceIdeXML.length() <= 0)||(strcmp(DeviceIdeXML.c_str(), "exception")==0)) 
+            return -1; 
+        else
+        {
+			int iAnsiLen = 0;
+			int iUtf8Len = 0;
+			wchar_t  *utf8buffer = NULL;
+			char *senfbuffer = NULL;
+
+            iAnsiLen = MultiByteToWideChar(CP_ACP, 0, DeviceIdeXML.c_str(), DeviceIdeXML.length(), NULL, 0);
+            utf8buffer = new wchar_t[iAnsiLen+1];
+            MultiByteToWideChar(CP_ACP, 0, DeviceIdeXML.c_str(), DeviceIdeXML.length(), utf8buffer, iAnsiLen);
+            utf8buffer[iAnsiLen]=L'\0';
+
+            iUtf8Len = WideCharToMultiByte(CP_UTF8,0,utf8buffer,iAnsiLen,NULL,0,NULL,NULL);
+            senfbuffer = new char[iUtf8Len+1];
+            WideCharToMultiByte(CP_UTF8, 0, utf8buffer, iAnsiLen, senfbuffer, iUtf8Len, NULL, NULL);
+            senfbuffer[iUtf8Len] = '\0';
+
+            recvMsg->TotalLen = 0;
+            memset(recvMsg->Msg, 0, sizeof(recvMsg->Msg));
+            recvMsg->TotalLen = ( int)strlen(senfbuffer);
+            sprintf_s(recvMsg->Msg, (recvMsg->TotalLen+1)*sizeof(char), "%s", senfbuffer);
+            recvMsg->Msg[recvMsg->TotalLen] = '\0';
+
+            delete[] utf8buffer;
+            delete[] senfbuffer;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetSendData Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetSendData Exception");
+    }
+	return 0;
+}
+
+
+ int GetSysTimeFromTimval(IN char* timeval, OUT LPSYSTEMTIME st)
+ {
+	 try
+	 {
+		 long long mytime = _atoi64(timeval)/1000;
+		 time_t nowtime = mytime;
+		 FILETIME ft;
+		 LONGLONG nLL = Int32x32To64(nowtime, 10000000) + 116444736000000000;
+		 FILETIME ftnow;
+
+		 ft.dwLowDateTime = (DWORD)nLL;
+		 ft.dwHighDateTime = (DWORD)(nLL >> 32);
+
+		 FileTimeToLocalFileTime(&ft, &ftnow);
+		 FileTimeToSystemTime(&ftnow, st);
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 MessageBox(NULL, L"GetSysTimeFromTimval except", L"err", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetSysTimeFromTimval except");
+	 }
+
+     return HP_SUCCESS;
+ }
+
+int GetDetailDataInfo(char *timeval,char *currdate,char *millisectime,char* weektime)
+{
+	try
+	{
+		SYSTEMTIME pst;
+
+		GetSysTimeFromTimval(timeval, &pst);
+
+		sprintf_s(currdate, 25, "%04d-%02d-%02d 00:00:00", pst.wYear, pst.wMonth, pst.wDay);
+
+		long long millisec = pst.wHour*3600 + pst.wMinute*60 + pst.wSecond;
+
+		sprintf_s(millisectime, 10, "%I64d", millisec);
+		if(pst.wDayOfWeek == 0)
+			memcpy(weektime,"7",strlen("7"));
+		else
+			sprintf_s(weektime,10,"%d",pst.wDayOfWeek);
+
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetDetailDataInfo except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetDetailDataInfo except");
+	}
+ 
+	return HP_SUCCESS;
+}
+
+ //未优化修改
+BOOL LaunchAppIntoDifferentSession(char *softwarepath, char *param, IN const unsigned long imilsec) 
+{
+	try
+	{
+		PROCESS_INFORMATION pi;
+		STARTUPINFO si;
+		BOOL bResult = FALSE;
+		DWORD dwSessionId, winlogonPid;
+		HANDLE /*hUserToken,*/hUserTokenDup,hPToken,hProcess;
+		DWORD dwCreationFlags;
+
+		// Log the client on to the local computer.
+		PWTS_SESSION_INFO  pSessionInfo = 0;  
+		DWORD dwCount = 0;   
+
+		::WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionInfo, &dwCount);  
+
+		int session_id = 0;  
+
+		for (DWORD i = 0; i < dwCount; ++i) 
+		{        
+			WTS_SESSION_INFO si = pSessionInfo[i];   
+			if (WTSActive == si.State)    
+			{          
+				session_id = si.SessionId;    
+				break;      
+			}  
+		}    ::WTSFreeMemory(pSessionInfo); 
+		dwSessionId=session_id;
+
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "LaunchAppIntoDifferentSession,dwSessionId=", dwSessionId);
+
+		//////////////////////////////////////////
+		// Find the winlogon process
+		////////////////////////////////////////
+
+		PROCESSENTRY32 procEntry;
+
+		HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+		if (hSnap == INVALID_HANDLE_VALUE)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CreateToolhelp32Snapshot Fail");
+			return FALSE ;
+		}
+
+		procEntry.dwSize = sizeof(PROCESSENTRY32);
+
+		if (!Process32First(hSnap, &procEntry))
+		{
+			CloseHandle(hSnap);
+			hSnap=NULL;
+			return FALSE ;
+		}
+		do
+		{
+			if (_wcsicmp(procEntry.szExeFile, L"winlogon.exe") == 0)
+			{
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"Find winlogon");
+				DWORD winlogonSessId = 0;
+				if (ProcessIdToSessionId(procEntry.th32ProcessID, &winlogonSessId) && winlogonSessId == dwSessionId)
+				{
+					winlogonPid = procEntry.th32ProcessID;
+					WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"为winlogonPid赋值");
+					break;
+				}
+			}
+
+		} while (Process32Next(hSnap, &procEntry));
+
+		
+		dwCreationFlags = NORMAL_PRIORITY_CLASS|CREATE_NEW_CONSOLE;
+		ZeroMemory(&si, sizeof(STARTUPINFO));
+		si.cb= sizeof(STARTUPINFO);
+		si.lpDesktop = L"winsta0\\default";
+		ZeroMemory(&pi, sizeof(pi));
+
+		TOKEN_PRIVILEGES tp;
+		LUID luid;
+
+		hProcess = OpenProcess(MAXIMUM_ALLOWED, FALSE, winlogonPid);
+
+		if(!::OpenProcessToken(hProcess,TOKEN_ADJUST_PRIVILEGES|TOKEN_QUERY
+			|TOKEN_DUPLICATE|TOKEN_ASSIGN_PRIMARY|TOKEN_ADJUST_SESSIONID
+			|TOKEN_READ|TOKEN_WRITE,&hPToken))
+		{
+			char ErrMsg[MAX_PATH]={0};
+
+			sprintf(ErrMsg,"Process token open Error: %u\n",GetLastError()); 
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,ErrMsg);
+			CloseHandle(hSnap);
+			hSnap=NULL;
+			return FALSE;
+		}
+
+		if (!LookupPrivilegeValue(NULL,SE_DEBUG_NAME,&luid))
+		{
+			char ErrMsg[MAX_PATH]={0};
+			sprintf(ErrMsg,"Lookup Privilege value Error: %u\n",GetLastError()); 
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,ErrMsg);
+			CloseHandle(hSnap);
+			hSnap=NULL;
+			CloseHandle(hProcess);
+			hProcess=NULL;
+
+			return FALSE;
+		}
+		tp.PrivilegeCount =1;
+		tp.Privileges[0].Luid =luid;
+		tp.Privileges[0].Attributes =SE_PRIVILEGE_ENABLED;
+
+		DuplicateTokenEx(hPToken,MAXIMUM_ALLOWED,NULL,SecurityIdentification,TokenPrimary,&hUserTokenDup);
+
+		//Adjust Token privilege
+		SetTokenInformation(hUserTokenDup,TokenSessionId,(void*)dwSessionId,sizeof(DWORD));
+
+		if (!AdjustTokenPrivileges(hUserTokenDup,FALSE,&tp,sizeof(TOKEN_PRIVILEGES),(PTOKEN_PRIVILEGES)NULL,NULL))
+		{
+			char ErrMsg[MAX_PATH]={0};
+			sprintf(ErrMsg,"Adjust Privilege value Error: %u\n",GetLastError()); 
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,ErrMsg);
+			CloseHandle(hSnap);
+			hSnap=NULL;
+			CloseHandle(hProcess);
+			hProcess=NULL;
+			CloseHandle(hUserTokenDup);
+			hUserTokenDup=NULL;
+		}
+
+		if (GetLastError()== ERROR_NOT_ALL_ASSIGNED)
+		{
+			char ErrMsg[MAX_PATH]={0};
+			sprintf(ErrMsg,"Token does not have the provilege Error: %u\n",GetLastError()); 
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, ErrMsg);
+
+			CloseHandle(hSnap);
+			hSnap=NULL;
+			CloseHandle(hProcess);
+			hProcess=NULL;
+			CloseHandle(hUserTokenDup);
+			hUserTokenDup=NULL;
+		}
+
+		LPVOID pEnv =NULL;
+
+		if(CreateEnvironmentBlock(&pEnv,hUserTokenDup,TRUE))
+		{
+			dwCreationFlags|= CREATE_UNICODE_ENVIRONMENT;
+		}
+		else
+			pEnv=NULL;
+
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"softwarepath=",softwarepath);
+		// Launch the process in the client's logon session
+		int len = MultiByteToWideChar(CP_ACP,0,softwarepath,-1,NULL,0);
+		wchar_t wsoftpath[MAX_PATH] = {L"0"};
+		MultiByteToWideChar(CP_ACP,0,softwarepath,-1,wsoftpath,len);
+		wsoftpath[len]=L'\0';
+
+		wchar_t wparam[MAX_PATH] = {0};
+		if (param !=NULL)
+		{
+			wchar_t wparamvalue[MAX_PATH] = {0};
+			MultiByteToWideChar(CP_ACP,0,param,-1,wparamvalue,MAX_PATH);
+			_snwprintf_s(wparam,MAX_PATH,MAX_PATH-1,L" %s",wparamvalue);
+		}
+		bResult = CreateProcessAsUser(
+			hUserTokenDup,            // client's access token
+			wsoftpath,                /*_T("C:\\ModifyTTL.exe")*/           // file to execute
+			wparam,               // command line
+			NULL,              // pointer to process SECURITY_ATTRIBUTES
+			NULL,              // pointer to thread SECURITY_ATTRIBUTES
+			FALSE,             // handles are not inheritable
+			dwCreationFlags,  // creation flags
+			pEnv,              // pointer to new environment block 
+			NULL,              // name of current directory 
+			&si,               // pointer to STARTUPINFO structure
+			&pi                // receives information about new process
+			);
+
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "进程已经启动");
+		WaitForSingleObject(pi.hProcess, imilsec);
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+
+		//Perform All the Close Handles task
+		CloseHandle(hProcess);
+		hProcess=NULL;
+		CloseHandle(hUserTokenDup);
+		hUserTokenDup=NULL;
+		CloseHandle(hPToken);
+		hPToken=NULL;
+
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"LaunchAppIntoDifferentSession except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "LaunchAppIntoDifferentSession except");
+	}
+    return 0;
+  }
+
+
+ BOOL GetProcessUserToken(IN wchar_t* processName,OUT HANDLE *pUserToken,BOOL bcurrsession)
+ {
+     try
+     {
+		 DWORD dwSessionId=0;
+		 PWTS_SESSION_INFO  pSessionInfo = 0;  
+		 DWORD dwCount = 0;   
+		 int session_id = 0; 
+
+         WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, processName );
+         ::WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionInfo, &dwCount);  
+
+         for (DWORD i = 0; i < dwCount; ++i) 
+         {        
+             WTS_SESSION_INFO si = pSessionInfo[i];   
+             if (WTSActive == si.State)    
+             {          
+                 session_id = si.SessionId;    
+                 break;      
+             }  
+         }   
+
+         ::WTSFreeMemory(pSessionInfo); 
+         dwSessionId=session_id;
+
+         BOOL bRet = FALSE; 
+         HANDLE hSnapshot = NULL; 
+
+         hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+         if (hSnapshot == NULL)
+         {
+             WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CreateToolhelp32Snapshot FAIL");
+             return FALSE; 
+         }
+
+         PROCESSENTRY32 pe32; 
+         pe32.dwSize = sizeof(PROCESSENTRY32);
+         BOOL fProcess = Process32First(hSnapshot, &pe32); 
+         while (fProcess) 
+         { 
+             if ( lstrcmpi(pe32.szExeFile,processName) == 0 )
+             {
+                 DWORD processSessId = 0;
+                 if (ProcessIdToSessionId(pe32.th32ProcessID, &processSessId) )
+                 {
+                     BOOL bFindProcessId = FALSE;
+                     if ( bcurrsession )
+                     {
+                         if ( processSessId == dwSessionId )
+                         {
+                             bFindProcessId = TRUE;
+                         }
+                     }
+                     else
+                     {
+                         bFindProcessId = TRUE;
+                     }
+                     if ( bFindProcessId )
+                     {
+                         BOOL fResult = FALSE; 
+                         HANDLE hProc = NULL; 
+                         HANDLE hToken = NULL;
+
+                         hProc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pe32.th32ProcessID);
+                         if (hProc == NULL) 
+                         {
+                             WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"OpenProcess fail");
+                             if (hSnapshot != NULL)
+                             {
+                                 CloseHandle(hSnapshot);
+                                 hSnapshot= NULL;
+                             }
+                             return FALSE;
+                         } 
+                         fResult = OpenProcessToken(hProc, TOKEN_QUERY, &hToken); 
+                         if(!fResult) 
+                         { 
+                             if (hProc)
+                                 ::CloseHandle(hProc); 
+                             if (hSnapshot != NULL)
+                             {
+                                 CloseHandle(hSnapshot);
+                                 hSnapshot= NULL;
+                             }
+                             WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"OpenProcessToken fail");
+                             return FALSE;
+                         } 
+                         *pUserToken = hToken;
+                         bRet = TRUE; 
+                         break;
+                     }
+                 }
+                 else
+                     WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"Process id different");
+             } 
+             fProcess = Process32Next(hSnapshot, &pe32);
+         } 
+
+         if (hSnapshot != NULL)
+         {
+             CloseHandle(hSnapshot);
+             hSnapshot= NULL;
+         }
+         return bRet; 
+     }
+     catch (...)
+     {
+#ifdef _DEBUG
+         MessageBox(NULL, L"GetProcessUserToken except", L"err", 0);
+#endif
+         WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetProcessUserToken except");
+     }
+     return FALSE;
+ } 
+
+BOOL GetCurrentUserStringSid(IN HANDLE pUserToken,OUT wchar_t *userstringsid,IN int userstringsidlen)
+{
+	BOOL Res = FALSE;
+	DWORD dwLength = 0;  
+	BOOL bIsOK = GetTokenInformation(pUserToken, TokenUser, NULL, 0, &dwLength );
+
+	if(dwLength == (DWORD)-1)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"GetTokenInformation Fail");
+		return Res;
+	}
+
+	TOKEN_USER *pUser = static_cast<TOKEN_USER*>(malloc( dwLength + 1 ));  
+
+	if ( NULL == pUser )  
+	{  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"NULL == pUser");
+		CloseHandle(pUserToken);
+		pUserToken=NULL;
+		return Res;  
+	}  
+
+	bIsOK = GetTokenInformation( pUserToken, TokenUser, pUser, dwLength, &dwLength ); 
+
+	if ( !bIsOK )  
+	{  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"GetTokenInformation Fail");
+		free(pUser);  
+		CloseHandle(pUserToken);
+		pUserToken=NULL;
+		return Res;  
+	}  
+	LPWSTR lpUserTokenstr = NULL;  
+
+	bIsOK = ConvertSidToStringSid( pUser->User.Sid, &lpUserTokenstr );  
+	free(pUser);  
+
+	if ( !bIsOK )  
+	{    
+		LocalFree( lpUserTokenstr );  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"ConvertSidToStringSid Fail");
+		CloseHandle(pUserToken);
+		pUserToken=NULL;
+		return Res;  
+	} 
+	 _snwprintf_s(userstringsid , userstringsidlen , userstringsidlen-1,L"%s", lpUserTokenstr);
+	 LocalFree( lpUserTokenstr); 
+
+	return TRUE;  
+}
+
+//获取服务的计算机时间
+ string GetServiceTimeRequest(char *actiontype)
+ {
+	 try
+	 {
+		 char mac[MACADDRESSLEN] = {0};
+		 string xmlstring;
+		 int res = GetLocalMac(mac);
+
+		 if (res == HP_SUCCESS )
+		 {
+			 string macstr = mac;
+			 string typestr = actiontype;
+			 string tmpstr = ";";
+
+			 xmlstring = macstr+tmpstr+typestr;
+		 }
+		 return xmlstring;
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 MessageBox(NULL, L"GetServiceTimeRequest except", L"err", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetServiceTimeRequest except");
+	 }
+	return "";
+ }
+
+/************************************************************
+ Description: 客户端
+ input: 
+ Return: 拼接客户端MAC和IP
+*************************************************************/
+string GetClientMacAndIp()
+{
+	try
+	{
+		string retStr = "";
+		char localIp[IPADDRESSLENGTH] = {0};
+		char localMac[MACADDRESSLEN] = {0};
+
+		if (GetLocalIpAndMac(localIp, localMac))
+		{
+			retStr = (string)localMac+";"+(string)localIp;
+		}
+		return retStr;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetClientMacAndIp except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetClientMacAndIp except");
+	}
+	return "";
+}
+
+/************************************************************
+ Description: 发送客户端切换用户、重启系统事件数据
+ input: pActionType["1":重启Windows系统, "2":切换Windows用户]
+ Return: NULL
+*************************************************************/
+string GetClientEventData(IN char* pActionType)
+{
+	try
+	{
+		string retStr = "";
+
+		char localIp[IPADDRESSLENGTH] = {0};
+		char localMac[MACADDRESSLEN] = {0};
+
+		if (GetLocalIpAndMac(localIp, localMac))
+		{
+			retStr = (string)localMac+";"+(string)localIp+";";
+			retStr += (string)pActionType;
+		}
+		return retStr;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetClientEventData except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetClientEventData except");
+	}
+	return "";
+
+}
+
+void GetSubItemStgInfo(int iUserId,int iUserType,int iStgIndex)
+{
+	char  plyIndex[MAX_NUMBER_LEN*2]={"0"};
+	HandleJob1 stgjob;
+	sprintf_s(plyIndex, MAX_NUMBER_LEN*2, "%d;%d;%d", iUserId, iUserType, iStgIndex);
+	WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "plyIndex=", plyIndex);
+	stgjob.InitParam(g_EstliSocket.m_hComm,CLIENT_GET_SYSTEMCHECK_POLICY_FLAG, plyIndex);
+	stgjob.execute();
+}
+
+//请求当前的所有策略
+void  GetAllStagInfo(int iUserId,int iUserType)
+{
+	try
+	{
+		for (int i = 1; i < LASTNUMBER; i++)
+		{
+			GetSubItemStgInfo(iUserId,iUserType,i);
+			Sleep(100);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetAllStagInfo except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetAllStagInfo except");
+	}
+}
+
+//返回单个安检项执行成功的字符串
+string  SendSingleItemSafeCheckSuccess(char* pSFResultHeader)
+{
+    string tempResStr;
+    char dataHead[MAX_PATH]={0};
+    string sendtmpheader =pSFResultHeader;
+    memcpy(dataHead,"<iman succflag =\"1\"></iman>",strlen("<iman succflag =\"1\" ></iman>"));
+    string xmlBody = dataHead;
+    string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+    string  xmltail ="</nac>";
+    tempResStr = sendtmpheader+xmlHeader+xmlBody+xmltail;
+    return tempResStr;
+}

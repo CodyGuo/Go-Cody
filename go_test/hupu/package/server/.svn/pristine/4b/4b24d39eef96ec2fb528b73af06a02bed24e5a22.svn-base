@@ -1,0 +1,6 @@
+#ifndef _HPIMANSERVICE_H_
+#define _HPIMANSERVICE_H_ 1
+
+void UninstallService();
+
+#endif

@@ -1,0 +1,49 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKPORT_H_
+#define _CHECKPORT_H_ 1
+
+typedef enum CHECKTCPUDPTYPE
+{
+	CHECK_TCP_TYPE = 1,
+	CHECK_UDP_TYPE = 2,
+	CHECK_TCPORUDP_TYPE = 3,
+	CHECK_TCPANDUDP_TYPE = 4,
+};
+
+ typedef DWORD (WINAPI *PFNAllocateAndGetTcpExTableFromStack)( PMIB_TCPEXTABLE *pTcpTabel,bool bOrder,HANDLE heap,DWORD zero,DWORD flags);
+
+/************************************************************
+ Description: PFNAllocateAndGetUdpExTableFromStack
+ Descripion:  支持Windows Vista之前系统
+*************************************************************/
+ typedef DWORD (WINAPI *PFNAllocateAndGetUdpExTableFromStack)( PMIB_UDPEXTABLE *pUdpTable,bool bOrder,HANDLE heap,DWORD zero,DWORD flags);
+
+/************************************************************
+ Description: InternalGetTcpTable2
+ Descripion:  支持Windows Vista 以及以后系统
+*************************************************************/
+ typedef DWORD (WINAPI *PFNInternalGetTcpTable2)( PMIB_TCPEXTABLE_VISTA *pTcpTable_Vista, HANDLE heap, DWORD flags );
+
+/************************************************************
+ Description: PFNInternalGetUdpTableWithOwnerPid
+ Descripion:  支持Windows Vista 以及以后系统
+*************************************************************/
+ typedef DWORD (WINAPI *PFNInternalGetUdpTableWithOwnerPid)( PMIB_UDPEXTABLE *pUdpTable, HANDLE heap, DWORD flags);
+
+DWORD TcpGetProcessIdByPort(DWORD dwPort);
+DWORD UdpGetProcessIdByPort(DWORD dwPort);
+string CheckPortIsExist(IN const char* szCheckPortNum, 
+						IN const char* szCheckPortType,
+						IN int iCheckCondition,
+						IN LANGUAGETYPE language, 
+						IN int iTrigger, 
+						OUT string& strTrigrSucc);
+
+#endif

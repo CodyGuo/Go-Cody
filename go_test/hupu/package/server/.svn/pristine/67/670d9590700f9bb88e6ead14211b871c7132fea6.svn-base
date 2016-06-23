@@ -1,0 +1,1426 @@
+#include "StdAfx.h"
+#include "FireWallEx.h"
+#include "..\DebugInfo.h"
+
+
+FireWallEx::FireWallEx(void)
+{
+	m_pFireWallProfile = NULL;
+}
+
+FireWallEx::~FireWallEx(void)
+{
+	Uninitialize();
+}
+
+FW_ERROR_CODE FireWallEx::Initialize()
+{
+
+	HRESULT hr = S_FALSE;
+	INetFwMgr* fwMgr = NULL;
+	INetFwPolicy* fwPolicy = NULL;
+	FW_ERROR_CODE ret = FW_NOERROR;
+
+	try
+	{
+		if( m_pFireWallProfile )
+			throw FW_ERR_INITIALIZED;
+		
+		// Create an instance of the firewall settings manager.
+		hr = CoCreateInstance( __uuidof(NetFwMgr), NULL, CLSCTX_INPROC_SERVER, __uuidof( INetFwMgr), (void**)&fwMgr );
+		
+		if( FAILED( hr ))
+			throw FW_ERR_CREATE_SETTING_MANAGER;
+		
+		// Retrieve the local firewall policy.
+		hr = fwMgr->get_LocalPolicy( &fwPolicy );
+		if( FAILED( hr ))
+			throw FW_ERR_LOCAL_POLICY;
+		
+		// Retrieve the firewall profile currently in effect
+		hr = fwPolicy->get_CurrentProfile( &m_pFireWallProfile );
+		if( FAILED( hr ))
+			throw FW_ERR_PROFILE;
+		
+		// init security to enum RAS connections
+		CoInitializeSecurity (NULL, -1, NULL, NULL, 
+			RPC_C_AUTHN_LEVEL_PKT, 
+			RPC_C_IMP_LEVEL_IMPERSONATE,
+			NULL, EOAC_NONE, NULL);
+		
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+         WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"Initialize Fail");
+	}
+	
+	if( fwPolicy )
+		fwPolicy->Release();
+	if( fwMgr )
+		fwMgr->Release();
+	
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::Uninitialize()
+{
+	// Release the firewall profile
+	if( m_pFireWallProfile )
+	{
+		m_pFireWallProfile->Release();
+		m_pFireWallProfile = NULL;
+	}
+
+	return FW_NOERROR;
+}
+
+FW_ERROR_CODE FireWallEx::IsWindowsFirewallOn( BOOL& bOn )
+{
+	HRESULT hr;
+	VARIANT_BOOL bFWEnabled;
+	bOn = FALSE;
+
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+
+		hr = m_pFireWallProfile->get_FirewallEnabled( &bFWEnabled );
+		if( FAILED(hr))
+			throw FW_ERR_FIREWALL_IS_ENABLED;
+
+		if( bFWEnabled != VARIANT_FALSE )
+			bOn = TRUE;
+	}
+	catch( FW_ERROR_CODE nError )
+	{
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"IsWindowsFirewallOn Fail");
+		return nError;
+	}
+
+	return FW_NOERROR;
+}
+
+FW_ERROR_CODE FireWallEx::TurnOnWindowsFirewall()
+{
+	HRESULT hr;
+
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+
+		// Check whether the firewall is off
+		BOOL bFWOn;
+		FW_ERROR_CODE ret = IsWindowsFirewallOn( bFWOn );
+
+		if( ret != FW_NOERROR )
+			throw ret;
+
+		// If it is off now, turn it on
+		if( !bFWOn )
+		{
+			hr = m_pFireWallProfile->put_FirewallEnabled( VARIANT_TRUE );
+			if( FAILED( hr ))
+				throw FW_ERR_FIREWALL_ENABLED;
+		}
+	}
+	catch( FW_ERROR_CODE nError )
+	{
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"TurnOnWindowsFirewall Fail");
+		return nError;
+	}
+
+	return FW_NOERROR;
+}
+
+FW_ERROR_CODE FireWallEx::TurnOffWindowsFirewall()
+{
+	HRESULT hr;
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+
+		// Check whether the firewall is off
+		BOOL bFWOn;
+		FW_ERROR_CODE ret = IsWindowsFirewallOn( bFWOn );
+
+		if( ret != FW_NOERROR )
+			throw ret;
+
+		// If it is on now, turn it off
+		if( bFWOn )
+		{
+			hr = m_pFireWallProfile->put_FirewallEnabled( VARIANT_FALSE );
+			if( FAILED( hr ))
+				throw FW_ERR_FIREWALL_ENABLED;
+		}
+	}
+	catch( FW_ERROR_CODE nError )
+	{
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"TurnOffWindowsFirewall Fail");
+		return nError;
+	}
+	return FW_NOERROR;
+}
+
+FW_ERROR_CODE FireWallEx::IsAppEnabled( const wchar_t* lpszProcessImageFileName, BOOL& bEnable )
+{
+   
+	FW_ERROR_CODE ret = FW_NOERROR;
+	HRESULT hr;
+	BSTR bstrFWProcessImageFileName = NULL;
+	VARIANT_BOOL bFWEnabled;
+	INetFwAuthorizedApplication* pFWApp = NULL;
+	INetFwAuthorizedApplications* pFWApps = NULL;
+	
+	bEnable = FALSE;
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+
+		if( lpszProcessImageFileName == NULL )
+			throw FW_ERR_INVALID_ARG;
+
+		hr = m_pFireWallProfile->get_AuthorizedApplications(&pFWApps );
+		if( FAILED( hr ))
+			throw FW_ERR_AUTH_APPLICATIONS;
+
+		// Allocate a BSTR for the process image file name
+		bstrFWProcessImageFileName = SysAllocString( lpszProcessImageFileName );
+		if( SysStringLen( bstrFWProcessImageFileName ) == 0)
+			throw FW_ERR_SYS_ALLOC_STRING;
+
+	
+		hr = pFWApps->Item( bstrFWProcessImageFileName, &pFWApp);
+		
+		// If FAILED, the appliacation is not in the collection list
+		if( SUCCEEDED( hr ))
+		{
+			// Find out if the authorized application is enabled
+			hr = pFWApp->get_Enabled( &bFWEnabled );
+
+			if( FAILED( hr ))
+				throw FW_ERR_APP_ENABLED;
+
+			if( bFWEnabled == VARIANT_TRUE )
+				bEnable = TRUE;
+		}
+	}
+	catch( FW_ERROR_CODE nError )
+	{
+		ret = nError;
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_FIREWALL,LOGLOCATION,"IsAppEnabled Fail");
+	}
+	
+	// Free the BSTR
+	SysFreeString( bstrFWProcessImageFileName );
+
+	// Release memories to retrieve the information of the application
+	if( pFWApp )
+		pFWApp->Release();
+	if( pFWApps )
+		pFWApps->Release();
+
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::AddApplication( const wchar_t* lpszProcessImageFileName, const wchar_t* lpszRegisterName )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+	HRESULT hr;
+	BOOL bAppEnable;
+	BSTR bstrProcessImageFileName = NULL;
+	BSTR bstrRegisterName = NULL;
+	INetFwAuthorizedApplication* pFWApp = NULL;
+	INetFwAuthorizedApplications* pFWApps = NULL;
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+		if( lpszProcessImageFileName == NULL || lpszRegisterName  == NULL )
+			throw FW_ERR_INVALID_ARG;
+
+		// First of all, check the application is already authorized;
+		FW_ERROR_CODE  nError = this->IsAppEnabled( lpszProcessImageFileName, bAppEnable );
+		if( nError != FW_NOERROR )
+			throw nError;
+
+		// Only add the application if it isn't authorized
+		if( bAppEnable == FALSE )
+		{
+			// Retrieve the authorized application collection
+			hr = m_pFireWallProfile->get_AuthorizedApplications(&pFWApps);
+			if( FAILED( hr ))
+				throw FW_ERR_AUTH_APPLICATIONS;
+
+			// Create an instance of an authorized application
+			hr = CoCreateInstance( __uuidof(NetFwAuthorizedApplication), NULL, CLSCTX_INPROC_SERVER, __uuidof(INetFwAuthorizedApplication), (void**)&pFWApp);
+			if( FAILED( hr ))
+				throw FW_ERR_CREATE_APP_INSTANCE;
+
+			// Allocate a BSTR for the Process Image FileName
+			bstrProcessImageFileName = SysAllocString( lpszProcessImageFileName );
+			if( SysStringLen( bstrProcessImageFileName ) == 0)
+				throw FW_ERR_SYS_ALLOC_STRING;
+
+			// Set the process image file name
+			hr = pFWApp->put_ProcessImageFileName( bstrProcessImageFileName );
+			if( FAILED( hr ) )
+				throw FW_ERR_PUT_PROCESS_IMAGE_NAME;
+
+
+			// Allocate a BSTR for register name
+			bstrRegisterName = SysAllocString( lpszRegisterName );
+			if( SysStringLen( bstrRegisterName ) == 0)
+				throw FW_ERR_SYS_ALLOC_STRING;
+			// Set a registered name of the process
+			hr = pFWApp->put_Name( bstrRegisterName );
+			if( FAILED( hr ))
+				throw FW_ERR_PUT_REGISTER_NAME;
+
+			
+			// Add the application to the collection
+			hr = pFWApps->Add( pFWApp );
+			if( FAILED( hr ))
+				throw FW_ERR_ADD_TO_COLLECTION;
+		}
+	}
+	catch( FW_ERROR_CODE nError )
+	{
+		ret = nError;
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_FIREWALL,LOGLOCATION, "AddApplication Fail");
+	}
+
+	SysFreeString( bstrProcessImageFileName );
+	SysFreeString( bstrRegisterName );
+
+	if( pFWApp )
+		pFWApp->Release();
+	if( pFWApps )
+		pFWApps->Release();
+
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::RemoveApplication( const wchar_t* lpszProcessImageFileName )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+	HRESULT hr;
+	BOOL bAppEnable;
+	BSTR bstrProcessImageFileName = NULL;
+	INetFwAuthorizedApplications* pFWApps = NULL;
+
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+		if( lpszProcessImageFileName == NULL )
+			throw FW_ERR_INVALID_ARG;
+
+		FW_ERROR_CODE  nError = this->IsAppEnabled( lpszProcessImageFileName, bAppEnable );
+		if( nError != FW_NOERROR )
+			throw nError;
+
+		// Only remove the application if it is authorized
+		if( bAppEnable == TRUE )
+		{
+			// Retrieve the authorized application collection
+			hr = m_pFireWallProfile->get_AuthorizedApplications( &pFWApps );
+			if( FAILED( hr ))
+				throw FW_ERR_AUTH_APPLICATIONS;
+
+			// Allocate a BSTR for the Process Image FileName
+			bstrProcessImageFileName = SysAllocString( lpszProcessImageFileName );
+			if( SysStringLen( bstrProcessImageFileName ) == 0)
+				throw FW_ERR_SYS_ALLOC_STRING;
+			hr = pFWApps->Remove( bstrProcessImageFileName );
+			if( FAILED( hr ))
+				throw FW_ERR_REMOVE_FROM_COLLECTION;
+		}
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+	}
+
+	SysFreeString( bstrProcessImageFileName);
+	if( pFWApps )
+		pFWApps->Release();
+
+	return ret;
+}
+FW_ERROR_CODE FireWallEx::IsPortEnabled( LONG lPortNumber, NET_FW_IP_PROTOCOL ipProtocol, BOOL& bEnable )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+	VARIANT_BOOL bFWEnabled;
+	INetFwOpenPort* pFWOpenPort = NULL;
+	INetFwOpenPorts* pFWOpenPorts = NULL;
+	HRESULT hr;
+
+	bEnable = FALSE;
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+
+		// Retrieve the open ports collection
+		hr = m_pFireWallProfile->get_GloballyOpenPorts( &pFWOpenPorts );
+		if( FAILED( hr ))
+			throw FW_ERR_GLOBAL_OPEN_PORTS;
+
+		// Get the open port
+		hr = pFWOpenPorts->Item( lPortNumber, ipProtocol, &pFWOpenPort );
+		if( SUCCEEDED( hr ))
+		{
+			hr = pFWOpenPort->get_Enabled( &bFWEnabled );
+			if( FAILED( hr ))
+				throw FW_ERR_PORT_IS_ENABLED;
+
+			if( bFWEnabled == VARIANT_TRUE )
+				bEnable = TRUE;
+		}
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+	}
+
+	if( pFWOpenPort )
+		pFWOpenPort->Release();
+	if( pFWOpenPorts )
+		pFWOpenPorts->Release();
+
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::AddPort( LONG lPortNumber, NET_FW_IP_PROTOCOL ipProtocol, const wchar_t* lpszRegisterName )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+	INetFwOpenPort* pFWOpenPort = NULL;
+	INetFwOpenPorts* pFWOpenPorts = NULL;
+	BSTR bstrRegisterName = NULL;
+	HRESULT hr;
+
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+		BOOL bEnablePort;
+		FW_ERROR_CODE nError = IsPortEnabled( lPortNumber, ipProtocol, bEnablePort);
+		if( nError != FW_NOERROR)
+			throw nError;
+
+		// Only add the port, if it isn't added to the collection
+		if( bEnablePort == FALSE )
+		{
+			// Retrieve the collection of globally open ports
+			hr = m_pFireWallProfile->get_GloballyOpenPorts( &pFWOpenPorts );
+			if( FAILED( hr ))
+				throw FW_ERR_GLOBAL_OPEN_PORTS;
+
+			// Create an instance of an open port
+			hr = CoCreateInstance( __uuidof(NetFwOpenPort), NULL, CLSCTX_INPROC_SERVER, __uuidof(INetFwOpenPort), (void**)&pFWOpenPort);
+			if( FAILED( hr ))
+				throw FW_ERR_CREATE_PORT_INSTANCE;
+
+			// Set the port number
+			hr = pFWOpenPort->put_Port( lPortNumber );
+			if( FAILED( hr ))
+				throw FW_ERR_SET_PORT_NUMBER;
+
+			// Set the IP Protocol
+			hr = pFWOpenPort->put_Protocol( ipProtocol );
+			if( FAILED( hr ))
+				throw FW_ERR_SET_IP_PROTOCOL;
+
+			bstrRegisterName = SysAllocString( lpszRegisterName );
+			if( SysStringLen( bstrRegisterName ) == 0)
+				throw FW_ERR_SYS_ALLOC_STRING;
+		
+			// Set the registered name
+			hr = pFWOpenPort->put_Name( bstrRegisterName );
+			if( FAILED( hr ))
+				throw FW_ERR_PUT_REGISTER_NAME;
+
+			hr = pFWOpenPorts->Add( pFWOpenPort );
+			if( FAILED( hr ))
+				throw FW_ERR_ADD_TO_COLLECTION;
+		}
+
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+	}
+
+	SysFreeString( bstrRegisterName );
+	if( pFWOpenPort )
+		pFWOpenPort->Release();
+	if( pFWOpenPorts )
+		pFWOpenPorts->Release();
+
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::RemovePort( LONG lPortNumber, NET_FW_IP_PROTOCOL ipProtocol )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+	INetFwOpenPorts* pFWOpenPorts = NULL;
+	HRESULT hr;
+
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+		BOOL bEnablePort;
+		FW_ERROR_CODE nError = IsPortEnabled( lPortNumber, ipProtocol, bEnablePort);
+		if( nError != FW_NOERROR)
+			throw nError;
+
+		// Only remove the port, if it is on the collection
+		if( bEnablePort == TRUE )
+		{
+			// Retrieve the collection of globally open ports
+			hr = m_pFireWallProfile->get_GloballyOpenPorts( &pFWOpenPorts );
+			if( FAILED( hr ))
+				throw FW_ERR_GLOBAL_OPEN_PORTS;
+
+			hr = pFWOpenPorts->Remove( lPortNumber, ipProtocol );
+			if (FAILED( hr ))
+				throw FW_ERR_REMOVE_FROM_COLLECTION;
+		}
+
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+	}
+
+	if( pFWOpenPorts )
+		pFWOpenPorts->Release();
+
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::IsExceptionNotAllowed( BOOL& bNotAllowed )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+
+	bNotAllowed = TRUE;
+
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+
+		VARIANT_BOOL bExNotAllowed;
+
+		HRESULT hr = m_pFireWallProfile->get_ExceptionsNotAllowed( &bExNotAllowed );
+		
+		if( FAILED( hr ))
+			throw FW_ERR_EXCEPTION_NOT_ALLOWED;
+		
+		if( bExNotAllowed == VARIANT_TRUE )
+			bNotAllowed = TRUE;
+		else
+			bNotAllowed = FALSE;
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+	}
+
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::SetExceptionNotAllowed( BOOL bNotAllowed )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+		HRESULT hr = m_pFireWallProfile->put_ExceptionsNotAllowed( bNotAllowed ? VARIANT_TRUE : VARIANT_FALSE );
+
+		if( FAILED( hr ))
+			throw FW_ERR_EXCEPTION_NOT_ALLOWED;
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+        //MessageBox(NULL,L"put_ExceptionsNotAllowed Exception",L"Msg",0);
+	}
+   
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::IsNotificationDiabled( BOOL& bDisabled )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+	bDisabled = FALSE;
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+
+		VARIANT_BOOL bNotifyDisable;
+		HRESULT hr = m_pFireWallProfile->get_NotificationsDisabled( &bNotifyDisable );
+		if( FAILED( hr ))
+			throw FW_ERR_NOTIFICATION_DISABLED;
+		
+		if( bNotifyDisable == VARIANT_TRUE )
+			bDisabled = TRUE;
+		else
+			bDisabled = FALSE;
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+	}
+
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::SetNotificationDiabled( BOOL bDisabled )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+
+		HRESULT hr = m_pFireWallProfile->put_NotificationsDisabled( bDisabled ? VARIANT_TRUE : VARIANT_FALSE );
+		if( FAILED( hr ))
+			throw FW_ERR_NOTIFICATION_DISABLED;
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+	}
+
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::IsUnicastResponsesToMulticastBroadcastDisabled( BOOL& bDisabled )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+
+	bDisabled = FALSE;
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+
+		VARIANT_BOOL bUniMultiDisabled;
+		HRESULT hr = m_pFireWallProfile->get_UnicastResponsesToMulticastBroadcastDisabled( &bUniMultiDisabled );
+		if( FAILED( hr ))
+			throw FW_ERR_UNICAST_MULTICAST;
+
+		if( bUniMultiDisabled == VARIANT_TRUE )
+			bDisabled = TRUE;
+		else
+			bDisabled = FALSE;
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+	}
+
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::SetUnicastResponsesToMulticastBroadcastDisabled( BOOL bDisabled )
+{
+	FW_ERROR_CODE ret = FW_NOERROR;
+
+	try
+	{
+		if( m_pFireWallProfile == NULL )
+			throw FW_ERR_INITIALIZED;
+
+		HRESULT hr = m_pFireWallProfile->put_UnicastResponsesToMulticastBroadcastDisabled( bDisabled ? VARIANT_TRUE : VARIANT_FALSE );
+		if( FAILED( hr ))
+			throw FW_ERR_UNICAST_MULTICAST;
+	}
+	catch( FW_ERROR_CODE nError)
+	{
+		ret = nError;
+	}
+
+	return ret;
+}
+
+FW_ERROR_CODE FireWallEx::DeletePortMapping (UCHAR ucIPProtocol, short usExternalPort)
+{   // this is done in 2 parts:
+    // 1:  enum connections until we get one that we can convert into an INetSharingConfiguration
+    // 2:  then, enum portmappings, and delete if we find a match.
+	INetSharingManager * pNSM = NULL;    
+	 ::CoCreateInstance (__uuidof(NetSharingManager),
+			NULL,
+			CLSCTX_ALL,
+			__uuidof(INetSharingManager),
+			(void**)&pNSM);
+		if (!pNSM){
+			  //  wprintf (L"failed to create NetSharingManager object\r\n");
+			throw FW_ERR_CREATE_NETSHARINGMANAGER;
+		}
+   	FW_ERROR_CODE ret = FW_NOERROR;
+	try{
+    // PART 1: find a valid connection
+    INetConnection * pNC = NULL; // fill this out for part 2 below
+
+    INetSharingEveryConnectionCollection * pNSECC = NULL;
+    HRESULT hr = pNSM->get_EnumEveryConnection (&pNSECC);
+    if (!pNSECC)
+		throw FW_ERR_GET_EVERYCONNECTIONCOLLECTION;
+    else {
+        // enumerate connections
+        IEnumVARIANT * pEV = NULL;
+        IUnknown * pUnk = NULL;
+        hr = pNSECC->get__NewEnum (&pUnk);
+        if (pUnk) {
+            hr = pUnk->QueryInterface (__uuidof(IEnumVARIANT),
+                                       (void**)&pEV);
+            pUnk->Release();
+        }
+        if (pEV) {
+            VARIANT v;
+            VariantInit (&v);
+            BOOL bFoundIt = FALSE;
+            while (S_OK == pEV->Next (1, &v, NULL)) {
+                if (V_VT (&v) == VT_UNKNOWN) {
+                    V_UNKNOWN (&v)->QueryInterface (__uuidof(INetConnection),
+                                                     (void**)&pNC);
+                    if (pNC) {
+                        INetConnectionProps * pNCP = NULL;
+                        pNSM->get_NetConnectionProps (pNC, &pNCP);
+                        if (!pNCP){                 
+							throw FW_ERR_GET_NETCONNECTIONPROPS;
+						}						   
+                        else {
+                            // check properties for firewalled or shared connection
+                            DWORD dwCharacteristics = 0;
+                            pNCP->get_Characteristics (&dwCharacteristics);
+                            if (dwCharacteristics & (NCCF_SHARED | NCCF_FIREWALLED)) {
+                                NETCON_MEDIATYPE MediaType = NCM_NONE;
+                                pNCP->get_MediaType (&MediaType);
+                                if ((MediaType != NCM_SHAREDACCESSHOST_LAN) &&
+                                    (MediaType != NCM_SHAREDACCESSHOST_RAS) ){
+                                    // got a shared/firewalled connection
+                                    bFoundIt = TRUE;
+                                }
+                            }
+                            pNCP->Release();
+                        }
+                        if (bFoundIt == FALSE) {
+                            pNC->Release();
+                            pNC = NULL;
+                        }
+                    }
+                }
+                VariantClear (&v);
+                if (bFoundIt == TRUE)
+                    break;
+            }
+            pEV->Release();
+        }
+        pNSECC->Release();
+    }
+    if (pNC == NULL) {
+		throw FW_ERR_FIND_CONNECTION;
+    }
+    INetSharingConfiguration * pNSC = NULL;
+    hr = pNSM->get_INetSharingConfigurationForINetConnection (pNC, &pNSC);
+    pNC->Release(); // don't need this anymore
+    if (!pNSC) {
+		throw FW_ERR_CREATE_INETSHARINGCONFIGURATION;
+    }
+
+    // PART 2:  enum port mappings, deleting match, if any
+    INetSharingPortMappingCollection * pNSPMC = NULL;
+    hr = pNSC->get_EnumPortMappings (ICSSC_DEFAULT, &pNSPMC);
+    if (!pNSPMC){
+		throw FW_ERR_GET_PORTMAPPING_COLLECTION;
+	}
+    else {
+
+        // this is the interface to be filled out by the code below
+        INetSharingPortMapping * pNSPM = NULL;
+
+        IEnumVARIANT * pEV = NULL;
+        IUnknown * pUnk = NULL;
+        hr = pNSPMC->get__NewEnum (&pUnk);
+        if (pUnk) {
+            hr = pUnk->QueryInterface (__uuidof(IEnumVARIANT),
+                                       (void**)&pEV);
+            pUnk->Release();
+        }
+        if (pEV) {
+            VARIANT v;
+            VariantInit (&v);
+            BOOL bFoundIt = FALSE;
+            while (S_OK == pEV->Next (1, &v, NULL)) {
+                if (V_VT (&v) == VT_DISPATCH) {
+                    V_DISPATCH (&v)->QueryInterface (__uuidof(INetSharingPortMapping),
+                                                     (void**)&pNSPM);
+                    if (pNSPM) {
+                        INetSharingPortMappingProps * pNSPMP = NULL;
+                        hr = pNSPM->get_Properties (&pNSPMP);
+                        if (pNSPMP) {
+                            UCHAR uc = 0;
+                            pNSPMP->get_IPProtocol (&uc);
+                            long usExternal = 0;
+                            pNSPMP->get_ExternalPort (&usExternal);
+                            if ((uc         == ucIPProtocol) && 
+                                (usExternal == usExternalPort))
+                                bFoundIt = TRUE;
+
+                            pNSPMP->Release();
+                        }
+                        if (bFoundIt == FALSE) {    // hang onto reference to pNSPM iff found (used below)
+                            pNSPM->Release();
+                            pNSPM = NULL;
+                        }
+                    }
+                }
+                VariantClear (&v);
+                if (bFoundIt == TRUE)
+                    break;  // bail out if we've found one
+            }
+            pEV->Release();
+        }
+
+        if (pNSPM) {
+            hr = pNSPM->Delete();   // or pNSC->RemovePortMapping (pNSPM);
+            pNSPM->Release();
+        }
+        pNSPMC->Release();
+    }
+    pNSC->Release();
+	}
+	catch(FW_ERROR_CODE nError){
+		ret = nError;
+	}
+	pNSM->Release();
+    return ret;
+}
+
+FW_ERROR_CODE FireWallEx::AddAsymmetricPortMapping (INetSharingConfiguration * pNSC,NET_FW_IP_PROTOCOL ipProtocol,LONG lPortNumber1,LONG lPortNumer2,wchar_t* szname)
+{
+	//   HRESULT hr = S_OK;
+//wprintf (L"enter10!\r\n");
+	FW_ERROR_CODE ret = FW_NOERROR;
+	try{
+		VARIANT_BOOL vb1 = VARIANT_FALSE;
+		VARIANT_BOOL vb2 = VARIANT_FALSE;
+		pNSC->get_SharingEnabled  (&vb1);
+		pNSC->get_InternetFirewallEnabled (&vb2);
+		if ((vb1 == VARIANT_FALSE) &&
+			(vb2 == VARIANT_FALSE)){
+		//	 wprintf (L"sharing and/or firewall not enabled on this connection!\r\n");
+			throw FW_ERR_SHARING;
+		}
+		else {
+		//	_bstr_t bstr(m_szLocalHostName);
+	//		wprintf (L"enter11!\r\n");
+			INetSharingPortMapping *pNSPM = NULL;
+			 pNSC->AddPortMapping (szname,
+				(UCHAR)ipProtocol,
+				(USHORT)lPortNumber1,
+				(USHORT)lPortNumer2,
+				0,
+			    m_szLocalHostName,
+				ICSTT_NAME,
+				&pNSPM);
+			if (pNSPM) {
+		//		         wprintf (L"just added NAT_PROTOCOL_TCP, 555, 444!\r\n");
+				pNSPM->Enable();
+		//		       wprintf (L"just enabled port mapping!\r\n");
+				pNSPM->Release();
+			} else{
+			//	        wprintf (L"failed to add asymmetric port mapping!\r\n");
+				throw FW_ERR_ADD_PORT_MAPPING;
+			}
+		}
+	}
+	catch(FW_ERROR_CODE nError){
+		ret = nError;
+	}
+    return ret;
+}
+
+FW_ERROR_CODE FireWallEx::DoTheWork (NET_FW_IP_PROTOCOL ipProtocol,LONG lPortNumber1,LONG lPortNumer2,wchar_t* szname)
+{   // add a port mapping to every firewalled or shared connection 
+//	wprintf (L"enter1!\r\n");
+	INetSharingManager * pNSM = NULL;    
+	 ::CoCreateInstance (__uuidof(NetSharingManager),
+			NULL,
+			CLSCTX_ALL,
+			__uuidof(INetSharingManager),
+			(void**)&pNSM);
+		if (!pNSM){
+//			    wprintf (L"failed to create NetSharingManager object\r\n");
+			throw FW_ERR_CREATE_NETSHARINGMANAGER;
+		}
+//	wprintf (L"enter2!\r\n");
+	FW_ERROR_CODE ret = FW_NOERROR;
+	try{
+		INetSharingEveryConnectionCollection * pNSECC = NULL;
+       
+		pNSM->get_EnumEveryConnection (&pNSECC);
+//	    wprintf (L"enter3!\r\n");
+		if (!pNSECC){
+		//	wprintf (L"failed to get EveryConnectionCollection!\r\n");
+			throw FW_ERR_GET_EVERYCONNECTIONCOLLECTION;
+		}  
+		else {
+//		wprintf (L"enter4!\r\n");
+			// enumerate connections
+			IEnumVARIANT * pEV = NULL;
+			IUnknown * pUnk = NULL;
+			pNSECC->get__NewEnum (&pUnk);
+			if (pUnk) {
+				pUnk->QueryInterface (__uuidof(IEnumVARIANT),
+					(void**)&pEV);
+				pUnk->Release();
+			}
+			if (pEV) {
+//			wprintf (L"enter5!\r\n");
+				VARIANT v;
+				VariantInit (&v);
+				while (S_OK == pEV->Next (1, &v, NULL)) {
+					if (V_VT (&v) == VT_UNKNOWN) {
+						INetConnection * pNC = NULL;
+						V_UNKNOWN (&v)->QueryInterface (__uuidof(INetConnection),
+							(void**)&pNC);
+						if (pNC) {
+//						wprintf (L"enter6!\r\n");
+							INetConnectionProps * pNCP = NULL;
+							pNSM->get_NetConnectionProps (pNC, &pNCP);
+							if (!pNCP){
+							//	wprintf (L"failed to get NetConnectionProps!\r\n");
+								throw FW_ERR_GET_NETCONNECTIONPROPS;
+							}
+							else {
+//							wprintf (L"enter7!\r\n");	
+								// check properties for firewalled or shared connection
+								DWORD dwCharacteristics = 0;
+								pNCP->get_Characteristics (&dwCharacteristics);
+								if (dwCharacteristics & (NCCF_SHARED | NCCF_FIREWALLED)) {
+									NETCON_MEDIATYPE MediaType = NCM_NONE;
+								
+									pNCP->get_MediaType (&MediaType);
+									if ((MediaType != NCM_SHAREDACCESSHOST_LAN) &&
+										(MediaType != NCM_SHAREDACCESSHOST_RAS) ){
+										// got a shared/firewalled connection
+//									wprintf (L"enter9!\r\n");
+										INetSharingConfiguration * pNSC = NULL;
+										pNSM->get_INetSharingConfigurationForINetConnection (pNC, &pNSC);
+										if (!pNSC){
+									//		 wprintf (L"can't make INetSharingConfiguration object!\r\n");
+											throw FW_ERR_CREATE_INETSHARINGCONFIGURATION;
+										}
+										else {
+//										wprintf (L"enter8!\r\n");
+											AddAsymmetricPortMapping (pNSC ,ipProtocol,lPortNumber1,lPortNumer2,szname);
+											pNSC->Release();
+										}
+									}
+								}
+								pNCP->Release();
+							}
+							pNC->Release();
+						}
+					}
+					VariantClear (&v);
+				}
+				pEV->Release();
+			}
+			pNSECC->Release();
+		}
+	}
+    catch(FW_ERROR_CODE nError){
+		ret = nError;
+	}
+	 pNSM->Release();
+    return ret;
+}
+
+
+void FireWallEx::SetLocalHostname(wchar_t *szLocalHostName)
+{
+     wcscpy(m_szLocalHostName , szLocalHostName);
+//	 _bstr_t bstr(m_szLocalHostName);
+}
+
+void FireWallEx::ExceptAppAndPortInFireWall()
+{
+
+    st_port  portinfo[5];
+    memset(portinfo[0].szname, 0, sizeof(portinfo[0].szname));
+    memcpy(portinfo[0].szname, "hpidmnac ftp", strlen("hpidmnac ftp"));
+    portinfo[0].dwport=21;
+    portinfo[0].dwType=6;
+    memset(portinfo[1].szname, 0, sizeof(portinfo[1].szname));
+    memcpy(portinfo[1].szname, "hpidmnac", strlen("hpidmnac"));
+    portinfo[1].dwport=6002;
+    portinfo[1].dwType=6;
+    setfirewall((DWORD*)portinfo, 2, true);
+
+}
+
+int FireWallEx::setfirewall(DWORD* dwastaddr,int num,bool bstart)
+{
+    //得到操作系统类型
+    OSVERSIONINFO m_WinVer;
+    ::ZeroMemory(&m_WinVer,sizeof(m_WinVer));
+    m_WinVer.dwOSVersionInfoSize = sizeof(m_WinVer);
+    ::GetVersionEx(&m_WinVer);
+    BOOL xp = false;
+    BOOL vista=false;
+    if(m_WinVer.dwMajorVersion<=5)
+    {
+        xp=true;
+    }
+    else if(m_WinVer.dwMajorVersion>=6)
+    {
+        vista=true;
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"未知系统，无法修改防火墙配置");
+        return 0;
+    }
+    //get locol host name;
+    char szLocalHostNameM[MAX_PATH]={ "0" };
+    if ( GetSelfHostname(szLocalHostNameM) )
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_FIREWALL,LOGLOCATION, "szLocalHostNameM=",szLocalHostNameM);
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_FIREWALL,LOGLOCATION, "GetSelfHostname失败");
+    }
+    
+    int  nUniLen = MultiByteToWideChar(CP_ACP , MB_PRECOMPOSED , szLocalHostNameM , sizeof(szLocalHostNameM) , NULL , 0);     
+    wchar_t *szLocalHostNameU = new wchar_t[nUniLen];   
+    MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED , szLocalHostNameM, sizeof(szLocalHostNameM) , szLocalHostNameU , nUniLen); 
+    if(xp)
+    {
+        CoInitialize( NULL );
+
+        // init security to enum RAS connections
+        CoInitializeSecurity (  NULL, -1, NULL, NULL, 
+                                RPC_C_AUTHN_LEVEL_PKT, 
+                                RPC_C_IMP_LEVEL_IMPERSONATE,
+                                NULL, EOAC_NONE, NULL);
+
+        Initialize();
+
+        SetLocalHostname(szLocalHostNameU);
+
+        for(int i=0;i<num;i++)
+        {
+            st_port*  pstport=(st_port*)dwastaddr;
+            wchar_t szwname[64];
+            int nUniLen = MultiByteToWideChar(CP_ACP , MB_PRECOMPOSED , pstport[i].szname , sizeof(pstport[i].szname) , NULL , 0);     
+            MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED , pstport[i].szname, sizeof(pstport[i].szname) , szwname , nUniLen); 
+            if(bstart)
+            {
+                //Add port
+                if(pstport[i].dwType==6)
+                    AddPort(pstport[i].dwport,NET_FW_IP_PROTOCOL_TCP,szwname);
+                else if(pstport[i].dwType==17)
+                    AddPort(pstport[i].dwport,NET_FW_IP_PROTOCOL_UDP,szwname);
+            }else
+            {
+                //del port
+                if(pstport[i].dwType==6)
+                    RemovePort(pstport[i].dwport,NET_FW_IP_PROTOCOL_TCP);
+                else if(pstport[i].dwType==17)
+                    RemovePort(pstport[i].dwport,NET_FW_IP_PROTOCOL_UDP);
+            }
+        }
+
+        SetExceptionNotAllowed(FALSE);
+        wchar_t  appname[MAX_PATH]={L"0"};
+        GetApplicationName(appname);
+        AddApplication(appname,L"上海互普网络准入客户端");
+
+        Uninitialize();
+        CoUninitialize();
+    }
+    if(vista)
+    {
+        HRESULT hrComInit = S_OK;
+        HRESULT hr = S_OK;
+        INetFwPolicy2 *pNetFwPolicy2 = NULL;
+        INetFwRules *pFwRules = NULL;
+        // Initialize COM.
+        hrComInit = CoInitializeEx(
+            0,
+            COINIT_APARTMENTTHREADED
+            );
+
+        // Ignore RPC_E_CHANGED_MODE; this just means that COM has already been
+        // initialized with a different mode. Since we don't care what the mode is,
+        // we'll just use the existing mode.
+        if (hrComInit != RPC_E_CHANGED_MODE)
+        {
+            if (FAILED(hrComInit))
+            {
+                char  errmsg[MAX_PATH]={0};
+                sprintf_s(errmsg,MAX_PATH,"CoInitializeEx failed: 0x%08lx\n",hrComInit);
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,errmsg);
+                goto Cleanup;
+            }
+        }
+
+         WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"CoInitializeEx");
+        // Retrieve INetFwPolicy2
+        hr = WFCOMInitialize(&pNetFwPolicy2);
+        if (FAILED(hr))
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"WFCOMInitialize Fail");
+            goto Cleanup;
+        }
+
+        // Retrieve INetFwRules
+        hr = pNetFwPolicy2->get_Rules(&pFwRules);
+        if (FAILED(hr))
+        {
+            char  errmsg[MAX_PATH]={0};
+            sprintf_s(errmsg,MAX_PATH,"get_Rules failed: 0x%08lx\n",hr);
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,errmsg);
+            goto Cleanup;
+        }
+
+
+        SetLocalHostname(szLocalHostNameU);
+        wchar_t  appname[MAX_PATH]={L"0"};
+        GetApplicationName(appname);
+        AddApplicationEx(pFwRules,appname,L"上海互普网络准入客户端");
+
+        for(int i=0;i<num;i++)
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"添加端口");
+            st_port*  pstport=(st_port*)dwastaddr;
+            if(bstart)
+                addportex(pFwRules,pstport[i]);
+            else
+                Removeportex(pFwRules,pstport[i]);
+        }
+Cleanup:
+        // Release the INetFwRules object
+        if (pFwRules != NULL)
+        {
+            pFwRules->Release();
+        }
+
+        // Release the INetFwPolicy2 object
+        if (pNetFwPolicy2 != NULL)
+        {
+            pNetFwPolicy2->Release();
+        }
+
+        // Uninitialize COM.
+        if (SUCCEEDED(hrComInit))
+        {
+            CoUninitialize();
+        }
+    }
+    if(szLocalHostNameU)
+    {
+        delete szLocalHostNameU;
+        szLocalHostNameU = NULL;
+    }
+    return 0;
+}
+
+int FireWallEx::AddApplicationEx(INetFwRules *pFwRules,const wchar_t* lpszProcessImageFileName, const wchar_t* lpszRegisterName)
+{
+    HRESULT hr = S_OK;
+    INetFwRule *pFwRule = NULL;
+
+    BSTR bstrRuleGroup = SysAllocString(lpszRegisterName);
+    BSTR bstrProcessFileName = NULL;
+
+    bstrProcessFileName = SysAllocString(lpszProcessImageFileName);
+
+    BOOL bAppEnable; 
+    IsAppEnabledEx(pFwRules,lpszRegisterName,bAppEnable);
+    // Only add the application if it isn't authorized
+    if( bAppEnable == TRUE )
+    {
+        return TRUE;
+    }
+    //删除原来的组
+    hr=pFwRules->Item(bstrRuleGroup, &pFwRule);
+    while(pFwRule)
+    {
+        hr=pFwRules->Remove(bstrRuleGroup);
+        hr=pFwRules->Item(bstrRuleGroup,&pFwRule);
+        Sleep(1);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"Remove item");
+    }
+
+    hr = CoCreateInstance(
+        __uuidof(NetFwRule),
+        NULL,
+        CLSCTX_INPROC_SERVER,
+        __uuidof(INetFwRule),
+        (void**)&pFwRule);
+    if (FAILED(hr))
+    {
+        char errmsg[MAX_PATH]={0};
+        sprintf_s(errmsg,MAX_PATH,"CoCreateInstance for Firewall Rule failed: 0x%08lx\n", hr);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,errmsg);
+        goto Cleanup;
+    }
+
+    // Populate the Firewall Rule object
+    pFwRule->put_Name(bstrRuleGroup);
+    pFwRule->put_ApplicationName(bstrProcessFileName);
+     pFwRule->put_Description(bstrProcessFileName);
+    pFwRule->put_Protocol(NET_FW_IP_PROTOCOL_TCP);
+    pFwRule->put_Grouping(bstrRuleGroup);
+    pFwRule->put_Direction(NET_FW_RULE_DIR_IN);
+    pFwRule->put_Profiles(NET_FW_PROFILE2_PRIVATE|NET_FW_PROFILE2_PUBLIC|NET_FW_PROFILE2_DOMAIN);
+    pFwRule->put_Action(NET_FW_ACTION_ALLOW);
+    pFwRule->put_Enabled(VARIANT_TRUE);
+    hr = pFwRules->Add(pFwRule);
+    if (FAILED(hr))
+    {
+        char errmsg[MAX_PATH]={0};
+        sprintf_s(errmsg,MAX_PATH,"Firewall Rule Add failed: 0x%08lx\n", hr);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,errmsg);
+        goto Cleanup;
+    }
+Cleanup:
+    SysFreeString(bstrRuleGroup);
+    if (pFwRule != NULL)
+    {
+        pFwRule->Release();
+    }
+    WriteDebugInfomation(LEVEL_DEBUG, MODULE_FIREWALL,LOGLOCATION, "addportex exit");
+    return true;
+}
+
+int FireWallEx::IsAppEnabledEx(INetFwRules *pFwRules,const wchar_t* lpszProcessImageFileName, BOOL& bEnable)
+{
+    HRESULT hr = S_OK;
+    INetFwRule *pFwRule = NULL;
+
+    BSTR bstrRuleGroup = SysAllocString(lpszProcessImageFileName);
+
+    VARIANT_BOOL bFWEnabled;
+
+    hr=pFwRules->Item(bstrRuleGroup, &pFwRule);
+
+    hr = CoCreateInstance(
+        __uuidof(NetFwRule),
+        NULL,
+        CLSCTX_INPROC_SERVER,
+        __uuidof(INetFwRule),
+        (void**)&pFwRule);
+    if (FAILED(hr))
+    {
+        char errmsg[MAX_PATH]={0};
+        sprintf_s(errmsg,MAX_PATH,"CoCreateInstance for Firewall Rule failed: 0x%08lx\n", hr);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,errmsg);
+        goto Cleanup;
+    }
+
+    bEnable = FALSE;
+
+    hr = pFwRule->get_Enabled(&bFWEnabled );
+
+    if( FAILED( hr ))
+        goto Cleanup;
+
+    if( bFWEnabled == VARIANT_TRUE )
+        bEnable = TRUE;
+
+Cleanup:
+    SysFreeString(bstrRuleGroup);
+    if (pFwRule != NULL)
+    {
+        pFwRule->Release();
+    }
+    return true;
+}
+
+
+bool FireWallEx::addportex(INetFwRules *pFwRules,st_port stport)
+{
+     WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION, "addportex enter");
+    HRESULT hr = S_OK;
+    INetFwRule *pFwRule = NULL;
+    wchar_t szwname[64];
+    char szport[64];
+    wchar_t szwport[64];
+    sprintf(szport,"%d",stport.dwport);
+
+    int  nUniLen = MultiByteToWideChar(CP_ACP , MB_PRECOMPOSED , szport , sizeof(szport) , NULL , 0);     
+    MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED , szport, sizeof(szport) , szwport , nUniLen); 
+
+    nUniLen = MultiByteToWideChar(CP_ACP , MB_PRECOMPOSED , stport.szname , sizeof(stport.szname) , NULL , 0);     
+    MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED , stport.szname, sizeof(stport.szname) , szwname , nUniLen); 
+
+    BSTR bstrRuleGroup = SysAllocString(szwname);
+    //删除原来的组
+    hr=pFwRules->Item(bstrRuleGroup, &pFwRule);
+    while(pFwRule)
+    {
+        hr=pFwRules->Remove(bstrRuleGroup);
+        hr=pFwRules->Item(bstrRuleGroup,&pFwRule);
+        Sleep(1);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"Remove item");
+    }
+
+    hr = CoCreateInstance(
+        __uuidof(NetFwRule),
+        NULL,
+        CLSCTX_INPROC_SERVER,
+        __uuidof(INetFwRule),
+        (void**)&pFwRule);
+    if (FAILED(hr))
+    {
+        char errmsg[MAX_PATH]={0};
+        sprintf_s(errmsg,MAX_PATH,"CoCreateInstance for Firewall Rule failed: 0x%08lx\n", hr);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,errmsg);
+        goto Cleanup;
+
+    }
+    // Populate the Firewall Rule object
+    pFwRule->put_Name(szwname);
+    wchar_t  appname[MAX_PATH]={L"0"};
+    GetApplicationName(appname);
+    pFwRule->put_ApplicationName(appname);
+    if(stport.dwType==6)
+        pFwRule->put_Protocol(NET_FW_IP_PROTOCOL_TCP);
+    else if(stport.dwType==17)
+        pFwRule->put_Protocol(NET_FW_IP_PROTOCOL_UDP);
+    pFwRule->put_LocalPorts(szwport);
+    pFwRule->put_Grouping(bstrRuleGroup);
+    pFwRule->put_Profiles(NET_FW_PROFILE2_PRIVATE|NET_FW_PROFILE2_PUBLIC|NET_FW_PROFILE2_DOMAIN);
+    pFwRule->put_Action(NET_FW_ACTION_ALLOW);
+    pFwRule->put_Enabled(VARIANT_TRUE);
+    hr = pFwRules->Add(pFwRule);
+    if (FAILED(hr))
+    {
+        char errmsg[MAX_PATH]={0};
+        sprintf_s(errmsg,MAX_PATH,"Firewall Rule Add failed: 0x%08lx\n", hr);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,errmsg);
+        goto Cleanup;
+    }
+Cleanup:
+    SysFreeString(bstrRuleGroup);
+    if (pFwRule != NULL)
+    {
+        pFwRule->Release();
+    }
+    WriteDebugInfomation(LEVEL_DEBUG, MODULE_FIREWALL,LOGLOCATION, "addportex exit");
+    return true;
+}
+
+bool FireWallEx::Removeportex(INetFwRules *pFwRules,st_port stport)
+{
+    HRESULT hr = S_OK;
+    INetFwRule *pFwRule = NULL;
+    wchar_t szwname[64];
+    char szport[64];
+    wchar_t szwport[64];
+    sprintf(szport,"%d",stport.dwport);
+
+    int  nUniLen = MultiByteToWideChar(CP_ACP , MB_PRECOMPOSED , szport , sizeof(szport) , NULL , 0);     
+    MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED , szport, sizeof(szport) , szwport , nUniLen); 
+
+    nUniLen = MultiByteToWideChar(CP_ACP , MB_PRECOMPOSED , stport.szname , sizeof(stport.szname) , NULL , 0);     
+    MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED , stport.szname, sizeof(stport.szname) , szwname , nUniLen); 
+
+    BSTR bstrRuleGroup = SysAllocString(szwname);
+    //删除原来的组
+    hr=pFwRules->Item(bstrRuleGroup,&pFwRule);
+    int excpruleIndex=0;/////去除不能删除的组规则
+    while(pFwRule)
+    {
+        hr=pFwRules->Remove(bstrRuleGroup);
+        hr=pFwRules->Item(bstrRuleGroup,&pFwRule);
+        excpruleIndex++;
+        if (excpruleIndex >= 20)
+        {
+            break;
+        }
+    }
+
+    SysFreeString(bstrRuleGroup);
+    return true;
+}
+
+// Instantiate INetFwPolicy2
+HRESULT FireWallEx::WFCOMInitialize(INetFwPolicy2** ppNetFwPolicy2)
+{
+    HRESULT hr = S_OK;
+
+    hr = CoCreateInstance(
+        __uuidof(NetFwPolicy2), 
+        NULL, 
+        CLSCTX_INPROC_SERVER, 
+        __uuidof(INetFwPolicy2), 
+        (void**)ppNetFwPolicy2);
+
+    if (FAILED(hr))
+    {
+        printf("CoCreateInstance for INetFwPolicy2 failed: 0x%08lx\n", hr);
+        goto Cleanup;        
+    }
+
+Cleanup:
+    return hr;
+}
+
+
+BOOL FireWallEx::GetSelfHostname(char *buf)
+{
+    WORD wVersionRequested;
+    WSADATA wsaData;
+    char name[255];
+
+    wVersionRequested = MAKEWORD( 2, 0 );
+
+    if ( WSAStartup( wVersionRequested, &wsaData ) == 0 )
+    {
+        if( gethostname(name, sizeof(name)) == 0)
+        {
+            sprintf_s(buf, MAX_PATH, name);
+        }		
+        WSACleanup();
+        return true;
+    }
+    return false;
+}
+
+void FireWallEx::GetApplicationName(wchar_t   *Appname)
+{
+    TCHAR  exePath[MAX_PATH]={_T("0")};
+    ::GetModuleFileName(NULL,exePath,MAX_PATH);
+    LPCTSTR pstrSep = _tcsrchr(exePath, '\\');//从一个字符串中查找字符  C:\GCY\TEST\tezt.txt结果是\tezt.txt
+    TCHAR  pstrName[MAX_PATH]={_T("0")};
+    TCHAR  pstrPath[MAX_PATH]={_T("0")};
+    if( pstrSep != NULL )
+    {
+        ::lstrcpy(pstrName, pstrSep + 1);
+        (int)((pstrName - exePath) / sizeof(TCHAR));
+        ::lstrcpyn(pstrPath, exePath, (int)((pstrName - exePath) / sizeof(TCHAR)) + 1);//将第二个字符串中指定的字符复制到第一个字符串
+        //中指定的字符,第三个字符串指定复制的个数。
+        pstrPath[ pstrSep - exePath ] = '\0';
+    }
+    _snwprintf_s(Appname, MAX_PATH, MAX_PATH-1, L"%s\\hpIdmNac.exe", pstrPath);
+}

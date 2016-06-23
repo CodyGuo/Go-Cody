@@ -1,0 +1,82 @@
+#pragma once
+
+#include <Winhttp.h>
+#pragma comment(lib,"Winhttp.lib")
+
+class CHttpClient
+{
+	public:
+     CHttpClient(const wstring &url);
+     ~CHttpClient(void);
+
+    // It is a synchronized method and may take a long time to finish.
+     bool SendHttpRequest(const wstring &httpVerb = L"GET", bool disableAutoRedirect = false);
+     wstring GetResponseHeader(void);
+     wstring GetResponseContent(void);
+     wstring GetResponseCharset(void);
+     wstring GetResponseStatusCode(void);
+     wstring GetResponseLocation(void);
+     wstring GetRequestHost(void);
+     const BYTE *GetRawResponseContent(void);
+     unsigned int GetRawResponseContentLength(void);
+     unsigned int GetRawResponseReceivedContentLength(void);
+     bool SaveResponseToFile(const wstring &filePath);
+     wstring GetResponseCookies(void);
+     bool SetAdditionalRequestCookies(const wstring &cookies);
+     bool SetAdditionalDataToSend(BYTE *data, unsigned int dataSize);
+     bool g_updateurl(const wstring &url);
+     bool ResetAdditionalDataToSend(void);
+     bool SetAdditionalRequestHeaders(const wstring &additionalRequestHeaders);
+     bool SetRequireValidSslCertificates(bool require);
+     bool SetProxy(const wstring &proxy);
+     DWORD GetLastError(void);
+     bool SetUserAgent(const wstring &userAgent);
+     bool SetForceCharset(const wstring &charset);
+     bool SetProxyUsername(const wstring &username);
+     bool SetProxyPassword(const wstring &password);
+     bool SetTimeouts(unsigned int resolveTimeout = 0,
+                    unsigned int connectTimeout = 30000,
+                    unsigned int sendTimeout = 10000,
+                    unsigned int receiveTimeout = 10000);
+     
+     bool SetProxyOption(HINTERNET hReque);
+
+     bool GetIEProxySetting(HINTERNET hReque,bool *sendResult);
+
+     void ParseHttpHeadData();
+
+private:
+	 CHttpClient(const CHttpClient &other);
+     CHttpClient &operator =(const CHttpClient &other);
+
+    HINTERNET m_sessionHandle;
+    bool m_requireValidSsl;
+    wstring m_requestURL;
+    wstring m_requestHost;
+    wstring m_responseHeader;
+    wstring m_responseContent;
+    wstring m_responseCharset;
+    BYTE *m_pResponse;
+    unsigned int m_responseByteCountReceived;   // Up to 4GB.
+ 
+    unsigned int m_responseByteCount;
+    wstring m_responseCookies;
+    wstring m_additionalRequestCookies;
+    BYTE *m_pDataToSend;
+    unsigned int m_dataToSendSize;
+    wstring m_additionalRequestHeaders;
+    wstring m_proxy;
+    DWORD m_dwLastError;
+    wstring m_statusCode;
+    wstring m_userAgent;
+    bool m_bForceCharset;
+    wstring m_proxyUsername;
+    wstring m_proxyPassword;
+    wstring m_location;
+    unsigned int m_resolveTimeout;
+    unsigned int m_connectTimeout;
+    unsigned int m_sendTimeout;
+    unsigned int m_receiveTimeout;
+};
+
+

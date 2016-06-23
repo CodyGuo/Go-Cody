@@ -1,0 +1,25 @@
+#include "StdAfx.h"
+#include "Guest.h"
+#include <shlwapi.h>  
+#include <strsafe.h>  
+#include <assert.h>
+#pragma comment(lib,"netapi32.lib")
+#include <lm.h>
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+#include "SingServerPage.h"
+
+
+Guest::Guest(void)
+{
+	
+}
+
+
+Guest::~Guest(void)
+{
+  
+}
+
+ 
+

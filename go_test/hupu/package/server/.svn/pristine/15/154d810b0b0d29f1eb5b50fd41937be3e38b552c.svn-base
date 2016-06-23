@@ -1,0 +1,527 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "StdAfx.h"
+#include "GlobalFunction.h"
+#include <tlhelp32.h>
+#include <algorithm>
+#include <iterator>
+#include <WtsApi32.h>
+#include <UserEnv.h>
+#include "..\..\common\com_class\MD5_CTX.h"
+
+#pragma comment(lib, "WtsApi32.lib")
+#pragma comment(lib, "Userenv.lib")
+
+/************************************************************
+ Description: LPCWSTR转String
+ input: wstr[转换的字符串]
+ Return:  返回转换的string
+*************************************************************/
+std::string WCharToAnsi(LPCWSTR pwszSrc)
+{
+	try
+	{
+		char* pszDst = NULL;
+		std::string strTemp("");
+
+		int nLen = WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, NULL, 0, NULL, NULL);
+
+		if (nLen <= 0) 
+		{
+			return std::string("");
+		}
+
+		pszDst = new char[nLen];
+
+		if (NULL == pszDst) 
+		{
+			return std::string("");
+		}
+		WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, pszDst, nLen, NULL, NULL);
+		pszDst[nLen -1] = 0;
+
+		strTemp = pszDst;
+
+		delete [] pszDst;
+
+		return strTemp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"WCharToAnsi Exception", L"Msg", 0);
+#endif
+	}
+	return "";
+}
+
+/************************************************************
+ Description: char*转wstring
+ input: pszSrc[转换的字符串]
+ Return:  返回转换的wstring
+*************************************************************/
+std::wstring AnsiToWChar(IN const char* pszSrc)
+{
+	try
+	{
+		wchar_t* pwszDst = NULL;
+		std::wstring wstrTemp(L"");
+
+		int nLen = MultiByteToWideChar(CP_ACP, 0, pszSrc, -1, pwszDst, 0);
+
+		if (nLen <= 0) 
+		{
+			return std::wstring(L"");
+		}
+
+		pwszDst = new wchar_t[nLen];
+
+		if (NULL == pwszDst) 
+		{
+			return std::wstring(L"");
+		}
+
+		MultiByteToWideChar(CP_ACP, 0, pszSrc, (int)strlen(pszSrc), pwszDst, nLen);
+
+		pwszDst[nLen -1] = 0;
+
+		wstrTemp = pwszDst;
+
+		delete [] pwszDst;
+
+		return wstrTemp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"AnsiToWChar Exception", L"Msg", 0);
+#endif
+	}
+	return L"";
+}
+
+/************************************************************
+ Description: ansi转unicode
+ input: instr[转换的字符串]
+ Output: outstr[转换后的字符串]
+ Return:  返回转换的长度
+*************************************************************/
+INT ans_to_uni(IN const CHAR* instr, OUT WCHAR* outstr)
+{
+	try
+	{
+		return MultiByteToWideChar(	CP_ACP, 
+									0, 
+									instr, 
+									(INT)strlen(instr), 
+									outstr, 
+									(INT)strlen(instr));
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"ans_to_uni Exception", L"Msg", 0);
+#endif
+	}
+   return FALSE;
+}
+
+/************************************************************
+ Description: unicode转ansi
+ input: instr[转换的字符串]
+ Output: outstr[转换后的字符串]
+ Return:  返回转换的长度
+*************************************************************/
+INT uni_to_ans(IN const WCHAR* instr, OUT CHAR* outstr)
+{
+	try
+	{
+		return WideCharToMultiByte(	CP_ACP, 
+									NULL, 
+									instr, 
+									(INT)wcslen(instr),
+									outstr, 
+									(INT)wcslen(instr), 
+									NULL, 
+									NULL );
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"uni_to_ans Exception", L"Msg", 0);
+#endif
+	}
+	return FALSE;
+}
+
+/************************************************************
+ Description: 获取当前程序所在路径
+ output: pFullPath【当前路径】
+ Return: FALSE【获取失败】，TRUE【获取成功】
+*************************************************************/
+int	GetCurrentPath(__out PSTR pFullPath)
+{
+	try
+	{
+		BOOL					ret= FALSE;
+		CHAR					szPath[MAX_PATH];
+		CHAR					szDrive[_MAX_DRIVE];
+		CHAR					szDir[_MAX_DIR];
+		CHAR					szFname[_MAX_FNAME];
+		CHAR					szExtname[_MAX_EXT];
+
+		if(GetModuleFileNameA(NULL,szPath, MAX_PATH))
+		{
+			if(! _splitpath_s(szPath, szDrive, _MAX_DRIVE, szDir, _MAX_DIR, szFname,_MAX_FNAME, szExtname, _MAX_EXT))
+			{
+				sprintf_s(pFullPath, MAX_PATH, "%s%s", szDrive, szDir);
+				ret = TRUE;
+			}
+		}
+		return	ret;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetCurrentPath Exception", L"Msg", 0);
+#endif
+	}
+	return FALSE;
+}
+
+/************************************************************
+ Description: 加密字符串
+ output: sdata【加密字符串】ilen【字符串长度】
+ Return: sdata【输出密文】
+*************************************************************/
+unsigned char* EncryptString(unsigned char* pdata, int ilen)
+{
+	try
+	{
+		for(int i = 0; i < ilen; i++)
+		{
+			pdata[i] += 'X';
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"EncryptString Exception", L"Msg", 0);
+#endif
+	}
+	
+	return pdata;
+}
+
+/************************************************************
+ Description: 解密字符串
+ output: sdata【解密字符串】ilen【字符串长度】
+ Return: sdata【输出明文】
+*************************************************************/
+unsigned char* DecryptString(unsigned char* pdata, int ilen)
+{
+	try
+	{
+		for(int i = 0; i < ilen; i++)
+		{
+			pdata[i] -= 'X';
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"DecryptString Exception", L"Msg", 0);
+#endif
+	}
+	return pdata;
+}
+
+/************************************************************
+ Description: 检查进程是否存在
+*************************************************************/
+BOOL TheProcessIsExist(IN wchar_t* pProcName)  
+{
+	BOOL bRet = FALSE;
+
+	try
+	{
+		HANDLE snap = INVALID_HANDLE_VALUE;
+		PROCESSENTRY32 proc;
+		BOOL theloop = FALSE;
+
+		snap = CreateToolhelp32Snapshot(TH32CS_SNAPALL, 0);
+		if( snap == INVALID_HANDLE_VALUE )
+		{
+			return bRet;
+		}
+
+		proc.dwSize = sizeof(PROCESSENTRY32);
+		theloop = Process32First(snap, &proc); 
+		while(theloop)
+		{
+			int nLen = min((int)wcslen(proc.szExeFile), (int)wcslen(pProcName));
+			if (_wcsnicmp(proc.szExeFile, pProcName, nLen) == 0 )
+			{
+				bRet = TRUE;
+				break;
+			}
+			theloop = Process32Next(snap, &proc); 
+		}	
+		CloseHandle(snap);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"TerminateAProcess Exception", L"Msg", 0);
+#endif
+	}
+
+	return bRet;
+} 
+
+/************************************************************
+ Description: 运行程序
+ input: sCommand[运行命令]；imilsec[运行等待时间]
+ Return: true[启动成功]；false[启动失败]
+*************************************************************/
+bool RunProcess(const char* sCommand, const unsigned long imilsec)
+{
+	try
+	{
+		STARTUPINFOA si;
+		PROCESS_INFORMATION pi;
+
+		memset(&si, 0, sizeof(si));
+		si.cb = sizeof(si);
+		si.dwFlags = STARTF_USESHOWWINDOW;
+		si.wShowWindow = SW_HIDE;
+		memset(&pi, 0, sizeof(pi));
+
+		if(!CreateProcessA(NULL, (LPSTR)sCommand, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+			return false;
+
+		WaitForSingleObject(pi.hProcess, imilsec);
+
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"RunProcess Exception", L"Msg", 0);
+#endif
+	}
+	return true;
+}
+
+/************************************************************ 
+ Description: 创建进程，没有启动，隐藏UI启动
+ Input:
+ return: 非零[启动]、0[失败]
+*************************************************************/
+BOOL CreateExePro(IN const char* pApplicationName, IN const char* sCommand, IN WORD wShowWindow, IN const unsigned long imilsec, OUT LPDWORD lpExitCode)
+{
+	BOOL bRet = TRUE;
+
+	try
+	{
+		STARTUPINFOA si;
+		PROCESS_INFORMATION pi;
+		DWORD dwConsoleSessionId = 0;
+		HANDLE hTokenUser = NULL, hUserTokenDup = NULL;
+		LPVOID lpvEnv = NULL; 
+
+		dwConsoleSessionId = WTSGetActiveConsoleSessionId();
+		if(!WTSQueryUserToken(dwConsoleSessionId, &hTokenUser))
+		{
+			OutputDebugStringA("@WTSQueryUserToken ..failed..\n");
+			return FALSE;
+		}
+		DuplicateTokenEx(hTokenUser, MAXIMUM_ALLOWED, NULL, SecurityIdentification, TokenPrimary, &hUserTokenDup);
+		SetTokenInformation(hUserTokenDup, TokenSessionId, (void*)dwConsoleSessionId, sizeof(DWORD));
+
+		if(!CreateEnvironmentBlock(&lpvEnv, hTokenUser, FALSE))
+		{
+			OutputDebugStringA("@CreateEnvironmentBlock ..failed..\n");
+			return FALSE;
+		}
+
+		ZeroMemory( &si, sizeof(si) );
+		ZeroMemory( &pi, sizeof(pi) );
+
+		si.cb = sizeof(si);
+		si.wShowWindow = wShowWindow;
+		si.dwFlags  = STARTF_USESHOWWINDOW;
+		memset(&pi, 0, sizeof(pi));
+
+		bRet = ::CreateProcessAsUserA(  hUserTokenDup,
+										pApplicationName/*(wchar_t*)wstrApplicationName.c_str()*/,
+										(LPSTR)sCommand/*(wchar_t*)wstrCommandLine.c_str()*/, 
+										NULL,
+										NULL,
+										FALSE,
+										CREATE_UNICODE_ENVIRONMENT,
+										lpvEnv,
+										NULL,
+										&si,
+										&pi);
+
+		WaitForSingleObject(pi.hProcess, imilsec);
+
+		if (!GetExitCodeProcess(pi.hProcess, lpExitCode))
+		{
+			*lpExitCode = 0xFFFF;
+		}
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+		DestroyEnvironmentBlock(lpvEnv);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"CreateExePro Exception", L"Msg", 0);
+#endif
+	}
+    return bRet;
+}
+
+/************************************************************
+ Description: 结束指定进程
+*************************************************************/
+void TerminateTheProcess(IN char* pProcName, IN BOOL bEndCurrProcessFlag)  
+{
+	try
+	{
+		HANDLE snap = INVALID_HANDLE_VALUE;
+		PROCESSENTRY32 proc;
+		BOOL theloop = FALSE;
+		DWORD dwCurProcId = 0;
+
+		snap = CreateToolhelp32Snapshot(TH32CS_SNAPALL, 0);
+		if( snap == INVALID_HANDLE_VALUE )
+		{
+			return;
+		}
+
+		if (!bEndCurrProcessFlag)
+		{
+			dwCurProcId = GetCurrentProcessId();
+		}
+
+		proc.dwSize = sizeof(PROCESSENTRY32);
+
+		theloop = Process32First(snap, &proc); 
+
+		while(theloop)
+		{
+			string strExeName =  WCharToAnsi(proc.szExeFile);
+			int nLen = min((int)strExeName.length(), (int)strlen(pProcName));
+
+			if (proc.th32ProcessID == dwCurProcId)
+			{
+				theloop = Process32Next(snap, &proc); 
+				continue;
+			}
+
+			if ( _strnicmp(strExeName.c_str(), pProcName, nLen ) == 0 )
+			{
+				HANDLE hProcess = NULL;
+
+				hProcess = OpenProcess( PROCESS_TERMINATE, FALSE, proc.th32ProcessID );
+				TerminateProcess( hProcess, 0);
+			}
+			theloop = Process32Next(snap, &proc); 
+		}
+		
+		CloseHandle(snap);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"TerminateAProcess Exception", L"Msg", 0);
+#endif
+	}
+} 
+
+/************************************************************
+ Description: 获取当前时间
+ Return: 当前时间字符串
+*************************************************************/
+std::string GetCurrentTimeString()
+{
+	SYSTEMTIME stLocalTime;
+	char timeBuf[32] = {0};
+	std::string strRetTime = "";
+
+	GetLocalTime(&stLocalTime);
+	sprintf_s(timeBuf, 32, "%4d%d%d %d:%d:%d", stLocalTime.wYear, stLocalTime.wMonth, stLocalTime.wDay, stLocalTime.wHour, stLocalTime.wMinute, stLocalTime.wSecond);
+
+	strRetTime = timeBuf;
+
+	return strRetTime;
+}
+
+std::string upper_string(const std::string& str)
+{
+	string upper;
+
+	transform(str.begin(), str.end(), std::back_inserter(upper), toupper);
+
+	return upper;
+}
+
+/************************************************************
+ Description: 不区分大小写查找字串
+ input: str【要查找的字符串】 substr【子字符串】
+*************************************************************/
+std::string::size_type StrIStr(const std::string& str, const std::string& substr)
+{
+	return upper_string(str).find(upper_string(substr));
+}
+
+std::wstring upper_wstring(const std::wstring& wstr)
+{
+	wstring wupper;
+
+	transform(wstr.begin(), wstr.end(), std::back_inserter(wupper), toupper);
+
+	return wupper;
+}
+
+/************************************************************
+ Description: 不区分大小写查找字串(宽字符)
+ input: wstr【要查找的字符串】 wsubstr【子字符串】
+*************************************************************/
+std::wstring::size_type wStrIStr(const std::wstring& wstr, const std::wstring& wsubstr)
+{
+	return upper_wstring(wstr).find(upper_wstring(wsubstr));
+}
+
+BOOL CmpFileMd5(IN string strFirstFile, IN string strSecondFile )
+{
+	BOOL bRet = FALSE;
+	MD5_CTX md5Ctx;
+	string strFirstFileMd5 = "";
+	string strSecondFileMd5 = "";
+
+	strFirstFileMd5 = md5Ctx.GetFileMD5Value(strFirstFile);
+	strSecondFileMd5 = md5Ctx.GetFileMD5Value(strSecondFile);
+
+	if ((strFirstFileMd5.length() < 2) || (strSecondFileMd5.length() < 2))
+	{
+		return bRet;
+	}
+
+	if (_stricmp(strFirstFileMd5.c_str(), strSecondFileMd5.c_str()) == 0)
+	{
+		bRet = TRUE;
+	}
+
+	return bRet;
+}

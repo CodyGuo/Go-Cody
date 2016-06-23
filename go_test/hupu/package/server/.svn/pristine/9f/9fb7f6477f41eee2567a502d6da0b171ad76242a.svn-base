@@ -1,0 +1,658 @@
+#include "StdAfx.h"
+#include "Ftp.h"
+#include  "DebugInfo.h"
+#include  "SafeCheckItem/SafeCheckFuntion.h"
+#include "SafeCheckItem/FireWallEx.h"  
+#include "strconvert.h"
+
+#include "zip.h"
+#pragma comment(lib,"zlib1.lib")
+
+#pragma comment(lib,"WinInet.lib")
+
+const int  ftpport = 21;
+const wchar_t ftpusername[] = {L"nac_ftp"};
+const wchar_t ftppasswd[] = {L"qaz!@#"};
+const wchar_t ftpdir[] = {L"//pc_client_log"};
+
+CFtp::CFtp(void)
+{
+	try
+	{
+		m_hInternetSession = NULL;
+		m_hFTPConnection = NULL;
+		m_hFTPFile = NULL;
+		m_bAbort = FALSE;
+		m_bSafeToClose = FALSE;
+		m_pThread = NULL;
+		m_bDownload = FALSE;
+		m_bBinary = TRUE;
+		m_uploadend=FALSE;
+		memset(m_dir,0,sizeof(m_dir));
+		GetInstallDir();
+		wchar_t inipath[MAX_PATH]={L"0"};
+		wsprintf(inipath,L"%s\\data\\VersAndLog_config.ini",m_dir);
+		
+		m_sServer.Format(L"%s",g_ServerIp);
+		int port=ftpport;
+		m_nPort=(INTERNET_PORT)port;
+		wsprintf(m_ftpreltidir,L"%s",ftpdir);
+		m_sUserName.Format(L"%s",ftpusername);
+		m_sPassword.Format(L"%s",ftppasswd);
+		GetPrivateProfileString(L"Device",L"IP",L"00:00:00:00",m_localip,20,inipath);
+		if (wcscmp(L"00:00:00:00",m_localip)==0)
+		{
+			struct in_addr SourceIpAddr;
+			struct in_addr DesIpAddr;
+			char sour[MAX_PATH]={0};
+			int Res=GetCurrentUsingIp(&DesIpAddr,&SourceIpAddr);
+
+			if(Res==HP_SUCCESS)
+			{
+				sprintf_s(sour,MAX_PATH,"%s", inet_ntoa(SourceIpAddr));
+				MultiByteToWideChar(CP_ACP,0,sour,-1,m_localip,20);
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"CFtp::CFtp Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "CFtp::CFtp Exception");
+	}
+}
+
+
+CFtp::~CFtp(void)
+{
+
+}
+
+int CFtp::ReadFileAndUpload()
+{
+    try
+    {
+        struct  FileTimeLog
+        {
+            FILETIME ft;
+            char filename[MAX_PATH];
+        };
+        vector<FileTimeLog> ftloginfo;
+        /////////////////
+        TCHAR dirPath[MAX_PATH]={_T("0")};
+        ConvertA2W(g_nacdirpath,dirPath,sizeof(dirPath));
+        
+        TCHAR dirpath[MAX_PATH]={0};
+        swprintf_s(dirpath,MAX_PATH,_T("%s\\data\\*.log"),dirPath);
+        WIN32_FIND_DATA fd = { 0 };
+        HANDLE hFind = ::FindFirstFile(dirpath,&fd);
+        if( hFind != INVALID_HANDLE_VALUE )
+        {
+            do 
+            {
+                FileTimeLog ftlog;
+
+                memset(&ftlog,0,sizeof(FileTimeLog));
+                WideCharToMultiByte(CP_ACP, 0, fd.cFileName, -1, ftlog.filename, MAX_PATH, NULL, NULL);
+                ftlog.ft=fd.ftLastWriteTime;
+                ftloginfo.push_back(ftlog);
+            } 
+            while( ::FindNextFile(hFind, &fd));
+            ::FindClose(hFind);
+        }
+
+        int logCnt=ftloginfo.size();
+
+        if (logCnt>0)
+        {
+            exceptAppInFireWall();
+        }
+        m_uploadend=TRUE;
+
+        for (int i=0;i<logCnt;)
+        {
+            if (m_uploadend)
+            {
+                if ( (strcmp(ftloginfo[i].filename, "nac.log")!=0)
+                    &&(strcmp(ftloginfo[i].filename, "hpregister.log")!=0) 
+                    && (strcmp(ftloginfo[i].filename, "exception.log")!=0)
+					&& (strcmp(ftloginfo[i].filename, "service.log")!=0))
+                {
+                    m_uploadend=FALSE;
+                    m_hInternetSession = NULL;
+                    m_hFTPConnection = NULL;
+                    m_hFTPFile = NULL;
+                    m_bAbort = FALSE;
+                    m_bSafeToClose = FALSE;
+                    m_pThread = NULL;
+
+                    m_bDownload = FALSE;
+                    m_bBinary = TRUE;
+
+                    char outzipfilename[MAX_PATH]={0};
+                    CompressLogFile(ftloginfo[i].filename,outzipfilename);
+                    wchar_t upfilepath[MAX_PATH]={L"0"};
+                    ConvertA2W(outzipfilename,upfilepath,MAX_PATH);
+ 
+                    wchar_t ftpfilepath[MAX_PATH]={L"0"};
+                    wsprintf(ftpfilepath,L"%s//%s-%s",m_ftpreltidir,m_localip,upfilepath);
+                    m_sRemoteFile.Format(L"%s",ftpfilepath);
+                    wchar_t ftploadfile[MAX_PATH]={L"0"};
+                    wsprintf(ftploadfile,L"%s\\data\\%s",m_dir,upfilepath);
+                    m_sLocalFile.Format(L"%s",ftploadfile);
+                    if (!m_LocalFile.Open(m_sLocalFile, CFile::modeRead|CFile::typeBinary/* | CFile::shareDenyWrite*/))
+                    {
+                        TRACE(_T("Failed to open the file to upload, Error:%d\n"), GetLastError());
+                        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FTP,LOGLOCATION,"Failed to open the file to upload");
+                    }
+
+                    ASSERT(m_sRemoteFile.GetLength());
+
+                    TransferThread();
+
+                    i++;
+                }
+                else
+                {
+                    m_uploadend=TRUE;
+                    i++;
+                }
+            }
+            Sleep(100);
+        }
+
+        vector<FileTimeLog>::iterator iter;
+        for( iter  =  ftloginfo.begin();  iter != ftloginfo.end(); )
+        {
+            iter = ftloginfo.erase(iter);
+        }
+        return HP_SUCCESS;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+    	MessageBox(NULL,L"ReadFileAndUpload exception",L"Msg",MB_ICONERROR|MB_OK);
+#endif
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FTP,LOGLOCATION,L"ReadFileAndUpload exception");
+         return HP_SUCCESS;
+    }
+}
+
+UINT CFtp::_TransferThread(LPVOID pParam)
+{
+	try
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_FTP,LOGLOCATION,L"_TransferThread");
+		//Convert from the SDK world to the C++ world
+		CFtp* pftp= (CFtp*) pParam;
+		ASSERT(pftp);
+		pftp->TransferThread();
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"_TransferThread Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "_TransferThread Exception");
+	}
+	return 0;
+}
+
+void CFtp::HandleThreadErrorWithLastError(UINT nIDError, DWORD dwLastError)
+{
+	try
+	{
+		//Form the error string to report
+		CString sError;
+
+		DWORD dwErr = dwLastError;
+		if (dwErr == 0)
+			dwErr = ::GetLastError();
+		if (dwErr == ERROR_INTERNET_EXTENDED_ERROR)
+		{
+			DWORD dwInetError;
+			DWORD dwSize=0;
+			::InternetGetLastResponseInfo(&dwInetError, NULL, &dwSize);
+			TCHAR* pszResponse = new TCHAR[dwSize+1];
+			::InternetGetLastResponseInfo(&dwInetError, pszResponse, &dwSize);
+			pszResponse[dwSize] = _T('\0');
+			sError = pszResponse;
+			sError = _T("\n") + sError; //Add a line feed between the normal message
+			//and the verbose error message
+			delete [] pszResponse;
+		}
+		else
+			sError.Format(_T("%d"), dwErr);
+		AfxFormatString1(m_sError, nIDError, sError);
+
+		//Delete the file being downloaded to if it is present
+		if (m_bDownload)
+		{
+			m_LocalFile.Close();
+			::DeleteFile(m_sLocalFile);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"HandleThreadErrorWithLastError Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleThreadErrorWithLastError Exception");
+	}
+}
+
+void CFtp::HandleThreadError(UINT nIDError)
+{
+	try
+	{
+		m_sError.LoadString(nIDError);
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_FTP,LOGLOCATION,L"HandleThreadError");
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"HandleThreadError Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleThreadError Exception");
+	}
+}
+
+void CFtp::TransferThread()
+{
+	try
+	{
+		//Create the Internet session handle (if needed)
+
+		ASSERT(m_hInternetSession == NULL);
+		m_hInternetSession = ::InternetOpen(AfxGetAppName(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+		if (m_hInternetSession == NULL)
+		{
+			TRACE(_T("Failed in call to InternetOpen, Error:%d\n"), ::GetLastError());
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_FTP,LOGLOCATION,L"InternetOpen Fail");
+
+			m_uploadend=FALSE;
+			goto Clearn;
+		}
+
+		ASSERT(m_hInternetSession);  
+
+		INTERNET_STATUS_CALLBACK pOldCallback = ::InternetSetStatusCallback(m_hInternetSession, _OnStatusCallBack);
+		if (pOldCallback == INTERNET_INVALID_STATUS_CALLBACK)
+		{
+			TRACE(_T("Failed in call to InternetSetStatusCallback, Error:%d\n"), ::GetLastError());
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_FTP, LOGLOCATION, L"InternetSetStatusCallback Fail ");
+
+			m_uploadend=FALSE;
+			goto Clearn;
+		}
+	
+		ASSERT(m_hFTPConnection == NULL);
+		ASSERT(m_sServer.GetLength());
+		if (m_sUserName.GetLength())
+        {
+			m_hFTPConnection = ::InternetConnect(m_hInternetSession, m_sServer, m_nPort, m_sUserName, 
+			m_sPassword, INTERNET_SERVICE_FTP ,0 /*INTERNET_FLAG_EXISTING_CONNECT|INTERNET_FLAG_PASSIVE*/, NULL);
+        }
+		if (m_hFTPConnection == NULL)
+		{
+			wchar_t msg[MAX_PATH]={L"0"};
+			wsprintf(msg,L"Failed in call to InternetConnect, Error:%d\n",::GetLastError());
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_FTP, LOGLOCATION,msg);
+			goto Clearn;
+		}
+
+		// Get the length of the file to transfer            
+		DWORD dwFileSize = 0;
+	    dwFileSize = (DWORD)m_LocalFile.GetLength();
+
+			if (m_bBinary)  
+				m_hFTPFile = FtpOpenFile(m_hFTPConnection, m_sRemoteFile, GENERIC_WRITE, FTP_TRANSFER_TYPE_BINARY | 
+				INTERNET_FLAG_RELOAD | INTERNET_FLAG_DONT_CACHE, (DWORD) this);
+			else
+				m_hFTPFile = FtpOpenFile(m_hFTPConnection, m_sRemoteFile, GENERIC_WRITE, FTP_TRANSFER_TYPE_ASCII| 
+				INTERNET_FLAG_RELOAD | INTERNET_FLAG_DONT_CACHE, (DWORD) this);
+		
+		if (m_hFTPFile == NULL)
+		{
+			TRACE(_T("Failed in call to FtpOpenFile, Error:%d\n"), ::GetLastError());
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_FTP,LOGLOCATION,L"InternetSetStatusCallback  Fail ");
+
+			m_uploadend=FALSE;
+			goto Clearn;
+		}
+
+		//Now do the actual reading / writing of the file
+
+		DWORD dwBytesRead = 0;
+		DWORD dwBytesWritten = 0;
+		char szReadBuf[10240];
+
+		DWORD dwTotalBytesWritten = 0;  
+
+		do
+		{
+			//Read the data from the local file
+			TRY
+			{
+				dwBytesRead = m_LocalFile.Read(szReadBuf, 10240);
+			}
+			CATCH(CFileException, e);                                          
+			{
+				TRACE(_T("An exception occured while reading the local file\n"));
+				e->Delete();
+
+				m_uploadend=FALSE;
+				goto Clearn;
+			}
+			END_CATCH
+
+				//Write to the remote file
+				if (dwBytesRead)
+				{
+					if (!::InternetWriteFile(m_hFTPFile, szReadBuf, dwBytesRead, &dwBytesWritten))
+					{
+						wchar_t  errmsg[MAX_PATH]={L"0"};
+						wsprintf(errmsg,L"Failed in call to InternetWriteFile, Error:%d\n", ::GetLastError());
+                        WriteDebugInfomation(LEVEL_DEBUG,MODULE_FTP,LOGLOCATION,errmsg);
+						m_uploadend=FALSE;
+						goto Clearn;
+					}
+					else if (dwBytesWritten && !m_bAbort)
+					{
+						WriteDebugInfomation(LEVEL_DEBUG,MODULE_FTP,LOGLOCATION,L"m_bAbort",m_bAbort);
+						//Increment the total number of bytes read
+						dwTotalBytesWritten += dwBytesWritten;  
+
+						m_uploadend=TRUE;
+					}
+				}
+
+		} 
+		while (dwBytesRead && !m_bAbort);
+		m_bAbort = FALSE;
+
+Clearn:
+		m_LocalFile.Close();
+		if (m_uploadend)
+		{
+			::DeleteFile(m_sLocalFile);
+		}
+
+		if (m_hFTPFile!=NULL)
+		{
+			InternetCloseHandle(m_hFTPFile);
+			m_hFTPFile=NULL;
+		}
+		if (m_hFTPConnection!=NULL)
+		{
+			InternetCloseHandle(m_hFTPConnection);
+			m_hFTPConnection=NULL;
+		}
+		if (m_hInternetSession!=NULL)
+		{
+			InternetCloseHandle(m_hInternetSession);
+			m_hInternetSession=NULL;
+		}
+        if (pOldCallback)
+            ::InternetSetStatusCallback(m_hInternetSession, pOldCallback);
+		m_uploadend=TRUE;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"TransferThread Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "TransferThread Exception");
+	}
+}
+
+void CALLBACK CFtp::_OnStatusCallBack(HINTERNET hInternet, DWORD dwContext, DWORD dwInternetStatus, 
+	LPVOID lpvStatusInformation, DWORD dwStatusInformationLength)
+{
+    try
+    {
+        //Convert from the SDK C world to the C++ world
+        CFtp* pftp= (CFtp*) dwContext;
+        ASSERT(pftp);
+        pftp->OnStatusCallBack(hInternet, dwInternetStatus, lpvStatusInformation, dwStatusInformationLength);
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        ::MessageBox(NULL, L"_OnStatusCallBack Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "_OnStatusCallBack Exception");
+    }
+}
+
+void CFtp::OnStatusCallBack(HINTERNET /*hInternet*/, DWORD dwInternetStatus, 
+	LPVOID lpvStatusInformation, DWORD /*dwStatusInformationLength*/)
+{
+	try
+	{
+		UNREFERENCED_PARAMETER(lpvStatusInformation);
+		switch (dwInternetStatus)
+		{
+		case INTERNET_STATUS_RESOLVING_NAME:
+			{
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_FTP,LOGLOCATION,L"INTERNET_STATUS_RESOLVING_NAME");
+				break;
+			}
+		case INTERNET_STATUS_NAME_RESOLVED:
+			{
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_FTP,LOGLOCATION,L"INTERNET_STATUS_NAME_RESOLVED");
+				break;
+			}
+		case INTERNET_STATUS_CONNECTING_TO_SERVER:
+			{
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_FTP,LOGLOCATION,L"INTERNET_STATUS_CONNECTING_TO_SERVER");
+				break;
+			}
+		case INTERNET_STATUS_CONNECTED_TO_SERVER:
+			{
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_FTP,LOGLOCATION,L"INTERNET_STATUS_CONNECTED_TO_SERVER");
+				break;
+			}
+		default:
+			{
+				break;
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OnStatusCallBack Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OnStatusCallBack Exception");
+	}
+}
+
+void CFtp::GetInstallDir()
+{
+	try
+	{
+		TCHAR  exePath[MAX_PATH]={_T("0")};
+		::GetModuleFileName(NULL,exePath,MAX_PATH);
+		LPCTSTR pstrSep = _tcsrchr(exePath, '\\');//从一个字符串中查找字符  C:\GCY\TEST\tezt.txt结果是\tezt.txt
+		TCHAR  pstrName[MAX_PATH]={_T("0")};
+		if( pstrSep != NULL )
+		{
+			::lstrcpy(pstrName, pstrSep + 1);
+			::lstrcpyn(m_dir, exePath, (int)((pstrName - exePath) / sizeof(TCHAR)) + 1);//将第二个字符串中指定的字符复制到第一个字符串
+			//中指定的字符,第三个字符串指定复制的个数。
+			m_dir[ pstrSep - exePath ] = _T('\0');
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetInstallDir Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetInstallDir Exception");
+	}
+}
+
+ int CFtp::CompressLogFile(char* infilename,char* outzipfilename)
+ {
+	 try
+	 {
+		 char currdirpath[MAX_PATH]={0};
+		 ConvertW2A(m_dir,currdirpath,MAX_PATH);     
+		 char srcfilepath[MAX_PATH]={0};
+
+		 sprintf(srcfilepath,"%s\\data\\%s",currdirpath,infilename);
+		 FILE    *srcFile=NULL;
+		 FILE    *compressFile=NULL;
+
+		 srcFile=_fsopen(srcfilepath,"rb",_SH_DENYNO);
+		 if (srcFile==NULL)
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE,MODULE_FTP,LOGLOCATION,L"打开文件失败");
+			 WriteDebugInfomation(LEVEL_RELEASE,MODULE_FTP,LOGLOCATION,"srcfilepath",srcfilepath); 
+			 return HP_COMPRESS_OPENFILEFAIL;
+		 }
+		 char *buffersrc = new char[HP_C_MAX_COMPRESSLEN];
+		 char* buffercompress=new char[HP_C_MAX_COMPRESSLEN];
+		 memset(buffersrc,0,HP_C_MAX_COMPRESSLEN);
+		 memset(buffercompress,0,HP_C_MAX_COMPRESSLEN);
+		 ASSERT(srcFile);
+		 fseek(srcFile,0,SEEK_END);
+		 uLongf  len=ftell(srcFile);
+		 fseek(srcFile,0,SEEK_SET);
+		 fread_s(buffersrc,HP_C_MAX_COMPRESSLEN,1,len,srcFile);
+		 buffersrc[len]='\0';
+		 uLongf  compLen=HP_C_MAX_COMPRESSLEN;
+		 int nError=compress((byte*)buffercompress,&compLen,(byte*)buffersrc,len);
+		 if (nError!=Z_OK)  ////
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE,MODULE_FTP,LOGLOCATION,L"压缩失败");
+			 fclose(srcFile);
+			 srcFile=NULL;
+			 delete[] buffersrc;
+			 delete[]  buffercompress;
+			 return  HP_COMPRESS_COMPFAIL;
+		 }
+		 fclose(srcFile);
+		 srcFile=NULL;
+		 ////将压缩后的信息写入文件
+		 char driver[20]={0};
+		 char dir[MAX_PATH]={0};
+		 char fname[MAX_PATH]={0};
+		 char ext[20]={0};
+		 errno_t err;
+		 err = _splitpath_s(srcfilepath,driver,20,dir,MAX_PATH,fname,MAX_PATH,
+			 ext,20);
+		 if (err!=0)
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE, MODULE_FTP, LOGLOCATION, L"分离文件路径失败");
+			 return HP_COMPRESS_COMPFAIL;
+		 }
+		 sprintf_s(outzipfilename,MAX_PATH,"%s.zip",fname);
+		 char dstfilepath[MAX_PATH]={0};
+		 sprintf_s(dstfilepath,MAX_PATH,"%s\\%s\\%s",driver,dir,outzipfilename);
+
+		 if (PathFileExistsA(dstfilepath))
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE, MODULE_FTP, LOGLOCATION,L"删除存在的zip文件");
+			 //DeleteFileA(dstfilepath);
+		 }
+		 compressFile=_fsopen(dstfilepath,"wb",_SH_DENYNO);
+		 if (compressFile==NULL)
+		 {
+			 delete[] buffersrc;
+			 delete[]  buffercompress;
+			 return HP_COMPRESS_COMPFAIL;
+		 }
+		 fwrite(buffercompress,1,compLen,compressFile);
+		 fclose(compressFile);
+		 delete[] buffersrc;
+		 delete[]  buffercompress;
+		 DeleteFileA(srcfilepath);
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 ::MessageBox(NULL, L"CompressLogFile Exception", L"Msg", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "CompressLogFile Exception");
+	 }
+     return HP_SUCCESS;
+ }
+
+ ////在防火墙中例外进程
+ void CFtp::exceptAppInFireWall()
+ {
+	 try
+	 {
+		 FireWallEx  exceptfw;
+		 exceptfw.ExceptAppAndPortInFireWall();
+		 WriteDebugInfomation(LEVEL_RELEASE,MODULE_FTP,LOGLOCATION,L"防火墙中添加例外结束");
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 ::MessageBox(NULL, L"exceptAppInFireWall Exception", L"Msg", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "exceptAppInFireWall Exception");
+	 }
+ }
+
+/************************************************************
+ Description: 程序出现异常上传dmp、所有日志文件
+ Return: NULL
+*************************************************************/
+ void CFtp::UploadExcepttionDebugFile(IN wchar_t* pDmpFilename)
+ {
+	 try
+	 {
+		 //上传dmp文件
+		 char dmpFile[MAX_PATH] = {0};
+		 char dmpZipFile[MAX_PATH] = {0};
+
+		 ConvertW2A(pDmpFilename, dmpFile, MAX_PATH);
+
+		 if ( CompressLogFile(dmpFile, dmpZipFile) == HP_SUCCESS)
+		 {
+			 wchar_t *upFilePath = NULL;
+			 wchar_t ftpServerFilePath[MAX_PATH] = {L"0"};
+			 wstring ftpUploadFile;
+
+			 int Len = MultiByteToWideChar(CP_ACP, 0, dmpZipFile, -1, NULL, 0);
+
+			 upFilePath = (wchar_t*)malloc(sizeof(wchar_t)*(Len+2));
+			 MultiByteToWideChar(CP_ACP, 0, dmpZipFile, -1, upFilePath, Len);
+			 upFilePath[Len] = L'\0';
+
+			 wsprintf(ftpServerFilePath, L"%s//%s-%s", m_ftpreltidir, m_localip, upFilePath);
+			 m_sRemoteFile.Format(L"%s", ftpServerFilePath);
+
+			 ftpUploadFile = m_dir;
+			 ftpUploadFile += L"\\data\\";
+			 ftpUploadFile += upFilePath;
+
+			 m_sLocalFile.Format(L"%s", ftpUploadFile.c_str());
+
+			 if (!m_LocalFile.Open(m_sLocalFile, CFile::modeRead|CFile::typeBinary))
+			 {
+				 TRACE(_T("Failed to open the file to upload, Error:%d\n"), GetLastError());
+			 }
+
+			 free(upFilePath);
+			 upFilePath = NULL;
+
+			 TransferThread();
+		 }
+
+		 //上传日志文件
+		 ReadFileAndUpload();
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 ::MessageBox(NULL, L"UploadExcepttionDebugFile Exception", L"Msg", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "UploadExcepttionDebugFile Exception");
+	 }
+ }

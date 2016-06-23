@@ -1,0 +1,118 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _GLOBALFUNCTION_H
+#define _GLOBALFUNCTION_H 1
+
+#include <Windows.h>
+#include <string>
+#include <vector>
+#include "sqlite3.h"
+
+using namespace std;
+
+#define CREATED_PROC_FLAG		"CreatedProc"
+#define TERMINATED_PROC_FLAG	"TerminatedProc"
+
+#define HNM_DEVICE_SHORT_NAME "HpNacMntor"
+#define HNM_DEVICE_NAME ("\\\\.\\" HNM_DEVICE_SHORT_NAME)
+
+#define HNM_CTL_CODE(x) CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800 + x,  METHOD_BUFFERED/*METHOD_NEITHER*/, FILE_ANY_ACCESS)
+
+#define HNM_SET_PROTECT_PROC HNM_CTL_CODE(0)
+#define HNM_ADD_PROTECT_PROC HNM_CTL_CODE(1)
+#define HNM_DELETE_PROTECT_PROC HNM_CTL_CODE(2)
+#define HNM_CLEAR_PROTECT_PROC HNM_CTL_CODE(3)
+
+#define HNM_SET_MONITOR_PROC HNM_CTL_CODE(4)
+#define HNM_GET_CREATE_PROC_ID HNM_CTL_CODE(5)
+#define HNM_GET_TERMINATED_PROC_ID HNM_CTL_CODE(6)
+
+typedef	struct _PROC_MONITOR_EVENT 
+{
+	HANDLE	hEvent;
+}PROC_MONITOR_EVENT,*PPROC_MONITOR_EVENT;
+
+#define IP_BUF_LENGTH 16 
+#define TERMINATE_PRO_NUMBER 4
+
+typedef struct _USERINFO
+{
+	string strId;
+	string strUserName;
+	string strPwd;
+	string strState;
+	string strRemPwd;
+	string strUserType;
+	string strUserAutoLogon;
+	string strUserDomain;
+}USERINFO, *PUSERINFO;
+
+//进程链表
+extern const char* pProNameList[TERMINATE_PRO_NUMBER];
+
+/************************************************************
+ Description: 获取当前程序所在路径
+ output: pFullPath【当前路径】
+ Return: FALSE【获取失败】，TRUE【获取成功】
+*************************************************************/
+string GetCurrentPath();
+
+std::wstring AnsiToWChar(IN const char* pszSrc);
+
+/************************************************************
+ Description: LPCWSTR转String
+ input: wstr[转换的字符串]
+ Return:  返回转换的string
+*************************************************************/
+std::string WCharToAnsi(LPCWSTR pwszSrc);
+
+ /************************************************************
+ Description: 运行程序
+ input: sCommand[运行命令]；imilsec[运行等待时间]
+ Return: true[启动成功]；false[启动失败]
+*************************************************************/
+bool RunProcess(const char* sCommand, const unsigned long imilsec);
+
+/************************************************************
+ Description: 结束进程
+*************************************************************/
+void TerminateAllProcess();
+
+/************************************************************
+ Description: 升级前备份用户数据
+ output: pDbPath【数据库路径】 
+ Return: SQLITE_OK【成功】 否则【失败】
+*************************************************************/
+int BackupUserInfoFromDB(char* pDbPath);
+
+/************************************************************
+ Description: 清空pDelDirPath目录文件
+ output: pDelDirPath【要清空目录】 bDelDesktopini【是否删除desktop.ini文件】
+ Return: FALSE【清空失败】 TRUE【清空成功】
+*************************************************************/
+BOOL ClearDirectory(const char* pDelDirPath, BOOL bDelDesktopini);
+
+/************************************************************
+ Description: 升级前备份用户数据
+ output: pDbPath【数据库路径】 
+ Return: SQLITE_OK【成功】 否则【失败】
+*************************************************************/
+int BackupUserInfoFromDB(IN const char* pDbPath, OUT vector<USERINFO> &userInfoVector);
+
+/************************************************************
+ Description: 升级后将用户数据保存到数据库中
+ output: pDbPath【数据库路径】 
+ Return: SQLITE_OK【成功】 否则【失败】
+*************************************************************/
+int SaveUserInfoToDB(IN const char* pDbPath, IN vector<USERINFO> &userInfoVector);
+
+HANDLE OpenMntDriverDevice();
+BOOL MntDeviceIOControl(LPVOID pInputBuf, DWORD dwInputLen, DWORD dwIoControlCode, LPVOID pOutputBuf, DWORD dwOutputLen);
+
+#endif

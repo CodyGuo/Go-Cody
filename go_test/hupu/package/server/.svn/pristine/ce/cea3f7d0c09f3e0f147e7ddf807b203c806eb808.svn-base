@@ -1,0 +1,23 @@
+#pragma once
+class CHandleTTLValue
+{
+public:
+	CHandleTTLValue(void);
+	~CHandleTTLValue(void);
+
+public:
+	//
+	int SetTTLValueAll(int ttlInAPI,int ttlInReg);
+
+	int GetTTLValueAll(int *ttlInAPI,int *ttlInReg);
+
+	//获取注册表中的TTL值
+	int SetOrGetTTLValueInReg(BOOL bSet,int *ttlValue);
+
+	//修改TTL值
+	int SetTTLValue(int ttlValue);
+
+	int GetTTLValue(int *ttlValue);
+
+};
+

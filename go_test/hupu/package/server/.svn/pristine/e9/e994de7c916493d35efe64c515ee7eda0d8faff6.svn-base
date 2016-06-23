@@ -1,0 +1,192 @@
+#pragma once
+
+#include "ExeProcess.h"   
+#include "Port.h" 
+#include "SafeCheckServices.h"
+#include "SoftWare.h"
+#include "CheckJunkFiles.h"
+#include "CheckSystemTime.h"
+#include "CheckIEMain.h"
+#include "CheckNetShareResource.h"
+#include "DomainUser.h"
+#include "NetWorkConnect.h"
+#include "CheckDiskSpace.h"
+#include "GetOsInfo.h"
+#include "WSUSConfig.h"
+#include "checkpwd.h"
+#include "CheckPwdPolicy.h"
+#include "CheckIEExtensions.h"
+#include "Antivirus.h"
+#include "CheckSystemPatchs.h"
+#include "UsingIllegalInternet.h"
+#include "CheckDeskWallPaper.h"
+#include "NetMon.h"
+
+typedef struct FAILMESSAGEBOXINFO 
+{
+    //输出的字串长度
+    int outputlen;
+
+    //需要提示的信息
+    char failmsg[MAX_PATH*2];
+}_FAILMESSAGEBOXINFO;
+
+
+class SingServerPage
+{
+public:
+
+    SingServerPage(void);
+    ~SingServerPage(void);
+
+    //从数据库中查询安检数据
+    int GetDataFromDB(IN wchar_t *dirpath, IN char *userid, IN char* usertype, IN char* itemtype, IN char *currdata, IN char *millisecond, IN char *weekday);
+
+    //执行安检项
+    string ExecSafeCheckItem(IN SFSAFECHECKTYPE sfchecktype,IN LANGUAGETYPE language,IN char *servertime,
+		IN char* mac, IN int totalitem, IN int curritem,IN int nextitem,IN int *exeresult);
+
+    //修复安检项
+   //currSFitem:当前的安检项
+   //failItemIndex:失败项下标：INFINITE表示修复所有的安检项
+    int RestoreFailItem(IN int currSFitem,int failItemIndex);
+
+	//
+	int RestoreSpecialFailItem(IN int currSFitem,int failItemIndex,string otherinfo1,string otherinfo2);
+
+    //显示警示信息
+    void ShowFailMsgInfo(IN int curritem);
+
+    //安检项的总数
+    int m_cnt;
+
+    //安检失败的项
+    int m_failcnt;
+
+    //失败项的弹框提示
+    list<FAILMESSAGEBOXINFO> m_failmsgbox;
+
+    safecheckattr m_checkitem;
+
+    //进程相关类库
+    ExeProcess m_process;
+
+    //端口相关类库
+    Port m_port;
+
+    //服务程序安检相关类库
+    SafeCheckServices m_sv;
+
+    //安装软件相关类库
+    SoftWare m_sf;
+
+private:
+    //初始化数据
+   void  InitData();
+
+   //获取防火墙的状态
+    int GetFireWallStateForSafeCheck();
+
+   //获取Guest用户的状态
+    int GetGuestStateForSafeCheck();
+
+   //获取远程桌面的状态
+    int GetRemoteDeskStateForSafeCheck();
+
+   //获取屏幕保护的状态
+   int GetScreenSaverStateForSafeCheck(OUT char* timeout,OUT char* userpwd);
+
+   //获取计算机名称是否符合正则表达式
+   int GetComputerNameForSafeCheck(char* computername,char *regexcnt);
+
+   //设置防火墙的状态
+   int SetFireWallStateForSafeCheck(IN int action);
+
+   //设置Guest用户的状态
+   int SetGuestStateForSafeCheck(IN int action);
+
+   //设置远程桌面的状态
+   int SetRemoteDeskStateForSafeCheck(IN int action);
+
+   //设置屏幕保护的状态
+   int SetScreenSaverStateForSafeCheck(IN int action,IN char* timeout,IN char* userpwd);
+
+   //设置计算机名称
+   int SetComputerNameForSafeCheck(char *newcmpname);
+
+   //服务器端设置的屏保的时间
+   char m_timeout[HP_C_USERCONTENTLEN];
+
+   //服务器端设置的屏保恢复是否需要密码
+   char m_userpwd[HP_C_USERCONTENTLEN];        
+
+   //计算机名称检查的正则表达式
+   char m_cmpregexcnt[MAX_PATH];
+
+   //计算机名称检查的描述
+   char m_cmpregexdes[MAX_PATH];
+
+    //垃圾文件策略
+    JUNKDIRPOLICY junkDirPolicy;
+
+    //系统时间策略
+    SYSTEMTIMEPOLICY systemTimePolicy;
+
+    //主页检查策略
+    MAINPAGEPOLICY mainPagePolicy;
+
+    //域用户检查策略
+    DomainUser m_domainuser;
+
+    //网络共享例外策略
+    SHAREDIRPOLICY shareDirPolicy;
+
+    //网络连接状态检查
+    CNetWorkConnect m_network;
+
+    //操作系统检查
+    CGetOsInfo m_osinfo;
+
+    //磁盘使用检查策略
+    DISKSPACEPOLICY diskSpacePolicy;
+
+    //wsus配置
+    WSUSConfig m_wsus;
+
+    //弱口令检查
+    checkpwd m_checkpwd;
+
+	//密码策略检查
+	PWDPOLICYPOLICY pwdPolicyPolicy;
+
+   //IE控件检查策略
+    IEEXTENSIONSPOLICY ieExtensionsPolicy;
+
+    //杀毒软件检查
+    Cantivirus m_antivirus;
+
+	//系统补丁策略
+	SYSTEMPATCHPOLICYLIST systemPatchPolicyList;
+
+	//违规外联
+	CUsingIllegalInternet m_illegalInt;
+
+	//桌面背景策略
+	WALLPAPERPOLICY wallPaperPolicy;
+
+	CNetMon m_netmon;
+
+    //添加警示信息
+    void AddProcessFailMsg();
+    void AddPortFailMsg();
+    void AddServiceFailMsg();
+    void AddSoftwareFailMsg();
+    void AddFailMsgWithAction(IN int curritem);
+    void AddFailMsgWithoutAction(IN int curritem);
+    void AddNetWorkFailMsg();
+    void AddDomainFailMsg();
+    void AddAntivirusFailMsg();
+	void AddIllegalInternetFailMsg();
+	void AddICustomCheckFailMsg();
+};
+

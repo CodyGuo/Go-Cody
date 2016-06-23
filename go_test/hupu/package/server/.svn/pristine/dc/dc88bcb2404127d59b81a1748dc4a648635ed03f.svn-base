@@ -1,0 +1,298 @@
+// RepairByHand.cpp : implementation file
+//
+
+#include "stdafx.h"
+#include "hpidmnac.h"
+#include "RepairByHand.h"
+#include "afxdialogex.h"
+#include "DebugInfo.h"
+
+#include <LM.h>
+#pragma  comment(lib,"Netapi32.lib")
+
+// CRepairByHand dialog
+
+IMPLEMENT_DYNAMIC(CRepairByHand, CDialogEx)
+
+CRepairByHand::CRepairByHand(CWnd* pParent /*=NULL*/)
+	: CDialogEx(CRepairByHand::IDD, pParent)
+    , m_bdomain(0)
+    , m_bnetwork(0)
+    , m_bos(0)
+    , m_bweakpwd(0)
+    , m_bwsus(0)
+{
+    memset(m_inputrepairpath,'\0',sizeof(m_inputrepairpath));
+}
+
+CRepairByHand::~CRepairByHand()
+{
+
+}
+
+void CRepairByHand::DoDataExchange(CDataExchange* pDX)
+{
+    CDialogEx::DoDataExchange(pDX);
+    DDX_Control(pDX, IDC_EDIT1, m_newcmpname);
+    DDX_Control(pDX, IDC_EDIT2, m_account);
+    DDX_Control(pDX, IDC_EDIT3, m_newpwd);
+    DDX_Control(pDX, IDC_EDIT4, m_repairpath);
+}
+
+
+BEGIN_MESSAGE_MAP(CRepairByHand, CDialogEx)
+    ON_BN_CLICKED(IDC_BUTTON1, &CRepairByHand::OnSetCmpName)
+    ON_BN_CLICKED(IDC_BUTTON2, &CRepairByHand::OnSetAccountPwd)
+    ON_BN_CLICKED(IDC_BUTTON3, &CRepairByHand::OnEnableOrDisableSafeCheck)
+    ON_BN_CLICKED(IDC_RADIO1, &CRepairByHand::OnBnClickedRadio1)
+    ON_BN_CLICKED(IDC_RADIO2, &CRepairByHand::OnBnClickedRadio2)
+    ON_BN_CLICKED(IDC_RADIO3, &CRepairByHand::OnBnClickedRadio3)
+    ON_BN_CLICKED(IDC_RADIO4, &CRepairByHand::OnBnClickedRadio4)
+    ON_BN_CLICKED(IDC_RADIO5, &CRepairByHand::OnBnClickedRadio5)
+END_MESSAGE_MAP()
+
+
+// CRepairByHand message handlers
+BOOL CRepairByHand::OnInitDialog() 
+{
+    CDialog::OnInitDialog();
+
+    HICON hicon=LoadIcon(AfxGetInstanceHandle(),MAKEINTRESOURCE(IDI_ICON1));
+    SetIcon(hicon,FALSE);
+
+    ::SetWindowLong(GetSafeHwnd(), GWL_USERDATA, 256);
+
+    ((CButton*)GetDlgItem(IDC_RADIO2))->SetCheck(TRUE);
+   
+     ((CButton*)GetDlgItem(IDC_RADIO3))->SetCheck(TRUE);
+
+      ((CButton*)GetDlgItem(IDC_RADIO4))->SetCheck(TRUE);
+  
+    return TRUE;   
+}
+
+void CRepairByHand::OnSetCmpName()
+{
+    wchar_t wnewname[MAX_PATH] = {L"0"};
+
+    m_newcmpname.GetWindowText(wnewname,MAX_PATH);
+    if (_wcsnicmp(wnewname, L"", MAX_PATH)==0 )
+    {
+        MessageBox(L"请先输入计算机名称", L"Msg", MB_OK|MB_ICONWARNING);
+        return ;
+    }
+    int setbiosRes = SetComputerName(wnewname);
+    if (setbiosRes)
+    {
+        MessageBox(L"设置计算机名称成功",L"Msg",MB_OK);
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_COMPUTERNAEM, LOGLOCATION, "设置计算机名称成功");
+    }
+    else
+    {
+        MessageBox(L"设置计算机名称失败", L"Msg", MB_OK);
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_COMPUTERNAEM, LOGLOCATION, "设置BIOS计算机名称失败");
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_COMPUTERNAEM, LOGLOCATION, "错误码为:",GetLastError());
+    }
+}
+
+void CRepairByHand::OnSetAccountPwd()
+{
+    wchar_t accountW[MAX_PATH] = {L"0"};
+    m_account.GetWindowText(accountW,MAX_PATH);
+
+    wchar_t newpwdW[MAX_PATH] = {L"0"};
+    m_newpwd.GetWindowText(newpwdW,MAX_PATH);
+
+    if ( (_wcsnicmp(accountW,L"",MAX_PATH) == 0) ||(_wcsnicmp(newpwdW,L"",MAX_PATH) == 0))
+    {
+        MessageBox(L"请输入用户账户或者密码",L"Msg",MB_OK|MB_ICONWARNING);
+        return ;
+    }
+
+    DWORD dwLevel = 1003;
+    USER_INFO_1003   ui_1003;
+    NET_API_STATUS nStatus;
+    ui_1003.usri1003_password = newpwdW ; 
+    nStatus = NetUserSetInfo(NULL ,accountW,dwLevel,(LPBYTE)&ui_1003,NULL);
+    if (nStatus == NERR_Success)
+    {
+         MessageBox(L"修改密码成功",L"Msg",MB_OK);
+        char msginfo[MAX_PATH] = {"0"};
+        sprintf_s(msginfo,MAX_PATH,"%s password has been changed", accountW);
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_COMPUTERNAEM, LOGLOCATION, msginfo);
+    }
+    else
+    {
+        MessageBox(L"修改密码失败",L"Msg",MB_OK);
+        char msginfo[MAX_PATH] = {"0"};
+        if (ERROR_ACCESS_DENIED == nStatus)
+        {
+            sprintf_s(msginfo,MAX_PATH,"One of the function parameters is invalid: %d", nStatus);
+        }
+        else if (ERROR_INVALID_PARAMETER  == nStatus)
+        {
+            sprintf_s(msginfo,MAX_PATH,"The user does not have access to the requested information:%d", nStatus);
+        }
+        else  if (NERR_InvalidComputer == nStatus)
+        {
+            sprintf_s(msginfo,MAX_PATH,"The computer name is invalid:%d", nStatus);
+        }
+        else if (NERR_NotPrimary  == nStatus)
+        {
+            sprintf_s(msginfo,MAX_PATH,"The operation is allowed only on the primary domain controller of the domain:%d", nStatus);
+        }
+        else if (NERR_SpeGroupOp  == nStatus)
+        {
+            sprintf_s(msginfo,MAX_PATH,"The operation is not allowed on specified special groups, which are user groups:%d", nStatus);
+        }
+        else  if (NERR_LastAdmin  == nStatus)
+        {
+             sprintf_s(msginfo,MAX_PATH,"The operation is not allowed on the last administrative account:%d", nStatus);
+        }
+        else  if (NERR_BadPassword  == nStatus)
+        {
+            sprintf_s(msginfo,MAX_PATH,"The share name or password is invalid:%d", nStatus);
+        }
+        else  if (NERR_UserNotFound == nStatus)
+        {
+            sprintf_s(msginfo,MAX_PATH,"The user name could not be found:%d", nStatus);
+        }
+        else  if (NERR_PasswordTooShort  == nStatus)
+        {
+            sprintf_s(msginfo,MAX_PATH,"The password is shorter than required:%d", nStatus);
+        }
+        else
+        {
+             sprintf_s(msginfo,MAX_PATH,"%s","系统异常导致设置密码失败,请尝试退出安全管理软件");
+        }
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_COMPUTERNAEM, LOGLOCATION, msginfo);
+    }
+}
+
+
+void CRepairByHand::OnEnableOrDisableSafeCheck()
+{
+    // TODO: Add your control notification handler code here
+    //获取各个判断标志
+   m_bdomain =  ((CButton*)GetDlgItem(IDC_RADIO1))->GetCheck();
+   m_bnetwork = ((CButton*)GetDlgItem(IDC_RADIO2))->GetCheck();
+   m_bos = ((CButton*)GetDlgItem(IDC_RADIO3))->GetCheck();
+   m_bweakpwd=((CButton*)GetDlgItem(IDC_RADIO4))->GetCheck();
+    m_bwsus=((CButton*)GetDlgItem(IDC_RADIO5))->GetCheck();
+
+   ((CEdit*)GetDlgItem(IDC_EDIT4))->GetWindowText(m_inputrepairpath,MAX_PATH);
+
+   if (!m_bdomain && !m_bnetwork && !m_bos && !m_bweakpwd && !m_bwsus)
+   {
+        MessageBox(L"请选择要操作的安检模块",L"Warning",MB_ICONWARNING);
+        return ;
+   }
+   
+   if ((m_bdomain ) && _wcsnicmp(m_inputrepairpath,L"\0",MAX_PATH) == 0 )
+   {
+       MessageBox(L"请选择域用户修复工具路径",L"Warning",MB_ICONWARNING);
+       return;
+   }
+   if ((m_bweakpwd ) && _wcsnicmp(m_inputrepairpath,L"\0",MAX_PATH) == 0 )
+   {
+       MessageBox(L"请选择弱口令字典文件路径",L"Warning",MB_ICONWARNING);
+       return;
+   }
+
+   MessageBox(L"设置成功",L"Msg",MB_OK);
+}
+
+
+void CRepairByHand::OnBnClickedRadio1()
+{
+    // TODO: Add your control notification handler code here
+}
+
+
+void CRepairByHand::OnBnClickedRadio2()
+{
+    // TODO: Add your control notification handler code here
+    if (m_bnetwork)
+    {
+        ((CButton*)GetDlgItem(IDC_RADIO2))->SetCheck(FALSE);
+        m_bnetwork = 0;
+    }
+    else
+    {
+        ((CButton*)GetDlgItem(IDC_RADIO2))->SetCheck(TRUE);
+        m_bnetwork = 1;
+    }
+}
+
+
+void CRepairByHand::OnBnClickedRadio3()
+{
+    // TODO: Add your control notification handler code here
+    if (m_bos)
+    {
+        ((CButton*)GetDlgItem(IDC_RADIO3))->SetCheck(FALSE);
+        m_bos = 0;
+    }
+    else
+    {
+        ((CButton*)GetDlgItem(IDC_RADIO3))->SetCheck(TRUE);
+        m_bos = 1;
+    }
+}
+
+
+void CRepairByHand::OnBnClickedRadio4()
+{
+    // TODO: Add your control notification handler code here
+    if (m_bweakpwd)
+    {
+        ((CButton*)GetDlgItem(IDC_RADIO4))->SetCheck(FALSE);
+        m_bweakpwd = 0;
+    }
+    else
+    {
+        ((CButton*)GetDlgItem(IDC_RADIO4))->SetCheck(TRUE);
+         m_bweakpwd = 1;
+    }
+}
+
+
+void CRepairByHand::OnBnClickedRadio5()
+{
+    // TODO: Add your control notification handler code here
+    if (m_bwsus)
+    {
+        ((CButton*)GetDlgItem(IDC_RADIO5))->SetCheck(FALSE);
+        m_bwsus = 0;
+    }
+    else
+    {
+        ((CButton*)GetDlgItem(IDC_RADIO5))->SetCheck(TRUE);
+        m_bwsus =1;
+    }
+}
+
+BOOL CRepairByHand::PreTranslateMessage(MSG* pMsg)
+{
+    if(pMsg->message==WM_KEYDOWN&&pMsg->wParam==VK_RETURN)
+    {
+        DWORD id = GetDefID();//获取默认控件ID
+        if(id!=0)
+        {
+            CWnd *wnd = FromHandle(pMsg->hwnd);//获得消息发送窗口
+            TCHAR name[20];
+            if(GetClassName(wnd->GetSafeHwnd(),name,sizeof(name))!=0)
+            {
+                DWORD style=::GetWindowLong(pMsg->hwnd,GWL_STYLE);
+                if((style&ES_MULTILINE)==0)//不具有多行编辑属性
+                {
+                    if(_wcsnicmp(name,L"Edit",5)==0)//如果为编辑控件
+                    {
+                        return true;//不执行默认的处理函数
+                    }
+                }
+            }
+        }
+    }
+    return CDialogEx::PreTranslateMessage(pMsg);
+}

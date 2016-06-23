@@ -1,0 +1,81 @@
+#pragma once
+
+
+typedef struct WSUSDATAINFO
+{
+    //自动更新类型
+    char updatetype[HP_C_USERCONTENTLEN];
+    //自动更新的星期
+    char updateday[HP_C_USERCONTENTLEN];
+    //自动更新小时设置
+    char updatehour[HP_C_USERCONTENTLEN];
+    //自动更新服务器设置
+    char serverurl[MAX_PATH];
+    //自动更新完成后是否重启
+    char reboot[HP_C_USERCONTENTLEN];
+    //是否开启自动更新频率
+    char enblefreq[HP_C_USERCONTENTLEN];
+    //设置频率时间
+    char freqtime[HP_C_USERCONTENTLEN];
+
+    safecheckattr attriinfo;
+}_WSUSDATAINFO;
+
+class WSUSConfig
+{
+public:
+    WSUSConfig(void);
+    ~WSUSConfig(void);
+
+    int m_numcount;
+
+    int m_failcount;
+    
+    WSUSDATAINFO m_execwsusinfo;
+
+    int GetDataFromDB(wchar_t  *dirpath, char *userid,char* usertype, char *currdata, char *millisecond, char *weekday);
+
+    string ExeWSUSItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess);
+
+    int RestoreFailItem();
+private:
+
+    //自动更新的配置标志，共有5个标志
+    char  m_configtypedes[6][MAX_PATH];
+
+    //自动更新的星期时间的选择，取值为0-7
+    char m_updatedaydes[8][HP_C_USERCONTENTLEN];
+
+    //自动更新完成后是否重启
+    char m_rebootdes[2][HP_C_USERCONTENTLEN];
+
+    //是否开启了检查频率
+    char m_enblefreqdes[2][HP_C_USERCONTENTLEN];
+
+    void InitData();
+
+    //获取自动更新选项
+    unsigned int GetUpdataConfig(int *configtype,int *aunlupdateday, long *time );
+
+    //设置自动更新选项
+    unsigned int SetUpdataConfig(int configtype,int aunlupdateday  = 0, long time = 0);
+
+    //获取组策略中的配置
+    unsigned int GetWSUSGPOStg(char* serverurl,int  *noreboot,int *enblefreq,int *freqtime);
+
+    unsigned int GetWSUSGPOStg(char* serverurl,int  *noreboot,int *enblefreq,int *freqtime,
+        int *configtype,int *aunlupdateday, long *time);
+
+    //设置组策略中的配置
+    unsigned int SetWSUSGPOStg(char* serverurl,int  noreboot,int enblefreq,int freqtime);
+
+    unsigned int SetWSUSGPOStg(char* serverurl,int  noreboot,int enblefreq,int freqtime,int configtype,int aunlupdateday  = 0, long time = 0);
+
+    //WSUS中的一些常量设置
+    void constantValue();
+
+    //根据数据库中的字段转化为结构体字段
+    void GetdbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, WSUSDATAINFO *dbrowdata);
+
+};
+

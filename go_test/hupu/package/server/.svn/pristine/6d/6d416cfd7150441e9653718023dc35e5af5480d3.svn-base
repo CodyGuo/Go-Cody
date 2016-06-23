@@ -1,0 +1,118 @@
+// hpintallAnduninstall.cpp : Defines the entry point for the console application.
+//
+
+#include "stdafx.h"
+#include "InstallFunc.h"
+#include "InstallWpcap.h"
+#include "NDISDriverInst.h"
+#include "InstallServiceDriver.h"
+#include "CustomCheck.h"
+#include <string>
+#include "..\..\common\GlobalFunction\GlobalFunction.h"
+#include "InstallImanServer.h"
+
+using namespace std;
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	int iRet = 0;
+
+    if ( argc > 1 && lstrcmpi(argv[1], TEXT("/install")) == 0 ) 
+    {
+        OutputDebugStringA("InstallNDISDriver");
+		return InstallDriver();
+    }
+    else if ( argc > 1 && lstrcmpi(argv[1], TEXT("/uninstall")) == 0 ) 
+    {
+        OutputDebugStringA("UninstallDriver");
+        return UninstallDriver();
+    }
+	else if (argc > 1 && lstrcmpi(argv[1], TEXT("/debug")) == 0)
+	{
+		HRESULT error_code = S_OK;
+		if (IsUsing32BitInWin64())
+		{
+			return 0;
+		}
+		if ( argc == 3 )
+		{
+			if ( lstrcmpi(argv[2], TEXT("/enum")) == 0 )
+			{
+				int needreboot = 0;
+				NDIS_INST_STATE state = IsNDISDriverInstalled(DEV_NETSERVICE , L"ms_hppassthru", &error_code);
+			}
+			else if (lstrcmpi(argv[2], TEXT("/installxpdriver")) == 0)
+			{
+				InstallServiceDriver();
+			}
+			else if (lstrcmpi(argv[2], TEXT("/uninstallxpdriver")) == 0)
+			{
+			   UninstallServiceDriver();
+			}
+			else if (lstrcmpi(argv[2], TEXT("/installhppassthru")) == 0)
+			{
+			  DebugInstallDriver("/installhppassthru");
+			}
+			else if (lstrcmpi(argv[2], TEXT("/uninstallhppassthru")) == 0)
+			{
+				int pneedreboot = 0;
+				UninstallNDISDriver(L"ms_Hppassthru",&pneedreboot);
+				DeleteOemInfFile();
+				hpDriverDeleteService("Hppassthru");
+				hpDriverDeleteService("HppassthruMP");
+			}
+			else if ( lstrcmpi(argv[2], TEXT("/installhppacket")) == 0 )
+			{
+               DebugInstallDriver("/installhppacket");
+			}
+			else if (lstrcmpi(argv[2], TEXT("/uninstallhppacket")) == 0)
+			{
+				int pneedreboot = 0;
+				UninstallNDISDriver(L"ms_hppacket",&pneedreboot);
+				hpDriverDeleteService("hppacket");
+			}
+			else 
+			{
+				OutputDebugString(L"please input write param\n");
+			}
+		}
+		return 0;
+	}
+	else if ( argc > 1 && lstrcmpi(argv[1], TEXT("/InstallNpf")) == 0 ) 
+	{
+		InstallWpcap();
+	}
+	else if ( argc > 1 && lstrcmpi(argv[1], TEXT("/UnloadNpf")) == 0 ) 
+	{
+		UnloadWpcap();
+	}
+	else if ( argc > 1 && lstrcmpi(argv[1], TEXT("/InstallNacMntor")) == 0 ) 
+	{
+		InstallNacMntor();
+	}
+	else if ( argc > 1 && lstrcmpi(argv[1], TEXT("/UnloadNacMntor")) == 0 ) 
+	{
+		UnloadNacMntor();
+	}
+	else if ( argc > 3 && lstrcmpi(argv[1], TEXT("/CheckProcInclude")) == 0 ) 
+	{
+		DWORD dwProcessId = _wtoi(argv[2]);
+
+		iRet = ProcIsIncludeDll(dwProcessId, argv[3]);
+	}
+	else if ( argc == 3  && lstrcmpi(argv[1], TEXT("/InstallImanServ")) == 0 )
+	{
+		InstallSvchostService(L"Imhp", L"Imhp", argv[2]);
+	}
+	else if ( argc > 1 && lstrcmpi(argv[1], TEXT("/DisableDev")) == 0 ) 
+	{
+
+	}
+    else
+    {
+	  
+    }
+
+	return iRet;
+}
+

@@ -1,0 +1,46 @@
+#pragma once
+
+#include "resource.h"
+#include "afxwin.h"
+
+// CSafeResult dialog
+typedef struct WARNMSG
+{
+    char FailReason[MAX_PATH];
+    char  warningCont[MAX_PATH];
+}_WARNMSG;
+
+class CSafeResult : public CDialogEx
+{
+	DECLARE_DYNAMIC(CSafeResult)
+
+public:
+	CSafeResult(CWnd* pParent = NULL);   // standard constructor
+	virtual ~CSafeResult();
+
+// Dialog Data
+	enum { IDD = IDD_HPSafeCheck };
+
+	virtual BOOL OnInitDialog();
+protected:
+	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
+
+	DECLARE_MESSAGE_MAP()
+public:
+	CEdit m_edit;
+	void  ShowResult(char* strText);
+
+	void Show();
+    void Hide();
+
+    afx_msg void OnBnClickedButton1();
+    CEdit m_total;
+     ::CRect rectLarge;////没有切割的全部矩形
+      ::CRect rectSmall;////定义剩余的小矩形
+      afx_msg void OnClose();
+      CListBox m_listmsg;
+      afx_msg void OnLbnDblclkList1();
+      vector<WARNMSG>  showMsg;
+      afx_msg void OnLbnSelchangeList1();
+      bool  m_closeWin;
+};

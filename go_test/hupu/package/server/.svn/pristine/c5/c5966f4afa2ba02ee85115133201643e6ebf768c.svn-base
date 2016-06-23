@@ -1,0 +1,53 @@
+#pragma once
+
+
+// ShowAllowNetWorkDlg dialog
+
+#include "DuilibConfig.h"
+
+#include "UserInfo.h"
+#include "DebugInfo.h"
+#include "GUISetting.h"
+
+class ShowAllowNetWorkDlg : public CWindowWnd, public INotifyUI, public IMessageFilterUI
+{
+public:
+	ShowAllowNetWorkDlg();
+	LPCTSTR GetWindowClassName() const ;
+	UINT GetClassStyle() const ;
+	void OnFinalMessage(HWND /*hWnd*/);
+
+	void Init(wchar_t *xmlpath,LANGUAGETYPE lang);
+
+	void Notify(TNotifyUI& msg);
+
+	LRESULT OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnLButtonClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+	LRESULT MessageHandler(UINT uMsg, WPARAM wParam, LPARAM lParam, bool& bHandled);
+
+	void  InitControlText();
+
+public:
+	CPaintManagerUI m_pm;
+	CStdString m_xmlpath;
+
+	LANGUAGETYPE m_lang;
+
+	wchar_t m_langinipath[MAX_PATH];
+
+	GUISETTING  m_guisetting;
+};

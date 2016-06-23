@@ -1,0 +1,331 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "CheckSystemPatchs.h"
+#include "GlobalFunction.h"
+#include "DebugInfo.h"
+#include <algorithm>
+#include <wuapi.h> 
+#include <Wbemcli.h>
+#pragma comment(lib, "wbemuuid.lib")
+
+/************************************************************
+ Description: WUA方法获取操作系统已安装补丁
+ output: 
+ Return: 
+*************************************************************/
+int GetTotalHistoryPatch(std::list<std::string> &kbList)
+{
+	try
+	{
+		HRESULT hr = S_FALSE;
+
+		hr = CoInitialize(NULL);
+
+		IUpdateSession* pIUpdateSession = NULL;
+		IUpdateSearcher* pSearcher = NULL;
+		LONG lHistoryCount = 0;
+
+		OutputDebugStringA("@GetTotalHistoryPatch...\n");
+
+		hr = CoCreateInstance(CLSID_UpdateSession, NULL, CLSCTX_LOCAL_SERVER/*CLSCTX_INPROC_SERVER*/, IID_IUpdateSession, (LPVOID*)&pIUpdateSession);
+		if (FAILED(hr) || (pIUpdateSession == NULL))
+		{
+			pIUpdateSession->Release();
+			throw -1;
+		} 
+
+		hr = pIUpdateSession->CreateUpdateSearcher(&pSearcher);
+		if (FAILED(hr) || (pSearcher == NULL))
+		{
+			pIUpdateSession->Release();
+			throw -2;
+		} 
+
+		pSearcher->get_Online(VARIANT_FALSE);
+		hr = pSearcher->GetTotalHistoryCount(&lHistoryCount);
+		if (FAILED(hr))
+		{
+			pSearcher->Release();
+			pIUpdateSession->Release();
+			throw -3;
+		}
+
+		LONG lCount = 0;
+		IUpdateHistoryEntryCollection* pIUpdateHistoryEntryCollection = NULL;
+
+		hr = pSearcher->QueryHistory(0, lHistoryCount, &pIUpdateHistoryEntryCollection);
+		if (SUCCEEDED(hr) || (pIUpdateHistoryEntryCollection != NULL))
+		{
+			hr = pIUpdateHistoryEntryCollection->get_Count(&lCount);
+
+			if (SUCCEEDED(hr))
+			{
+				for (int j = 0; j < lCount; j++)
+				{
+					IUpdateHistoryEntry* pIUpdateHistoryEntry = NULL;
+					BSTR pTitle = NULL;
+					std::string strTitle = "";
+					std::list<std::string>::iterator iter;
+					string::size_type iFirstbracketPos = 0;  
+					std::string strKB = "";
+
+					hr = pIUpdateHistoryEntryCollection->get_Item(j, &pIUpdateHistoryEntry);
+
+					if (SUCCEEDED(hr) || (pIUpdateHistoryEntry != NULL))
+					{
+						hr = pIUpdateHistoryEntry->get_Title(&pTitle);
+						if (SUCCEEDED(hr))
+						{                          
+							strTitle = WCharToAnsi(pTitle);
+
+							iFirstbracketPos = strTitle.find("(");
+							strKB = strTitle.substr(iFirstbracketPos+1, strTitle.length()-iFirstbracketPos-2);
+
+							if (strKB.find("KB") != string::npos )
+							{
+								iter = find(kbList.begin(), kbList.end(), strKB);
+
+								if (iter == kbList.end())
+								{
+									kbList.push_back(strKB);
+									OutputDebugStringA(strKB.c_str());
+								}
+							}					
+						}
+						pIUpdateHistoryEntry->Release();
+					}
+				}
+			}
+		}         
+
+		pIUpdateHistoryEntryCollection->Release();
+		pSearcher->Release();
+		pIUpdateSession->Release();
+		::CoUninitialize();
+
+		OutputDebugStringA("@GetTotalHistoryPatch...end\n");
+
+	}
+	catch(...)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH,  __FILE__, __LINE__, __FUNCTION__, "GetTotalHistoryPatch exception");
+		::CoUninitialize();
+	}
+
+	return 0;
+}
+
+/************************************************************
+ Description: WMI方法获取操作系统已安装补丁
+ output: 
+ Return: 
+*************************************************************/
+long WmiGetPatch(std::list<std::string> &kbList)
+{
+    HRESULT hres = S_FALSE;
+
+    try
+    {
+        IWbemLocator *pLoc = NULL;
+        IWbemServices *pSvc = NULL;
+        IEnumWbemClassObject* pEnumerator = NULL;
+        IWbemClassObject *pclsObj=NULL; 
+        ULONG uReturn = 0;
+
+		OutputDebugStringA("@WmiGetPatch...\n"); 
+		
+        CoInitialize(NULL);
+
+        hres = CoCreateInstance(CLSID_WbemLocator,            
+            0,
+            CLSCTX_INPROC_SERVER,
+            IID_IWbemLocator, 
+            (LPVOID *) &pLoc);
+
+        if (FAILED(hres))
+        {
+            CoUninitialize();
+            return hres;   
+        }
+
+        hres = pLoc->ConnectServer(L"root\\cimv2", NULL, NULL, 0, NULL, 0, 0, &pSvc);
+
+        if (FAILED(hres))
+        {
+            CoUninitialize();
+            return hres;   
+        }
+
+        hres = CoSetProxyBlanket(pSvc,                        
+								RPC_C_AUTHN_WINNT,          
+								RPC_C_AUTHZ_NONE,            
+								NULL,                        
+								RPC_C_AUTHN_LEVEL_CALL,      
+								RPC_C_IMP_LEVEL_IMPERSONATE, 
+								NULL,                        
+								EOAC_NONE );
+
+        if (FAILED(hres))
+        {
+            CoUninitialize();
+            return hres;   
+        }
+
+        hres = pSvc->ExecQuery(L"WQL", L"SELECT * FROM Win32_QuickFixEngineering", WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, NULL, &pEnumerator);
+
+        if (FAILED(hres))
+        {
+            CoUninitialize();
+            return hres;   
+        }
+
+        while (pEnumerator)
+        {
+            CComBSTR bstrText;
+            VARIANT vtProp;
+
+            hres = pEnumerator->Next(WBEM_INFINITE, 1, &pclsObj, &uReturn);
+
+            if(uReturn == 0)
+            {
+                break;
+            }
+
+            hres = pclsObj->Get(L"HotFixID", 0, &vtProp, 0, 0);
+
+            if (SUCCEEDED(hres))
+            {
+                std::string strHotFixID = ""; 
+                std::list<std::string>::iterator iter;
+
+                strHotFixID = WCharToAnsi(vtProp.bstrVal);
+                iter = find(kbList.begin(), kbList.end(), strHotFixID);
+
+                if(iter == kbList.end())
+                {
+                    kbList.push_back(strHotFixID);
+					OutputDebugStringA(strHotFixID.c_str());
+                }
+            }
+        }
+
+		OutputDebugStringA("@WmiGetPatch end...\n");
+    }
+    catch (...)
+    {
+        CoUninitialize();
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, __FILE__, __LINE__, __FUNCTION__, "WmiGetPatch exception");
+        return hres;
+    }
+
+    CoUninitialize();
+    return hres;
+}
+
+/************************************************************
+ Description: WUL方法获取操作系统已安装补丁
+ output: 
+ Return: 
+*************************************************************/
+int WulGetPatch(IN const char* pCurPath, IN const char* pOutPutFileName, std::list<std::string> &kbList)
+{
+	int ret = FALSE;
+
+	try
+	{
+		std::string strCommand = "";
+		std::string strReadFile = "";
+
+		OutputDebugStringA("@GetPatchFromWul...\n");
+
+		strCommand = pCurPath;
+		strCommand += "wul.exe /scomma ";
+
+		strReadFile = pCurPath;
+		strReadFile += pOutPutFileName;
+
+		strCommand += strReadFile;
+
+		if (RunProcess(strCommand.c_str(), INFINITE))
+		{
+			ifstream readfile(strReadFile.c_str());
+			string readLineBuf = "";
+
+			while(getline(readfile, readLineBuf))
+			{
+				string strKb = "";
+
+				string::size_type iFirstCommaPos = 0;  
+				std::list<std::string>::iterator iter;
+
+				iFirstCommaPos = readLineBuf.find(",");
+
+				if (iFirstCommaPos > 2)
+				{
+					strKb = readLineBuf.substr(0, iFirstCommaPos);
+
+					if (strKb.find("KB") != string::npos)
+					{
+						iter = find(kbList.begin(), kbList.end(), strKb);
+
+						if (iter == kbList.end())
+						{
+							kbList.push_back(strKb);
+							OutputDebugStringA(strKb.c_str());
+						}
+					}
+				}
+			}
+			ret = TRUE;
+		}
+
+		OutputDebugStringA("end @GetPatchFromWul...\n");
+	}
+	catch (...)
+	{
+		ret = FALSE;
+		CoUninitialize();
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, __FILE__, __LINE__, __FUNCTION__, "WulGetPatch exception");
+		return ret;
+	}
+
+	return ret;
+}
+
+/************************************************************
+ Description: 获取操作系统安全补丁
+ output: 
+ Return: 
+*************************************************************/
+BOOL GetSystemPatch(OUT std::list<std::string> &kbList)
+{
+    char curPath[MAX_PATH] = {0};
+	std::list<std::string>::iterator iter;
+
+	if ( GetCurrentPath(curPath))
+    {
+		WulGetPatch(curPath, "wul.txt", kbList);
+    }
+
+    GetTotalHistoryPatch(kbList);
+    //WmiGetPatch(kbList);
+
+	for (iter = kbList.begin(); iter != kbList.end(); iter++)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, __FILE__, __LINE__, __FUNCTION__, (char*)iter->c_str());
+	}
+
+	char prin[32] = {0};
+
+	sprintf_s(prin, 32, "kb num[%d]\n", kbList.size());
+	WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, __FILE__, __LINE__, __FUNCTION__, prin);
+	
+    return TRUE;
+}

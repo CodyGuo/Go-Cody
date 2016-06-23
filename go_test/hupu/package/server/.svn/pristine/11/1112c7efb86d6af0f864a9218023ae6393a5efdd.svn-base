@@ -1,0 +1,41 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKIEMAINPAGE_H
+#define _CHECKIEMAINPAGE_H 1
+
+#include <Windows.h>
+#include <stdio.h>
+#include <tchar.h>
+#include <Winreg.h>
+#include <conio.h>
+
+#define MAXL_URL_LEN 256
+
+#define MIN(x, y) x>y?y:x
+
+typedef struct _MAINPAGEPOLICY
+{
+    BOOL fixFlag;
+    wchar_t mainPageUrl[MAXL_URL_LEN];
+}MAINPAGEPOLICY, *PMAINPAGEPOLICY;
+
+/************************************************************ 
+ Description: 检查IE主页并是否修复
+ input: fixFlag[修复标志], pUrl[修复的URl]
+ Return: TRUE[检查IE主页不符合要求或修复成功]；FALSE[检查IE主页符合要求或修复失败];
+*************************************************************/
+extern "C" BOOL __declspec(dllexport) CheckIEMainPage();
+
+/************************************************************ 
+ Description: 设置IE主页策略
+ input:pIEMainPagePolicy[主页策略结构]
+*************************************************************/
+extern "C" void __declspec(dllexport) SetIEMainPagePolicy(IN MAINPAGEPOLICY mPagePolicy);
+
+#endif 

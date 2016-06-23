@@ -1,0 +1,1558 @@
+/////////////////////////////////////////////////////////////////////////////
+//// INCLUDE FILES
+
+#include "precomp.h"
+#pragma hdrstop
+#include "iocommon.h"
+#include "ntstrsafe.h"
+
+
+#define  BUFFER_SIZE 2000
+NDIS_PHYSICAL_ADDRESS			HighestAcceptableMax = NDIS_PHYSICAL_ADDRESS_CONST(-1, -1);
+
+
+typedef struct _ADAPT_FILTER_RSVD
+{
+    BOOLEAN     bFilterInitDone;
+
+    //
+    // More Per-Adapter Filter-Specific Members
+    // ----------------------------------------
+    // Probably would contain the filter data or a pointer to it. Possibly
+    // filter statistics, state variables, whatever...
+    //
+    IPv4AddrStats        IPv4Stats;
+
+    PIPv4BlockAddrArray  pIPv4BlockAddrArray;
+}
+ADAPT_FILTER_RSVD, *PADAPT_FILTER_RSVD;
+
+C_ASSERT(sizeof(ADAPT_FILTER_RSVD) <= sizeof(((PADAPT)0)->FilterReserved));
+
+
+//
+// FilterReserved Part of OPEN_CONTEXT Structure
+// ---------------------------------------------
+// This structure will be zero-initialized when the OPEN_CONTEXT structure
+// is allocated.
+//
+typedef struct _OPEN_CONTEXT_FILTER_RSVD
+{
+    BOOLEAN     bFilterInitDone;
+
+    //
+    // More Per-Open-Handle Filter-Specific Members
+    // --------------------------------------------
+    // Probably would contain the filter data or a pointer to it. Possibly
+    // filter statistics, state variables, whatever...
+    //
+}
+OPEN_FILTER_RSVD, *POPEN_FILTER_RSVD;
+
+C_ASSERT(sizeof(OPEN_FILTER_RSVD) <= sizeof(((POPEN_CONTEXT)0)->FilterReserved));
+
+
+////////////////////////////////////////////////////////////////////////////
+//                        Per-Open Filter Functions                       //
+////////////////////////////////////////////////////////////////////////////
+
+
+/////////////////////////////////////////////////////////////////////////////
+//// FltDevIoControl
+//
+// Purpose
+//    This is the handler for filter-specific IOCTL function codes.
+//
+// Parameters
+//    DeviceObject - pointer to a device object
+//    pIrp - pointer to an I/O Request Packet
+//
+// Return Value
+//    Status is returned.
+//
+// Remarks
+//    Passthru call from main DevIoControl handler for IOCTL functions
+//    that are not recognized there.
+//
+
+NTSTATUS
+    FltDevIoControl(
+    IN PDEVICE_OBJECT    pDeviceObject,
+    IN PIRP              pIrp
+    )
+{
+    PIO_STACK_LOCATION  pIrpSp;
+    NTSTATUS            NtStatus = STATUS_NOT_SUPPORTED;
+    ULONG               BytesReturned = 0;
+    ULONG               FunctionCode;
+    PUCHAR              ioBuffer = NULL;
+    ULONG               inputBufferLength;
+    ULONG               outputBufferLength;
+    PADAPT              pAdapt = NULL;
+    PADAPT_FILTER_RSVD  pFilterContext = NULL;
+    POPEN_CONTEXT       pOpenContext;
+
+    UNREFERENCED_PARAMETER(pDeviceObject);
+
+    pIrpSp = IoGetCurrentIrpStackLocation(pIrp);
+
+    DBGPRINT(("==>FLT DevIoControl: FileObject %p\n", pIrpSp->FileObject));
+
+    FunctionCode = pIrpSp->Parameters.DeviceIoControl.IoControlCode;
+
+    ioBuffer = pIrp->AssociatedIrp.SystemBuffer;
+    inputBufferLength  = pIrpSp->Parameters.DeviceIoControl.InputBufferLength;
+    outputBufferLength = pIrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+    pOpenContext = pIrpSp->FileObject->FsContext;
+
+    if( !pOpenContext )
+    {
+        DBGPRINT(( "      Invalid Handle\n" ));
+
+        NtStatus = STATUS_INVALID_HANDLE;
+        goto CompleteTheIRP;
+    }
+
+    DBGPRINT(( "      Found Open Context\n" ));
+
+    pAdapt = pOpenContext->pAdapt;
+
+    if( !pAdapt )
+    {
+        DBGPRINT(( "      Adapter Not Found\n" ));
+
+        NtStatus = STATUS_INVALID_HANDLE;
+        goto CompleteTheIRP;
+    }
+
+    pFilterContext = (PADAPT_FILTER_RSVD )&pAdapt->FilterReserved;
+
+    //
+    // Fail IOCTL If Unbind Is In Progress
+    //
+    NdisAcquireSpinLock(&pAdapt->Lock);
+
+    if( pAdapt->UnbindingInProcess )
+    {
+        NdisReleaseSpinLock(&pAdapt->Lock);
+        DBGPRINT(( "      Unbind In Process\n" ));
+
+        NtStatus = STATUS_INVALID_DEVICE_STATE;
+        goto CompleteTheIRP;
+    }
+
+    //
+    // Fail IOCTL If Adapter Is Powering Down
+    // 
+    if (pAdapt->StandingBy == TRUE)
+    {
+        NdisReleaseSpinLock(&pAdapt->Lock);
+        DBGPRINT(( "      Miniport Powering Down\n" ));
+
+        NtStatus = STATUS_INVALID_DEVICE_STATE;
+        goto CompleteTheIRP;
+    }
+
+    //
+    // Hold Appropriate Spin Lock When Changing Filter Data
+    // ----------------------------------------------------
+    // This is just a reminder. Code for changing filter is not yet
+    // implemented. It would be in one (or more) of the IOCTL function
+    // handlers.
+    //
+    // See note at ADAPT_FILTER_RSVD structure declaration.
+    //
+
+    //
+    // Now (Finally) Handle The IOCTL
+    //
+    switch (FunctionCode)
+    {
+    case IOCTL_PTUSERIO_START_WRITELOG:
+        {
+			DBGPRINT(("IOCTL_PTUSERIO_START_WRITELOG pGBSYS->StartCapFlag = TRUE"));
+            pGBSYS->StartCapFlag = TRUE;
+            NtStatus = STATUS_SUCCESS;
+        }
+        break;
+
+	case IOCTL_PTUSERIO_STOP_WRITELOG:
+		{
+			DBGPRINT(("IOCTL_PTUSERIO_STOP_WRITELOG pGBSYS->StartCapFlag = FALSE"));
+			pGBSYS->StartCapFlag = FALSE;
+			NtStatus = STATUS_SUCCESS;
+		}
+		break;
+	
+	case IOCTL_PTUSERIO_STOP_DRIVERTHRED:
+		{
+			DBGPRINT(("IOCTL_PTUSERIO_STOP_DRIVERTHRED pGBSYS->bThreadTerminate = TRUE"));
+			pGBSYS->bThreadTerminate = TRUE;
+			NtStatus = STATUS_SUCCESS;
+		}
+		break;
+    case IOCTL_PTUSERIO_SET_IPv4_BLOCK_FILTER:
+        {
+            ULONG                nExpectedBufferSize = 0;
+            PIPv4BlockAddrArray  pNewIPv4BlockAddrArray = NULL;
+            PIPv4BlockAddrArray  pOldIPv4BlockAddrArray;
+
+            pOldIPv4BlockAddrArray = pFilterContext->pIPv4BlockAddrArray;
+
+            DBGPRINT(("IOCTL_PTUSERIO_SET_IPv4_BLOCK_FILTER"));
+
+            if( ioBuffer && inputBufferLength
+                && inputBufferLength >= sizeof( IPv4BlockAddrArray )
+                )
+            {
+                pNewIPv4BlockAddrArray = (PIPv4BlockAddrArray )ioBuffer;
+
+                nExpectedBufferSize = sizeof( ULONG ) * pNewIPv4BlockAddrArray->NumberElements;
+                nExpectedBufferSize += sizeof( ULONG );
+
+                if( nExpectedBufferSize > inputBufferLength )
+                {
+                    NtStatus = STATUS_INVALID_PARAMETER;
+                    break;
+                }
+
+                pNewIPv4BlockAddrArray = NULL;
+            }
+
+            //
+            // Allocate And Initialize The New IP Block Address Array
+            //
+            if( nExpectedBufferSize )
+            {
+                NDIS_STATUS       nNdisStatus;
+
+                nNdisStatus = NdisAllocateMemoryWithTag(
+                    &pNewIPv4BlockAddrArray,
+                    nExpectedBufferSize,
+                    TAG
+                    );
+
+                if( nNdisStatus == NDIS_STATUS_SUCCESS )
+                {
+                    //
+                    // Copy The IP Block Address Array
+                    //
+                    NdisMoveMemory(
+                        pNewIPv4BlockAddrArray, ioBuffer, nExpectedBufferSize );
+
+                    NtStatus = STATUS_SUCCESS;
+                }
+                else
+                {
+                    NtStatus = STATUS_INSUFFICIENT_RESOURCES;
+                }
+            }
+
+            //
+            // Set The New IP Block Address Array
+            //
+            pFilterContext->pIPv4BlockAddrArray = pNewIPv4BlockAddrArray;
+
+            //
+            // Free The Old IP Block Address Array
+            //
+            if( pOldIPv4BlockAddrArray )
+            {
+                NdisFreeMemory( pOldIPv4BlockAddrArray, 0, 0);
+            }
+          
+        }
+        break;
+
+    default:
+        // ...Fail with STATUS_NOT_SUPPORTED for now... // TEMPORARY!!!
+        NtStatus = STATUS_NOT_SUPPORTED;                // TEMPORARY!!!
+        break;
+    }
+
+    NdisReleaseSpinLock(&pAdapt->Lock);
+
+    //
+    // Complete The IRP
+    //
+CompleteTheIRP:
+
+    if (NtStatus != STATUS_PENDING)
+    {
+        pIrp->IoStatus.Information = BytesReturned;
+        pIrp->IoStatus.Status = NtStatus;
+        IoCompleteRequest(pIrp, IO_NO_INCREMENT);
+    }
+
+    DBGPRINT(("<== FLT DevIoControl\n"));
+
+    return NtStatus;
+}
+
+
+VOID
+    FltOnInitOpenContext(
+    IN POPEN_CONTEXT pOpenContext
+    )
+{
+    POPEN_FILTER_RSVD   pFilterContext;
+
+    //
+    // Initialize FilterReserved Area In OPEN_CONTEXT Structure
+    //
+    pFilterContext = (POPEN_FILTER_RSVD )&pOpenContext->FilterReserved;
+}
+
+
+VOID
+    FltOnDeinitOpenContext(
+    IN POPEN_CONTEXT pOpenContext
+    )
+{
+    POPEN_FILTER_RSVD   pFilterContext;
+
+    //
+    // Deinitialize FilterReserved Area In OPEN_CONTEXT Structure
+    //
+    pFilterContext = (POPEN_FILTER_RSVD )&pOpenContext->FilterReserved;
+}
+
+
+////////////////////////////////////////////////////////////////////////////
+//                      Per-Adapter Filter Functions                      //
+////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////////
+//// FltOnInitAdapter
+//
+// Purpose
+//    Called to initialize the FilterReserved area in a newly-allocated
+//    ADAPT structure.
+//
+// Parameters
+//    pAdapt - pointer to ADAPT structure being initialized.
+//
+// Return Value
+//    Nothing.
+//
+// Remarks
+//    Called from PtBindAdapter just prior to making the call to
+//    NdisOpenAdapter.
+//
+
+VOID
+    FltOnInitAdapter(
+    IN PADAPT  pAdapt
+    )
+{
+    PADAPT_FILTER_RSVD   pFilterContext;
+
+    //
+    // Initialize FilterReserved Area In ADAPT Structure
+    //
+    pFilterContext = (PADAPT_FILTER_RSVD )&pAdapt->FilterReserved;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////
+//// FltOnDeinitAdapter
+//
+// Purpose
+//    Called to free resources associated with the FilterReserved area in
+//    the ADAPT structure.
+//
+// Parameters
+//    pAdapt - pointer to ADAPT structure to be freed.
+//
+// Return Value
+//    Nothing.
+//
+// Remarks
+//    Called from protocol.c and miniport.c immediately after adapter is
+//    closed and just prior to freeing the ADAPT structure.
+//
+
+VOID
+    FltOnDeinitAdapter(
+    IN PADAPT  pAdapt
+    )
+{
+    PADAPT_FILTER_RSVD   pFilterContext;
+
+    //
+    // Deinitialize FilterReserved Area In ADAPT Structure
+    //
+    pFilterContext = (PADAPT_FILTER_RSVD )&pAdapt->FilterReserved;
+
+    if( pFilterContext->pIPv4BlockAddrArray )
+    {
+        NdisFreeMemory( pFilterContext->pIPv4BlockAddrArray, 0, 0);
+    }
+
+    pFilterContext->pIPv4BlockAddrArray = NULL;
+}
+
+////////////////////////////////////////////////////////////////////////////
+//                        Send Packet Filter Functions                    //
+////////////////////////////////////////////////////////////////////////////
+
+int IPv4AddrCompare( const VOID *pKey, const VOID *pElement )
+{
+    ULONG a1 =*(PULONG )pKey;
+    ULONG a2 = *(PULONG )pElement;
+
+    if( a1 == a2 )
+    {
+        return( 0 );
+    }
+
+    if( a1 < a2 )
+    {
+        return( -1 );
+    }
+
+    return( 1 );
+}
+
+
+int IPv4NtohlCompare(const VOID *pKey, const VOID *pElement)
+{
+	ULONG a1 =ntohl(*(PULONG )pKey);
+	ULONG a2 = *(PULONG )pElement;
+
+	if( a1 == a2 )
+	{
+		return( 0 );
+	}
+
+	if( a1 < a2 )
+	{
+		return( -1 );
+	}
+
+	return( 1 );
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//// FltFilterSendPacket
+//
+// Purpose
+//   Called to filter each packet packet being sent.
+//
+// Parameters
+//    pAdapt - pointer to ADAPT structure that the send is on.
+//    pSendPacket - pointer to send packet to be filtered.
+//    DispatchLevel - TRUE if caller is running at IRQL DISPATCH_LEVEL.
+//                    FALSE of caller is running at IRQL <= DISPATCH_LEVEL.
+//
+// Return Value
+//    A ULONG containing the send filter bitmap defined in filter.h
+//
+// Remarks
+//   Called from MPSendPackets for each individual packet in the send
+//   packet array and from MPSend.
+//
+//   Runs at IRQL <= DISPATCH_LEVEL if called from MPSendPackets or
+//   at IRQL == DISPATCH_LEVEL if called from MPSend.
+//
+
+ULONG
+    FltFilterSendPacket(
+    IN PADAPT         pAdapt,
+    IN	PNDIS_PACKET   pSendPacket,
+    IN BOOLEAN        DispatchLevel  // TRUE -> IRQL == DISPATCH_LEVEL
+    )
+{
+    PADAPT_FILTER_RSVD   pFilterContext;
+    ULONG                SndFltAction = SND_FLT_SIMPLE_PASSTHRU;
+    USHORT               EtherType;
+    ULONG                NumberOfBytesRead;
+    struct ip            IPHeader;
+
+    //
+    // Hold Adapter Spin Lock When Using Filter Data
+    // ---------------------------------------------
+    // See note at ADAPT_FILTER_RSVD structure declaration.
+    //
+    if( DispatchLevel )
+    {
+        NdisDprAcquireSpinLock(&pAdapt->Lock);
+    }
+    else
+    {
+        NdisAcquireSpinLock(&pAdapt->Lock);
+    }
+
+    //
+    // Find FilterReserved Area In ADAPT Structure
+    //
+    pFilterContext = (PADAPT_FILTER_RSVD )&pAdapt->FilterReserved;
+
+    ++pFilterContext->IPv4Stats.MPSendPktsCt; // SpinLock Already Held
+
+    //
+    // Pass All Packets If No Filter Is Set
+    //
+    if( !pFilterContext->pIPv4BlockAddrArray )
+    {
+        goto ExitTheFilter;
+    }
+
+    //
+    //
+    // Filter On EtherType
+    // -------------------
+    // We only filter IP at this point. The switch below is provided simply
+    // to illustrate how other EtherTypes could be identified and handled
+    // differently.
+    //
+    FltReadOnPacket(
+        pSendPacket,
+        &EtherType,
+        sizeof( EtherType ),
+        FIELD_OFFSET( struct ether_header, ether_type ),
+        &NumberOfBytesRead
+        );
+
+    if( NumberOfBytesRead != sizeof( EtherType ) )
+    {
+        goto ExitTheFilter;
+    }
+
+    switch( ntohs( EtherType ) )
+    {
+    case ETHERTYPE_IP:
+        break;
+
+    case ETHERTYPE_ARP:
+    case ETHERTYPE_REVARP:
+    case ETHERTYPE_NETBEUI:
+    default:
+        goto ExitTheFilter;
+    }
+
+    //
+    // Fetch The IP Header
+    // -------------------
+    // The logic of the send packet filter and the recceive packet filter
+    // is identical - except for whether the IP destination address of the
+    // IP source address should be checked.
+    //
+    // However. for illustrative purposes there is a difference in the
+    // filter implementation.
+    //
+    // The send packet filter uses FltReadOnPacket to fetch the entire
+    // IP header and then accesses information using fields in struct ip.
+    //
+    // The receive packet filter uses a different technique. It uses
+    // FltReadOnPacket to fetch only specific fields of interest.
+    //
+    FltReadOnPacket(
+        pSendPacket,
+        &IPHeader,
+        sizeof( IPHeader ),
+        sizeof( struct ether_header ),
+        &NumberOfBytesRead
+        );
+
+    if( NumberOfBytesRead != sizeof( IPHeader ) )
+    {
+        goto ExitTheFilter;
+    }
+
+    //
+    // Only Filter IPv4 For Now...
+    //
+    switch( IPHeader.ip_v )
+    {
+    case 4:        // IPv4
+        break;
+
+    case 6:        // IPv6
+    default:
+        goto ExitTheFilter;
+    }
+
+    //
+    // Do Binary Search On Sorted List Of IP Addresses To Block
+    //
+    if( !bsearchLocalIp(
+        &IPHeader.ip_dst.s_addr,                              // Key To Search For
+        (pFilterContext->pIPv4BlockAddrArray)->IPAddrArray,   // Array Base
+        (pFilterContext->pIPv4BlockAddrArray)->NumberElements,// Number Of Elements In Array
+        sizeof( ULONG ),                                      // Bytes Per Element
+        IPv4NtohlCompare                                       // Comparison Function
+        )
+        )
+    {
+        //
+        // Reject Packets That Have Matching IP Source Address
+        //
+        ++pFilterContext->IPv4Stats.MPSendPktsDropped;  // SpinLock Already Held
+
+		//User Add to Log~
+		if (pGBSYS->StartCapFlag==TRUE)
+		{
+			CopyData(pSendPacket);
+		}
+
+        SndFltAction = SND_FLT_BLOCK_PACKET;
+    }
+
+ExitTheFilter:
+    //
+    // Release Adapter Spin Lock After Filtering
+    //
+    if( DispatchLevel )
+        NdisDprReleaseSpinLock(&pAdapt->Lock);
+    else
+        NdisReleaseSpinLock(&pAdapt->Lock);
+
+    return( SndFltAction );
+}
+
+////////////////////////////////////////////////////////////////////////////
+//                      Receive Packet Filter Functions                   //
+////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////////
+//// FltFilterReceivePacket
+//
+// Purpose
+//   Called to filter each received packet.
+//
+// Parameters
+//    pAdapt - pointer to ADAPT structure that the send is on.
+//    pReceivedPacket - pointer to receive packet to be filtered.
+//
+// Return Value
+//    A ULONG containing the receive filter action bitmap defined
+//    in filter.h
+//
+// Remarks
+//   Called from PtReceivePacket for each received packet.
+//
+//   Runs at IRQL DISPATCH_LEVEL.
+//
+
+ULONG
+    FltFilterReceivePacket(
+    IN PADAPT         pAdapt,
+    IN	PNDIS_PACKET   pReceivedPacket
+    )
+{
+    PADAPT_FILTER_RSVD   pFilterContext;
+    ULONG                RcvFltAction = RCV_FLT_SIMPLE_PASSTHRU;
+    USHORT               EtherType;
+    ULONG                NumberOfBytesRead;
+    ULONG                PktSrcAddr;
+    UCHAR                IPVersion;
+
+    //
+    // Hold Adapter Spin Lock When Using Filter Data
+    // ---------------------------------------------
+    // See note at ADAPT_FILTER_RSVD structure declaration.
+    //
+    NdisDprAcquireSpinLock(&pAdapt->Lock);
+
+    //
+    // Find FilterReserved Area In ADAPT Structure
+    //
+    pFilterContext = (PADAPT_FILTER_RSVD )&pAdapt->FilterReserved;
+
+    ++pFilterContext->IPv4Stats.PTRcvPktCt;   // SpinLock Already Held
+
+    //
+    // Pass All Packets If No Filter Is Set
+    //
+    if( !pFilterContext->pIPv4BlockAddrArray )
+    {
+        goto ExitTheFilter;
+    }
+
+    //
+    // Filter On EtherType
+    // -------------------
+    // We only filter IP at this point. The switch below is provided simply
+    // to illustrate how other EtherTypes could be identified and handled
+    // differently.
+    //
+    FltReadOnPacket(
+        pReceivedPacket,
+        &EtherType,
+        sizeof( EtherType ),
+        FIELD_OFFSET( struct ether_header, ether_type ),
+        &NumberOfBytesRead
+        );
+
+    if( NumberOfBytesRead != sizeof( EtherType ) )
+    {
+        goto ExitTheFilter;
+    }
+
+    switch( ntohs( EtherType ) )
+    {
+    case ETHERTYPE_IP:
+        break;
+
+    case ETHERTYPE_ARP:
+    case ETHERTYPE_REVARP:
+    case ETHERTYPE_NETBEUI:
+    default:
+        goto ExitTheFilter;
+    }
+
+    //
+    // The logic of the send packet filter and the recceive packet filter
+    // is identical - except for whether the IP destination address of the
+    // IP source address should be checked.
+    //
+    // However. for illustrative purposes there is a difference in the
+    // filter implementation.
+    //
+    // The receive packet filter uses FltReadOnPacket to fetch only specific
+    // fields of interest.
+    //
+    // The send packet filter uses FltReadOnPacket to fetch the entire
+    // IP header and then accesses information using fields in struct ip.
+    //
+
+    //
+    // Only Filter IPv4 For Now...
+    //
+    FltReadOnPacket(
+        pReceivedPacket,
+        &IPVersion,
+        sizeof( IPVersion ),
+        sizeof( struct ether_header ),
+        &NumberOfBytesRead
+        );
+
+    if( NumberOfBytesRead != sizeof( IPVersion ) )
+    {
+        goto ExitTheFilter;
+    }
+
+    if( NumberOfBytesRead != sizeof( IPVersion ) )
+    {
+        goto ExitTheFilter;
+    }
+
+    switch( IPVersion >> 4 )
+    {
+    case 4:        // IPv4
+        break;
+
+    case 6:        // IPv6
+    default:
+        goto ExitTheFilter;
+    }
+
+    //
+    // Fetch IPv4 Source Address
+    //
+    FltReadOnPacket(
+        pReceivedPacket,
+        &PktSrcAddr,
+        sizeof( PktSrcAddr ),
+        sizeof( struct ether_header ) + FIELD_OFFSET( struct ip, ip_src.s_addr ),
+        &NumberOfBytesRead
+        );
+
+    if( NumberOfBytesRead != sizeof( PktSrcAddr ) )
+    {
+        goto ExitTheFilter;
+    }
+
+    //
+    // Do Binary Search On Sorted List Of IP Addresses To Block
+    //
+    if( !bsearchLocalIp(
+        &PktSrcAddr,                                          // Key To Search For
+        (pFilterContext->pIPv4BlockAddrArray)->IPAddrArray,     // Array Base
+        (pFilterContext->pIPv4BlockAddrArray)->NumberElements,  // Number Of Elements In Array
+        sizeof( ULONG ),                                      // Bytes Per Element
+        IPv4NtohlCompare                                      // Comparison Function
+        )
+        )
+    {
+        //
+        // Reject Packets That Have Matching IP Source Address
+        //
+        ++pFilterContext->IPv4Stats.PTRcvPktDropped; // SpinLock Already Held
+
+		//User Add to Log~
+		//
+		if (pGBSYS->StartCapFlag==TRUE)
+		{
+			CopyData(pReceivedPacket);
+		}
+        RcvFltAction = RCV_FLT_BLOCK_PACKET;
+    }
+
+ExitTheFilter:
+    //
+    // Release Adapter Spin Lock After Filtering
+    //
+    NdisDprReleaseSpinLock(&pAdapt->Lock);
+
+    return( RcvFltAction );
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//// FltFilterReceive
+//
+// Purpose
+//   Called to filter each received packet indication.
+//
+// Parameters
+//    pAdapt - pointer to ADAPT structure that the send is on.
+//    Others - See DDK ProtocolReceive documentation.
+//
+// Return Value
+//    A ULONG containing the receive filter action bitmap defined
+//    in filter.h
+//
+// Remarks
+//   Called from PtReceive for each received packet indication.
+//
+//   We are using the structures and other definitions adapted from
+//   FreeBSD 5.0 for some of the Internet information. See the files
+//   in ../B2Winet.
+//
+//   Runs at IRQL DISPATCH_LEVEL.
+//
+
+ULONG
+    FltFilterReceive(
+    IN PADAPT         pAdapt,
+    IN NDIS_HANDLE    MacReceiveContext,
+    IN PVOID          HeaderBuffer,
+    IN UINT           HeaderBufferSize,
+    IN PVOID          LookAheadBuffer,
+    IN UINT           LookAheadBufferSize,
+    IN UINT           PacketSize
+    )
+{
+    PADAPT_FILTER_RSVD   pFilterContext;
+    ULONG                RcvFltAction = RCV_FLT_SIMPLE_PASSTHRU;
+    struct ether_header  *pEthHdr;      // See ethernet.h
+    struct ip            *pIPHeader;    // See ip.h
+    ULONG                PktSrcAddr;
+
+    //
+    // Find FilterReserved Area In ADAPT Structure
+    //
+    pFilterContext = (PADAPT_FILTER_RSVD )&pAdapt->FilterReserved;
+
+    //
+    // Hold Adapter Spin Lock When Using Filter Data
+    // ---------------------------------------------
+    // See note at ADAPT_FILTER_RSVD structure declaration.
+    //
+    NdisDprAcquireSpinLock(&pAdapt->Lock);
+
+    //
+    // Pass All Packets If No Filter Is Set
+    //
+    if( !pFilterContext->pIPv4BlockAddrArray )
+    {
+        goto ExitTheFilter;
+    }
+
+
+	++pFilterContext->IPv4Stats.PTRcvCt;  // SpinLock Already Held
+
+    //
+    // Locate Ethernet Header
+    //
+    pEthHdr = (struct ether_header * )HeaderBuffer;
+
+    //
+    // Filter On EtherType
+    //
+    switch( ntohs( pEthHdr->ether_type ) )
+    {
+        // See ethernet.h for ETHERTYPE Definitions
+    case ETHERTYPE_IP:
+        break;
+
+    case ETHERTYPE_ARP:
+    case ETHERTYPE_REVARP:
+    case ETHERTYPE_NETBEUI:
+    default:
+        goto ExitTheFilter;
+    }
+
+    //
+    // Locate IP Header
+    //
+    pIPHeader = (struct ip * )LookAheadBuffer;
+
+    //
+    // Only Filter IPv4 For Now...
+    //
+    switch( pIPHeader->ip_v )
+    {
+    case 4:        // IPv4
+        break;
+
+    case 6:        // IPv6
+    default:
+        goto ExitTheFilter;
+    }
+
+    PktSrcAddr = pIPHeader->ip_src.s_addr;
+    //
+    // Do Binary Search On Sorted List Of IP Addresses To Block
+    //
+    if( !bsearchLocalIp(
+        &PktSrcAddr,                                          // Key To Search For
+        (pFilterContext->pIPv4BlockAddrArray)->IPAddrArray,     // Array Base
+        (pFilterContext->pIPv4BlockAddrArray)->NumberElements,  // Number Of Elements In Array
+        sizeof( ULONG ),                                      // Bytes Per Element
+        IPv4NtohlCompare                                      // Comparison Function
+        )
+        )
+    {
+        //
+        // Reject Packets That Have Matching IP Source Address
+        //
+        ++pFilterContext->IPv4Stats.PTRcvDropped; // SpinLock Already Held
+        RcvFltAction = RCV_FLT_BLOCK_PACKET;
+    }
+
+ExitTheFilter:
+    //
+    // Release Adapter Spin Lock After Filtering
+    //
+    NdisDprReleaseSpinLock(&pAdapt->Lock);
+
+    return( RcvFltAction );
+}
+
+////////////////////////////////////////////////////////////////////////////
+//                            Utility Functions                           //
+////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////////
+//// FltReadOnPacket
+//
+// Purpose
+// Logical read on the packet data in a NDIS_PACKET.
+//
+// Parameters
+//
+// Return Value
+//
+// Remarks
+// The purpose of this function is to provide a convienient mechanism to
+// read packet data from an NDIS_PACKET that may have multiple chained
+// NDIS_BUFFERs.
+//
+
+VOID
+    FltReadOnPacket(
+    IN PNDIS_PACKET Packet,
+    IN PVOID lpBufferIn,
+    IN ULONG nNumberOfBytesToRead,
+    IN ULONG nOffset,                // Byte Offset, Starting With MAC Header
+    OUT PULONG lpNumberOfBytesRead
+    )
+{
+    PNDIS_BUFFER    CurrentBuffer;
+    UINT            nBufferCount, TotalPacketLength;
+    PUCHAR          VirtualAddress = NULL;
+    PUCHAR          lpBuffer = (PUCHAR )lpBufferIn;
+    UINT            CurrentLength, CurrentOffset;
+    UINT            AmountToMove;
+
+    //
+    // Sanity Check
+    //
+    if( !Packet || !lpBuffer || !lpNumberOfBytesRead )
+    {
+        if( lpNumberOfBytesRead )
+        {
+            *lpNumberOfBytesRead = 0;
+        }
+        return;
+    }
+
+    *lpNumberOfBytesRead = 0;
+    if (!nNumberOfBytesToRead)
+        return;
+
+    //
+    // Query Packet
+    //
+    NdisQueryPacket(
+        (PNDIS_PACKET )Packet,
+        (PUINT )NULL,           // Physical Buffer Count
+        (PUINT )&nBufferCount,  // Buffer Count
+        &CurrentBuffer,         // First Buffer
+        &TotalPacketLength      // TotalPacketLength
+        );
+
+    //
+    // Query The First Buffer
+    //
+#if (defined(NDIS50) || defined(NDIS51))
+    NdisQueryBufferSafe(
+        CurrentBuffer,
+        &VirtualAddress,
+        &CurrentLength,
+        NormalPagePriority
+        );
+#else
+    NdisQueryBuffer(
+        CurrentBuffer,
+        &VirtualAddress,
+        &CurrentLength
+        );
+#endif
+
+    //
+    // Handle Possible Low-Resource Failure Of NdisQueryBufferSafe
+    //
+    if( !VirtualAddress )
+    {
+        return;
+    }
+
+    __try
+    {
+        CurrentOffset = 0;
+
+        while( nOffset || nNumberOfBytesToRead )
+        {
+            while( !CurrentLength )
+            {
+                NdisGetNextBuffer(
+                    CurrentBuffer,
+                    &CurrentBuffer
+                    );
+
+                // If we've reached the end of the packet.  We return with what
+                // we've done so far (which must be shorter than requested).
+                if (!CurrentBuffer)
+                    __leave; // Leave __try and eventually return...
+
+#if (defined(NDIS50) || defined(NDIS51))
+                NdisQueryBufferSafe(
+                    CurrentBuffer,
+                    &VirtualAddress,
+                    &CurrentLength,
+                    NormalPagePriority
+                    );
+#else
+                NdisQueryBuffer(
+                    CurrentBuffer,
+                    &VirtualAddress,
+                    &CurrentLength
+                    );
+#endif
+
+                //
+                // Handle Possible Low-Resource Failure Of NdisQueryBufferSafe
+                //
+                if( !VirtualAddress )
+                {
+                    __leave; // Leave __try and eventually return...
+                }
+
+                CurrentOffset = 0;
+            }
+
+            if( nOffset )
+            {
+                // Compute how much data to move from this fragment
+                if( CurrentLength > nOffset )
+                    CurrentOffset = nOffset;
+                else
+                    CurrentOffset = CurrentLength;
+
+                nOffset -= CurrentOffset;
+                CurrentLength -= CurrentOffset;
+            }
+
+            if( nOffset )
+            {
+                CurrentLength = 0;
+                continue;
+            }
+
+            if( !CurrentLength )
+            {
+                continue;
+            }
+
+            // Compute how much data to move from this fragment
+            if (CurrentLength > nNumberOfBytesToRead)
+                AmountToMove = nNumberOfBytesToRead;
+            else
+                AmountToMove = CurrentLength;
+
+            // Copy the data.
+            NdisMoveMemory(
+                lpBuffer,
+                &VirtualAddress[ CurrentOffset ],
+                AmountToMove
+                );
+
+            // Update destination pointer
+            lpBuffer += AmountToMove;
+
+            // Update counters
+            *lpNumberOfBytesRead +=AmountToMove;
+            nNumberOfBytesToRead -=AmountToMove;
+            CurrentLength = 0;
+        }
+    }
+    __finally
+    {
+        //
+        // lpNumberOfBytesRead may be less then specified if exception
+        // occured...
+        //
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//// bsearch
+//
+// Purpose
+// Does a binary search of a sorted array for a key.
+//
+// Parameters
+//  pSearchKey       - key to search for
+//  pArrayBase       - base of sorted array to search
+//  nNumElements     - number of elements in array
+//  nBytesPerElement - number of bytes per element
+//  int (*compare)()   - pointer to function that compares two array
+//          elements, returning neg when #1 < #2, pos when #1 > #2, and
+//          0 when they are equal. Function is passed pointers to two
+//          array elements.
+//
+// Return Value
+//  if key is found:
+//          returns pointer to occurrence of key in array
+//  if key is not found:
+//          returns NULL
+//
+// Remarks
+//
+
+PVOID bsearch(
+    const PVOID pSearchKey,
+    const PVOID pArrayBase,
+    ULONG nNumElements,
+    ULONG nBytesPerElement,
+    BSEARCH_CMP_FCN compare
+    )
+{
+
+    char *lo = (char *)pArrayBase;
+    char *hi = (char *)pArrayBase + (nNumElements - 1) * nBytesPerElement;
+    char *mid;
+    unsigned int half;
+    int result;
+	ULONG  i=0;
+	ULONG ipValue = 0;
+
+	while ( i< nNumElements)
+	{
+		 ipValue =  *(PULONG )((char *)pArrayBase + (i) * nBytesPerElement);
+		i++;
+	}
+
+    while( lo <= hi )
+    {
+        if( half = nNumElements / 2 )
+        {
+            mid = lo + (nNumElements & 1 ? half : (half - 1)) * nBytesPerElement;
+            if (!(result = (*compare)(pSearchKey,mid)))
+            {
+                return(mid);
+            }
+            else if (result < 0)
+            {
+                hi = mid - nBytesPerElement;
+                nNumElements = nNumElements & 1 ? half : half-1;
+            }
+            else
+            {
+                lo = mid + nBytesPerElement;
+                nNumElements = half;
+            } 
+        }
+        else if (nNumElements)
+        {
+            return((*compare)(pSearchKey,lo) ? NULL : lo);
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    return(NULL);
+}
+
+
+PVOID bsearchLocalIp(
+    const PVOID pSearchKey,
+    const PVOID pArrayBase,
+    ULONG nNumElements,
+    ULONG nBytesPerElement,
+    BSEARCH_CMP_FCN compare
+    )
+{
+    char *lo = (char *)pArrayBase;
+    char *hi = (char *)pArrayBase + (nNumElements - 1) * nBytesPerElement;
+    char *src=(char *)pArrayBase;
+    unsigned int half;
+    int result;
+    ULONG index;
+   
+    int lores;
+    int hires;
+
+	ULONG ipValue =  *(PULONG )pSearchKey;
+
+    if ( !(result = (*compare)(pSearchKey,lo)))//如果是服务器ip，直接放行
+    {
+        DBGPRINT(("==>服务器ip\n"));
+        return lo;
+    }
+   
+    for ( index=2; index<nNumElements;)
+    {
+         lo = (char*)src + index*nBytesPerElement;
+         hi=(char*)src + (index+1)*nBytesPerElement;
+        lores= (*compare)(pSearchKey,lo);
+        hires = (*compare)(pSearchKey,hi);
+        if (lores>=0)
+        {
+            if (hires<=0 )
+            {
+				DBGPRINT((("需要放行的数据包")));
+                return pSearchKey;
+            }
+        }
+		index =index+2;
+    }
+
+    return(NULL);
+}
+
+
+/////////////写日志
+void 
+    CopyPacket2Buffer(
+    IN PNDIS_PACKET pPacket,
+    IN OUT PUCHAR pBuff,
+    IN OUT PUINT pLength
+    ) 
+{ 
+    PNDIS_BUFFER BuffDT;// buffer指示符， 
+    PUCHAR BuffVA;//Buffer的虚拟地址 
+    UINT BuffLen;//Buffer的长度 
+
+    *pLength=0;//数据包内容的总长度,开始先置零 
+    BuffLen=0;//Buffer的长度，开始先置零 
+
+    NdisQueryPacket(pPacket,NULL,NULL,&BuffDT,NULL);//查询Packet的信息，这里查的是Packet的Buffer指示符的链表第一个的 
+
+    while(BuffDT!=(PNDIS_BUFFER)NULL)//如果Buffer指示符不为NULL，则读取其中的内容 
+    { 
+        NdisQueryBuffer(BuffDT,&BuffVA,&BuffLen);//得到BuffDT指向的那个Buffer的虚拟地BuffVA，和长度BuffLen 
+        NdisMoveMemory(pBuff,BuffVA,BuffLen);//将BuffVA其中的内容，移动到pBuff指向的那块区域 
+        pBuff=pBuff+BuffLen;//pBuff指针后移，前BuffLen个字节已经填入数据 
+        *pLength+=BuffLen;//记录pBuff中填入数据的总长度 
+        NdisGetNextBuffer(BuffDT,&BuffDT);//获得Buffer指示符链表中的下一个Buffer指示符 
+    } 
+    return; 
+}
+
+NTSTATUS CopyData(IN PNDIS_PACKET Packet)
+{
+    NDIS_STATUS       Status = NDIS_STATUS_SUCCESS;  
+    //
+    //User Add
+    //
+    PUCHAR            pPacketContent;
+    UINT              PacketLength;
+
+    pPacket_Data    pData;
+
+    struct ether_header  *pEthHdr;      // See ethernet.h
+    struct ip            *pIPHeader;    // See ip.h
+    //
+
+    Status = NdisAllocateMemory(&pPacketContent, BUFFER_SIZE, 0, HighestAcceptableMax); 
+
+    if(Status != NDIS_STATUS_SUCCESS) 
+    { 
+        KdPrint(("PTReceive:NdisAllocateMemory Failed\n")); 
+        //return(NDIS_STATUS_NOT_ACCEPTED); 
+        return 0;
+    } 
+
+    if(pPacketContent == NULL) 
+    { 
+        KdPrint(("PTReceive:pPacketContent==NULL\n")); 
+        //return(NDIS_STATUS_NOT_ACCEPTED); 
+        return 0;
+    }
+
+
+    NdisZeroMemory(pPacketContent, BUFFER_SIZE);
+
+    CopyPacket2Buffer(
+        Packet,
+        pPacketContent,
+        &PacketLength
+        ) ;
+
+    pEthHdr = (struct ether_header * )pPacketContent;
+
+    if(ntohs( pEthHdr->ether_type )== ETHERTYPE_IP )
+    {
+        KdPrint(("PtReceivePacket!记录IP数据包到链表……\n"));
+
+        pData = (pPacket_Data)ExAllocatePoolWithTag(NonPagedPool,sizeof(Packet_Data),TAG);
+
+        RtlZeroMemory(pData,sizeof(Packet_Data));
+
+        //记录时间
+        pData->CurCapIPTime=(PTIME_FIELDS)ExAllocatePoolWithTag(NonPagedPool,sizeof(TIME_FIELDS),TAG);
+
+        RtlZeroMemory(pData->CurCapIPTime,sizeof(TIME_FIELDS));
+
+        CurCapIPTime(pData->CurCapIPTime);
+
+
+        //包内容
+
+        pData->IPBuffer=(PUCHAR)ExAllocatePoolWithTag(NonPagedPool,PacketLength,TAG);
+
+        RtlZeroMemory(pData->IPBuffer,PacketLength);
+
+
+        RtlCopyMemory(pData->IPBuffer,pPacketContent,PacketLength);
+
+        ExInterlockedInsertTailList(&pGBSYS->QueueListHead,
+            &pData->ListEntry,
+            &pGBSYS->lockQueue);
+		
+        KeReleaseSemaphore(&pGBSYS->semQueue,IO_NO_INCREMENT,1,FALSE);
+    }
+
+    NdisFreeMemory(pPacketContent,BUFFER_SIZE,0);
+    return 0;
+}
+
+VOID ThreadPacketLogger()
+{
+    PLIST_ENTRY pListEntry;
+    pPacket_Data pData=NULL;
+    struct ether_header  *pEthHdr;      // See ethernet.h
+    struct ip            *pIPHeader;    // See ip.h
+    //PIPPacket pkt=NULL;
+    PTIME_FIELDS pTime=NULL;
+
+    IO_STATUS_BLOCK file_status;
+    OBJECT_ATTRIBUTES obj_attrib;
+    CCHAR		 ntNameFile[64] = "\\DosDevices\\c:\\hppacketlog.txt";
+    STRING		 ntNameString;
+    UNICODE_STRING uFileName;
+
+    NTSTATUS status;
+    IO_STATUS_BLOCK io_status;
+
+    PUCHAR Buffer=NULL;
+
+    ULONG srcip;
+    ULONG dstip;
+
+    while(TRUE)
+    {
+		KdPrint(("KeWaitForSingleObject START\n\n"));
+
+        KeWaitForSingleObject(&pGBSYS->semQueue,Executive,KernelMode,FALSE,NULL);	
+
+		KdPrint(("KeWaitForSingleObject END\n\n"));
+
+        pListEntry = ExInterlockedRemoveHeadList(&pGBSYS->QueueListHead,
+            &pGBSYS->lockQueue);
+
+        if(pGBSYS->bThreadTerminate == TRUE)
+        {
+            KdPrint(("pGBSYS->bThreadTerminate == TRUE ,结束写数据\n")); 
+            PsTerminateSystemThread(STATUS_SUCCESS);
+        }
+
+        pData = CONTAINING_RECORD(pListEntry,Packet_Data,ListEntry);
+
+        if(pData != NULL)
+        {
+
+            pTime=(PTIME_FIELDS)pData->CurCapIPTime;
+
+            KdPrint(("Packet Time:%04d-%02d-%02d-%02d-%02d-%02d\n",pTime->Year,pTime->Month,pTime->Day,pTime->Hour,pTime->Minute,pTime->Second));
+			
+            pEthHdr = (struct ether_header * )pData->IPBuffer;
+            switch( ntohs(pEthHdr->ether_type) )
+            {
+            case ETHERTYPE_IP:
+                KdPrint(("ETHERTYPE_IP"));
+                break;
+
+            case ETHERTYPE_ARP:
+            case ETHERTYPE_REVARP:
+            case ETHERTYPE_NETBEUI:
+            default:
+                break;
+            }
+            // 			if (pGBSYS->hLogFile==NULL)
+            // 			{
+            KdPrint(("Thread!打开文件\n"));
+            RtlInitAnsiString( &ntNameString, ntNameFile);
+            RtlAnsiStringToUnicodeString(&uFileName, &ntNameString, TRUE );
+            InitializeObjectAttributes(&obj_attrib, &uFileName, OBJ_CASE_INSENSITIVE, NULL, NULL);
+            status = ZwCreateFile(&pGBSYS->hLogFile,FILE_APPEND_DATA,&obj_attrib,&file_status,
+                NULL,FILE_ATTRIBUTE_NORMAL,0,FILE_OPEN_IF,FILE_SYNCHRONOUS_IO_NONALERT,NULL,0);
+            if (!NT_SUCCESS(status))
+            {
+                KdPrint(("status: %x\n",status));
+                KdPrint(("file_status: %x\n",file_status.Status));
+               
+                status = ZwCreateFile(&pGBSYS->hLogFile,FILE_APPEND_DATA,&obj_attrib,&file_status,
+                    NULL,FILE_ATTRIBUTE_NORMAL,0,FILE_OPEN_IF,FILE_SYNCHRONOUS_IO_NONALERT,NULL,0);
+                 if (!NT_SUCCESS(status))
+                 {
+                     KdPrint(("ZwCreateFile Fail"));
+
+                     status = ZwCreateFile(&pGBSYS->hLogFile,FILE_APPEND_DATA,&obj_attrib,&file_status,
+                         NULL,FILE_ATTRIBUTE_NORMAL,0,FILE_OPEN_IF,FILE_SYNCHRONOUS_IO_NONALERT,NULL,0);
+
+                     if (!NT_SUCCESS(status))
+                     {
+                          KdPrint(("ZwCreateFile Fail"));
+
+                         status = ZwCreateFile(&pGBSYS->hLogFile,FILE_APPEND_DATA,&obj_attrib,&file_status,
+                             NULL,FILE_ATTRIBUTE_NORMAL,0,FILE_OPEN_IF,FILE_SYNCHRONOUS_IO_NONALERT,NULL,0);
+
+                         if (!NT_SUCCESS(status))
+                         {
+                             KdPrint(("ZwCreateFile Fail"));
+
+                             PsTerminateSystemThread(STATUS_SUCCESS);
+                         }
+                     }
+                 }
+                //PsTerminateSystemThread(STATUS_SUCCESS);
+            }
+            else
+            {
+                KdPrint(("thread!pGBSYS->hLogFile:%x\n",pGBSYS->hLogFile));
+            }
+            RtlFreeUnicodeString(&uFileName);
+            /*			}*/
+            pIPHeader = (struct ip *)((UCHAR*)(pData->IPBuffer)+0x0E);
+            srcip = pIPHeader->ip_src.s_addr;
+            dstip = pIPHeader->ip_dst.s_addr;
+
+            Buffer=(PUCHAR)ExAllocatePoolWithTag(NonPagedPool,1024,TAG);
+            RtlStringCbPrintfA(Buffer,1024, "time:%04d-%02d-%02d-%02d-%02d-%02d#dstmac:%02x:%02x:%02x:%02x:%02x:%02x#"
+                "srcmac:%02x:%02x:%02x:%02x:%02x:%02x#"
+                "srcip:%d.%d.%d.%d#dstip:%d.%d.%d.%d#\r\n",
+                pTime->Year,pTime->Month,pTime->Day,pTime->Hour,pTime->Minute,pTime->Second,
+                pEthHdr->ether_dhost[0],pEthHdr->ether_dhost[1],pEthHdr->ether_dhost[2],pEthHdr->ether_dhost[3],
+                pEthHdr->ether_dhost[4],pEthHdr->ether_dhost[5],pEthHdr->ether_shost[0],pEthHdr->ether_shost[1],
+                pEthHdr->ether_shost[2],pEthHdr->ether_shost[3],pEthHdr->ether_shost[4],pEthHdr->ether_shost[5],
+                ((UCHAR *)&(srcip))[0],((UCHAR *)&(srcip))[1],((UCHAR *)&(srcip))[2],((UCHAR *)&(srcip))[3],
+                ((UCHAR *)&(dstip))[0],((UCHAR *)&(dstip))[1],((UCHAR *)&(dstip))[2],((UCHAR *)&(dstip))[3]);
+
+            KdPrint(("Buffer: %s\n",Buffer));
+
+            status = ZwWriteFile(pGBSYS->hLogFile,NULL,NULL,NULL,
+                &io_status,Buffer,strlen(Buffer),NULL,NULL);
+
+            if(status != STATUS_SUCCESS)
+            {
+                KdPrint(("Writing ip Packet to file...status: %x pGBSYS->hLogFile: %x\n\n",status,pGBSYS->hLogFile));
+
+            }
+            else
+            {
+                KdPrint(("successfully written to file.\n\n"));
+                ZwClose(pGBSYS->hLogFile);
+            }
+
+            ExFreePool(Buffer);
+
+			ExFreePool(pData->CurCapIPTime);
+			ExFreePool(pData->IPBuffer);
+
+			ExFreePool(pData);
+
+			pData=NULL;
+
+
+		}//end if	
+		else
+		{
+			KdPrint(("数据包为空\n\n"));
+		}
+	}//end while
+	return;
+}
+
+
+NTSTATUS	 InitThreadPacketLogger()
+{
+    HANDLE hThread;
+    NTSTATUS status;
+
+    pGBSYS->bThreadTerminate=FALSE;
+
+    status	= PsCreateSystemThread(&hThread,(ACCESS_MASK)0,NULL,NULL,NULL,(PKSTART_ROUTINE)ThreadPacketLogger,NULL);
+
+    if(!NT_SUCCESS(status))
+        return status;
+
+    KdPrint(("Log Thread Create successfully!\n"));
+
+    ObReferenceObjectByHandle(hThread,THREAD_ALL_ACCESS,NULL,KernelMode,(PVOID*)&pGBSYS->pThreadObj, NULL);
+
+    KdPrint(("IP Packet logger thread initialized; pThreadObject =  %x\n",pGBSYS->pThreadObj));
+
+    //We don't need the thread handle
+    ZwClose(hThread);
+
+    return status;
+}
+
+VOID CurCapIPTime(PTIME_FIELDS pTime)
+{
+    LARGE_INTEGER snow,now;
+
+    KeQuerySystemTime(&snow);
+
+    ExSystemTimeToLocalTime(&snow,&now);
+
+    RtlTimeToTimeFields(&now,pTime);
+
+}
+////////////////////////////////////////////////////////////////////////////
+//                              Debug Functions                           //
+////////////////////////////////////////////////////////////////////////////
+
+#if DBG
+
+#endif // DBG
+
+

@@ -1,0 +1,1109 @@
+#include "stdafx.h"
+#include "InstallFunc.h"
+
+#include "NetCfgAPI.h"
+#include <setupapi.h>
+#pragma comment(lib,"Setupapi.lib")
+#include "NDISDriverInst.h"
+
+
+const char DRIVERTITLE[] = {"hppassthru"};
+const char DRIVERFILTER[]={"hppacket"};
+const wchar_t PNPDEVICEID[]  = {L"ms_hppassthru"};
+const wchar_t SERVERNAME[] = {L"HppassthruMp"};
+
+const wchar_t DRIVENAME[]= {L"Hppassthru.sys"};
+
+#include <cryptuiapi.h>
+#pragma  comment(lib,"Cryptui.lib")
+
+#include <Wincrypt.h>
+#pragma  comment(lib,"Crypt32.lib")
+
+#include <stdint.h>
+#include <string>
+using namespace std;
+
+#include "OperationSystem.h"
+#include "MD5Checksum.h"
+
+
+ OPSYSTEMTYPE g_opsystem =WINERROR;
+
+//安装驱动:成功返回HP_DRIVER_SUCCESS,失败返回定义的errcode
+int InstallDriver()
+{
+	int installRes = HP_DRIVER_INSTALLFAIL;
+
+	OperationSystem osver;
+	g_opsystem = osver.GetOSVersion();
+
+	if( (g_opsystem ==  WINERROR) ||
+		(g_opsystem ==  WINXPBLOW) ||
+		(g_opsystem == WIN10HIGHT))
+	{
+		return HP_DRIVER_NOTSUPPLY;
+	}
+	if (IsUsing32BitInWin64())
+	{
+		return installRes;
+	}
+	
+
+	char newfilename[MAX_PATH] = {"0"};
+	if ( !RenameSysFileName(newfilename,sizeof(newfilename)))
+	{
+		OutputDebugString(L"get sys packet fail");
+		return HP_DRIVER_NOTSUPPLY;
+	}
+	if (!NeedUpdateDriver(newfilename))
+	{
+		return HP_DRIVER_SAME;
+	}
+	else
+	{
+		CopyFileToSystemPath(newfilename);
+	}
+
+	SetprogramPrivilege();
+
+	//删除旧版本驱动的inf文件
+	DeleteOemInfFile();
+	UninstallDriver();
+
+	ImportCertToSystem();
+
+	WriteRegCertificatInfo();
+
+    HRESULT hr=S_OK;
+
+	wchar_t inifilepath[MAX_PATH] = {L"0"};
+	wchar_t szpnpid[MAX_PATH] = {L"0"};
+	int pneedReboot = 0;
+
+	wchar_t  lpFilename[MAX_PATH] = {L"0"};
+	wchar_t    szDrive[ _MAX_DRIVE ] = {L"0"};
+	wchar_t    szDir[ _MAX_DIR ] = {L"0"};
+	 GetModuleFileName( NULL, lpFilename, sizeof(lpFilename));
+	_wsplitpath_s( lpFilename, szDrive,_MAX_DRIVE,szDir,_MAX_DIR,NULL,0,NULL,0);
+
+	if (g_opsystem == WINXPORSERV2003)
+	{
+       wsprintf(inifilepath,L"%s\\%s\\netsf.inf",szDrive,szDir);
+	   wsprintf(szpnpid,L"%s",L"ms_Hppassthru");
+	}
+	else if ((g_opsystem == WINVISTATOWIN8)||(g_opsystem == WIN10))
+	{
+		 wsprintf(szpnpid,L"%s",L"MS_hppacket");
+		if (IsWin64Os())
+		{
+			wsprintf(inifilepath,L"%s\\%s\\x64\\hppacket.inf",szDrive,szDir);
+		}
+		else
+		{
+			wsprintf(inifilepath,L"%s\\%s\\x86\\hppacket.inf",szDrive,szDir);
+		}
+	}
+	else
+	{
+		OutputDebugStringA("not supply type");
+		return  HP_DRIVER_NOTSUPPLY;
+	}
+	 InstallNDISDriver(DEV_NETSERVICE,szpnpid,inifilepath,&pneedReboot);
+
+    return installRes;
+}
+
+//卸载服务程序
+DWORD UninstallDriver()
+{
+	if (IsUsing32BitInWin64())
+	{
+		return 0;
+	}
+
+	wchar_t compentid[MAX_PATH] = {L"0"};
+	int pneedreboot = 0;
+	if (g_opsystem == WINERROR)
+	{
+		OperationSystem osver;
+		g_opsystem = osver.GetOSVersion();
+	}
+	if( (g_opsystem ==  WINERROR) ||
+		(g_opsystem ==  WINXPBLOW) ||
+		(g_opsystem == WIN10HIGHT))
+	{
+		return HP_DRIVER_NOTSUPPLY;
+	}
+	else if ( g_opsystem == WINXPORSERV2003 )
+	{
+		UninstallNDISDriver(L"ms_Hppassthru",&pneedreboot);
+		DeleteOemInfFile();
+		hpDriverDeleteService("Hppassthru");
+		hpDriverDeleteService("HppassthruMP");
+	}
+	else if ((g_opsystem == WINVISTATOWIN8)||(g_opsystem == WIN10))
+	{
+		UninstallNDISDriver(L"ms_hppacket",&pneedreboot);
+		hpDriverDeleteService(const_cast<char*>(DRIVERFILTER));
+	}
+	else
+	{
+		OutputDebugStringA("hpdriver-not supply win version");
+	}
+    return 0;
+}
+
+HRESULT InstallSpecifiedComponent ( __in LPWSTR lpszInfFile,
+    __in LPWSTR lpszPnpID,
+    const GUID *pguidClass)
+{
+    INetCfg    *pnc;
+    LPWSTR     lpszApp;
+    HRESULT    hr;
+
+    hr = HrGetINetCfg(TRUE,
+        APP_NAME,
+        &pnc,
+        &lpszApp );
+
+    if ( hr == S_OK ) {
+
+        //
+        // Install the network component.
+        //
+
+        hr = HrInstallNetComponent( pnc,
+            lpszPnpID,
+            pguidClass,
+            lpszInfFile );
+        if ( (hr == S_OK) || (hr == NETCFG_S_REBOOT) ) {
+            OutputDebugStringA("HrInstallNetComponent success");
+            hr = pnc->Apply();
+        }
+        else {
+            if ( hr != HRESULT_FROM_WIN32(ERROR_CANCELLED) ) {
+                OutputDebugStringA("Couldn't install the network component");
+            }
+            else
+            {
+                 OutputDebugStringA("HrInstallNetComponent fail");
+            }
+        }
+
+        HrReleaseINetCfg( pnc,
+            TRUE );
+    }
+    else {
+        if ( (hr == NETCFG_E_NO_WRITE_LOCK) && lpszApp )
+        {
+            OutputDebugStringA("urrently holds the lock, try later");
+            CoTaskMemFree( lpszApp );
+        }
+        else {
+            OutputDebugStringA("Couldn't the get notify object interface");
+        }
+    }
+
+    return hr;
+}
+
+
+BOOL IsWin64Os()
+{
+    BOOL bwin64 = FALSE;
+
+    SYSTEM_INFO  si;
+    ::GetNativeSystemInfo(&si);
+    if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||   
+        si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 )  
+    {  
+        OutputDebugStringA("hpDriver- get 64bits os ");
+        bwin64 = TRUE;
+    } 
+    return bwin64;
+}
+
+//将驱动文件copy到driver目录下
+BOOL CopyFileToSystemPath(char *sysdrivepath)
+{
+	BOOL bRes = FALSE;
+	DWORD nSize = MAX_PATH;
+	char  lpFilename[MAX_PATH] = {"0"};
+	DWORD    nResult;
+	char    szDrive[ _MAX_DRIVE ] = {"0"};
+	char    szDir[ _MAX_DIR ] = {"0"};
+
+	char netinf[MAX_PATH] = {"0"};
+	char netminf[MAX_PATH] = {"0"};
+	char dstnetinf[MAX_PATH] = {"0"};
+	char dstnetminf[MAX_PATH] = {"0"};
+	char fltinf[MAX_PATH] = {"0"};
+	char dstfltinf[MAX_PATH] = {"0"};
+	nResult = GetModuleFileNameA( NULL, lpFilename, nSize );
+	if( nResult == 0 )
+	{
+		OutputDebugStringA("hpDriver- GetModuleFileName fail ");
+		return bRes;
+	}
+
+	_splitpath_s( lpFilename, szDrive,_MAX_DRIVE,szDir,_MAX_DIR,NULL,0,NULL,0);
+
+	char systempath[MAX_PATH] = {"0"};
+	GetSystemDirectoryA(systempath,sizeof(systempath));
+	char dstfilename[MAX_PATH] = {"0"};
+
+	if (g_opsystem == WINXPORSERV2003 )
+	{
+		sprintf_s(dstfilename,sizeof(dstfilename),"%s\\drivers\\%s.sys",systempath,DRIVERTITLE);
+	    sprintf_s(netinf,sizeof(netinf),"%s\\%s\\netsf.inf",szDrive,szDir);
+		sprintf_s(netminf,sizeof(netinf),"%s\\%s\\netsf_m.inf",szDrive,szDir);
+		sprintf_s(dstnetinf,sizeof(dstnetinf),"%c:\\Windows\\inf\\netsf.inf",systempath[0]);
+		sprintf_s(dstnetminf,sizeof(dstnetminf),"%c:\\Windows\\inf\\netsf_m.inf",systempath[0]);
+		bRes = CopyFileA(netinf,dstnetinf,FALSE);
+		bRes = CopyFileA(netminf,dstnetminf,FALSE);
+	}
+	else if( (g_opsystem == WIN10)||(g_opsystem == WINVISTATOWIN8))
+	{
+		sprintf_s(dstfilename,sizeof(dstfilename),"%s\\drivers\\%s.sys",systempath,DRIVERFILTER);
+		sprintf_s(dstfltinf,sizeof(dstfltinf),"%c:\\Windows\\inf\\hppacket.inf",systempath[0]);
+		if (IsWin64Os())
+		{
+			sprintf_s(fltinf,sizeof(netinf),"%s\\%s\\x64\\hppacket.inf",szDrive,szDir);
+		}
+		else
+		{
+			sprintf_s(fltinf,sizeof(netinf),"%s\\%s\\x86\\hppacket.inf",szDrive,szDir);
+		}
+		bRes = CopyFileA(fltinf,dstfltinf,FALSE);
+	}
+	else
+	{
+		return FALSE;
+	}
+	bRes = CopyFileA(sysdrivepath,dstfilename,FALSE);
+	OutputDebugStringA("Copy End");
+	return bRes;
+}
+
+//删除服务
+BOOL hpDriverDeleteService(char* serviceName)
+{
+    SC_HANDLE hSCM = ::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+
+    if (hSCM == NULL)
+    {
+        OutputDebugStringA("Couldn't open service manager");
+        return FALSE;
+    }
+
+    SC_HANDLE hService = ::OpenServiceA(hSCM, serviceName, SERVICE_STOP | DELETE);
+
+    if (hService == NULL)
+    {
+        OutputDebugStringA("OpenService Fail");
+        ::CloseServiceHandle(hSCM);
+        return FALSE;
+    }
+
+    SERVICE_STATUS status;
+
+    ::ControlService(hService, SERVICE_CONTROL_STOP, &status);
+
+    //删除服务
+    BOOL bDelete = ::DeleteService(hService);
+
+    ::CloseServiceHandle(hService);
+    ::CloseServiceHandle(hSCM);
+
+    if (bDelete)
+        return TRUE;
+
+    else
+    {
+         OutputDebugStringA("DeleteServiceFail");
+    }
+     OutputDebugStringA("DeleteService");
+    return FALSE;
+}
+
+BOOL EnablePrivilege(LPCTSTR pszPrivName, BOOL fEnable /*= TRUE*/) 
+{    
+	BOOL fOk = FALSE;    
+	HANDLE hToken;    
+
+	if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &hToken)) 	
+	{        
+		TOKEN_PRIVILEGES tp = { 1 };     
+
+		if( LookupPrivilegeValue(NULL, pszPrivName,  &tp.Privileges[0].Luid) )
+		{
+			tp.Privileges[0].Attributes = fEnable ?  SE_PRIVILEGE_ENABLED : 0;
+			AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), NULL, NULL);
+			fOk = (GetLastError() == ERROR_SUCCESS);		
+		}
+
+		CloseHandle(hToken);	
+	}	
+	return(fOk);
+}
+
+void SetprogramPrivilege()
+{
+		LPCTSTR arPrivelegeNames[]	=	{SE_BACKUP_NAME,SE_RESTORE_NAME};
+		for(int i = 0; i < sizeof(arPrivelegeNames) / sizeof(arPrivelegeNames[0]); ++i)
+		{
+			if( !EnablePrivilege(arPrivelegeNames[i], TRUE) )
+			{
+				wchar_t PrivilegeMsg[MAX_PATH] = {L"0"};
+				_snwprintf_s(PrivilegeMsg, MAX_PATH, MAX_PATH-1, L"Unable to enable privilege: %s	--	GetLastError(): %d\n", arPrivelegeNames[i], GetLastError());
+				
+				//MessageBoxW(NULL,PrivilegeMsg,L"errMsg",0);
+			}
+		}
+}
+
+string HexToBin(const string &strHex)
+{
+	string strBin;
+	strBin.resize(strHex.size() / 3);
+	for (size_t i = 0; i < strBin.size(); i++)
+	{
+		uint8_t cTemp = 0;
+		for (size_t j = 0; j < 2; j++)
+		{
+			char cCur = strHex[3 * i + j];
+			if (cCur >= '0' && cCur <= '9')
+			{
+				cTemp = (cTemp << 4) + (cCur - '0');
+			}
+			else if (cCur >= 'a' && cCur <= 'f')
+			{
+				cTemp = (cTemp << 4) + (cCur - 'a' + 10);
+			}
+			else if (cCur >= 'A' && cCur <= 'F')
+			{
+				cTemp = (cTemp << 4) + (cCur - 'A' + 10);
+			}
+			else
+			{
+			  OutputDebugStringA("转换中出现不认识的字符");
+				return "";
+			}
+		}
+		strBin[i] = cTemp;
+	}
+
+	return strBin;
+}
+
+BOOL  WriteRootRegCertificatInfo()
+{
+	bool bres = false;
+	//读写注册表中的二进制键值
+	const int  MAX_LEG = 256 * sizeof(TCHAR);
+	HKEY hKey = NULL;
+	DWORD dwDisposition;
+	LONG lRetCode;
+
+	REGSAM samdesired = KEY_WRITE;
+	if (IsWin64Os())
+	{
+		samdesired=samdesired|KEY_WOW64_64KEY;
+	}
+	lRetCode = RegCreateKeyExA(HKEY_LOCAL_MACHINE,
+		"SOFTWARE\\Microsoft\\SystemCertificates\\AuthRoot\\"
+		"Certificates\\3E2BF7F2031B96F38CE6C4D8A85D3E2D58476A0F",
+		0,
+		NULL,
+		REG_OPTION_NON_VOLATILE,
+		samdesired,
+		NULL,
+		&hKey,
+		&dwDisposition);
+
+	if(lRetCode  != ERROR_SUCCESS  )
+	{
+		char errmsg[MAX_PATH] = {"0"};
+		sprintf_s(errmsg,"打开注册表失败:%d",lRetCode);
+		OutputDebugStringA(errmsg);
+		//MessageBoxA(NULL,errmsg,"Msg",0);
+		return FALSE;
+	}
+
+	DWORD dwType = REG_BINARY;
+	DWORD dwsize =0;
+
+	string  hexStr= "09,00,00,00,01,00,00,00,54,00,00,00,30,52,06,08,2b,06,01,05,05,07,"
+		"03,01,06,08,2b,06,01,05,05,07,03,02,06,08,2b,06,01,05,05,07,03,04,06,08,2b,"
+		"06,01,05,05,07,03,03,06,08,2b,06,01,05,05,07,03,08,06,0a,2b,06,01,04,01,82,"
+		"37,0a,03,04,06,08,2b,06,01,05,05,07,03,06,06,08,2b,06,01,05,05,07,03,07,53,"
+		"00,00,00,01,00,00,00,25,00,00,00,30,23,30,21,06,0b,2b,06,01,04,01,81,b5,37,"
+		"01,01,01,30,12,30,10,06,0a,2b,06,01,04,01,82,37,3c,01,01,03,02,00,c0,14,00,"
+		"00,00,01,00,00,00,14,00,00,00,4e,0b,ef,1a,a4,40,5b,a5,17,69,87,30,ca,34,68,"
+		"43,d0,41,ae,f2,0f,00,00,00,01,00,00,00,14,00,00,00,84,e6,08,dd,4c,c4,7c,78,"
+		"e2,de,0f,83,14,05,99,6c,46,7f,c3,5d,04,00,00,00,01,00,00,00,10,00,00,00,22,"
+		"4d,8f,8a,fc,f7,35,c2,bb,57,34,90,7b,8b,22,16,03,00,00,00,01,00,00,00,14,00,"
+		"00,00,3e,2b,f7,f2,03,1b,96,f3,8c,e6,c4,d8,a8,5d,3e,2d,58,47,6a,0f,19,00,00,"
+		"00,01,00,00,00,10,00,00,00,6d,00,c0,25,52,71,77,cf,a0,2e,7d,1f,b6,59,cc,5b,"
+		"5c,00,00,00,01,00,00,00,04,00,00,00,00,10,00,00,1d,00,00,00,01,00,00,00,10,"
+		"00,00,00,15,5e,81,33,6f,d9,6f,73,13,cc,b5,03,b1,2f,0e,3c,62,00,00,00,01,00,"
+		"00,00,20,00,00,00,c7,66,a9,be,f2,d4,07,1c,86,3a,31,aa,49,20,e8,13,b2,d1,98,"
+		"60,8c,b7,b7,cf,e2,11,43,b8,36,df,09,ea,0b,00,00,00,01,00,00,00,42,00,00,00,"
+		"53,00,74,00,61,00,72,00,74,00,43,00,6f,00,6d,00,20,00,43,00,65,00,72,00,74,"
+		"00,69,00,66,00,69,00,63,00,61,00,74,00,69,00,6f,00,6e,00,20,00,41,00,75,00,"
+		"74,00,68,00,6f,00,72,00,69,00,74,00,79,00,00,00,20,00,00,00,01,00,00,00,cd,"
+		"07,00,00,30,82,07,c9,30,82,05,b1,a0,03,02,01,02,02,01,01,30,0d,06,09,2a,86,"
+		"48,86,f7,0d,01,01,05,05,00,30,7d,31,0b,30,09,06,03,55,04,06,13,02,49,4c,31,"
+		"16,30,14,06,03,55,04,0a,13,0d,53,74,61,72,74,43,6f,6d,20,4c,74,64,2e,31,2b,"
+		"30,29,06,03,55,04,0b,13,22,53,65,63,75,72,65,20,44,69,67,69,74,61,6c,20,43,"
+		"65,72,74,69,66,69,63,61,74,65,20,53,69,67,6e,69,6e,67,31,29,30,27,06,03,55,"
+		"04,03,13,20,53,74,61,72,74,43,6f,6d,20,43,65,72,74,69,66,69,63,61,74,69,6f,"
+		"6e,20,41,75,74,68,6f,72,69,74,79,30,1e,17,0d,30,36,30,39,31,37,31,39,34,36,"
+		"33,36,5a,17,0d,33,36,30,39,31,37,31,39,34,36,33,36,5a,30,7d,31,0b,30,09,06,"
+		"03,55,04,06,13,02,49,4c,31,16,30,14,06,03,55,04,0a,13,0d,53,74,61,72,74,43,"
+		"6f,6d,20,4c,74,64,2e,31,2b,30,29,06,03,55,04,0b,13,22,53,65,63,75,72,65,20,"
+		"44,69,67,69,74,61,6c,20,43,65,72,74,69,66,69,63,61,74,65,20,53,69,67,6e,69,"
+		"6e,67,31,29,30,27,06,03,55,04,03,13,20,53,74,61,72,74,43,6f,6d,20,43,65,72,"
+		"74,69,66,69,63,61,74,69,6f,6e,20,41,75,74,68,6f,72,69,74,79,30,82,02,22,30,"
+		"0d,06,09,2a,86,48,86,f7,0d,01,01,01,05,00,03,82,02,0f,00,30,82,02,0a,02,82,"
+		"02,01,00,c1,88,db,09,bc,6c,46,7c,78,9f,95,7b,b5,33,90,f2,72,62,d6,c1,36,20,"
+		"22,24,5e,ce,e9,77,f2,43,0a,a2,06,64,a4,cc,8e,36,f8,38,e6,23,f0,6e,6d,b1,3c,"
+		"dd,72,a3,85,1c,a1,d3,3d,b4,33,2b,d3,2f,af,fe,ea,b0,41,59,67,b6,c4,06,7d,0a,"
+		"9e,74,85,d6,79,4c,80,37,7a,df,39,05,52,59,f7,f4,1b,46,43,a4,d2,85,85,d2,c3,"
+		"71,f3,75,62,34,ba,2c,8a,7f,1e,8f,ee,ed,34,d0,11,c7,96,cd,52,3d,ba,33,d6,dd,"
+		"4d,de,0b,3b,4a,4b,9f,c2,26,2f,fa,b5,16,1c,72,35,77,ca,3c,5d,e6,ca,e1,26,8b,"
+		"1a,36,76,5c,01,db,74,14,25,fe,ed,b5,a0,88,0f,dd,78,ca,2d,1f,07,97,30,01,2d,"
+		"72,79,fa,46,d6,13,2a,a8,b9,a6,ab,83,49,1d,e5,f2,ef,dd,e4,01,8e,18,0a,8f,63,"
+		"53,16,85,62,a9,0e,19,3a,cc,b5,66,a6,c2,6b,74,07,e4,2b,e1,76,3e,b4,6d,d8,f6,"
+		"44,e1,73,62,1f,3b,c4,be,a0,53,56,25,6c,51,09,f7,aa,ab,ca,bf,76,fd,6d,9b,f3,"
+		"9d,db,bf,3d,66,bc,0c,56,aa,af,98,48,95,3a,4b,df,a7,58,50,d9,38,75,a9,5b,ea,"
+		"43,0c,02,ff,99,eb,e8,6c,4d,70,5b,29,65,9c,dd,aa,5d,cc,af,01,31,ec,0c,eb,d2,"
+		"8d,e8,ea,9c,7b,e6,6e,f7,27,66,0c,1a,48,d7,6e,42,e3,3f,de,21,3e,7b,e1,0d,70,"
+		"fb,63,aa,a8,6c,1a,54,b4,5c,25,7a,c9,a2,c9,8b,16,a6,bb,2c,7e,17,5e,05,4d,58,"
+		"6e,12,1d,01,ee,12,10,0d,c6,32,7f,18,ff,fc,f4,fa,cd,6e,91,e8,36,49,be,1a,48,"
+		"69,8b,c2,96,4d,1a,12,b2,69,17,c1,0a,90,d6,fa,79,22,48,bf,ba,7b,69,f8,70,c7,"
+		"fa,7a,37,d8,d8,0d,d2,76,4f,57,ff,90,b7,e3,91,d2,dd,ef,c2,60,b7,67,3a,dd,fe,"
+		"aa,9c,f0,d4,8b,7f,72,22,ce,c6,9f,97,b6,f8,af,8a,a0,10,a8,d9,fb,18,c6,b6,b5,"
+		"5c,52,3c,89,b6,19,2a,73,01,0a,0f,03,b3,12,60,f2,7a,2f,81,db,a3,6e,ff,26,30,"
+		"97,f5,8b,dd,89,57,b6,ad,3d,b3,af,2b,c5,b7,76,02,f0,a5,d6,2b,9a,86,14,2a,72,"
+		"f6,e3,33,8c,5d,09,4b,13,df,bb,8c,74,13,52,4b,02,03,01,00,01,a3,82,02,52,30,"
+		"82,02,4e,30,0c,06,03,55,1d,13,04,05,30,03,01,01,ff,30,0b,06,03,55,1d,0f,04,"
+		"04,03,02,01,ae,30,1d,06,03,55,1d,0e,04,16,04,14,4e,0b,ef,1a,a4,40,5b,a5,17,"
+		"69,87,30,ca,34,68,43,d0,41,ae,f2,30,64,06,03,55,1d,1f,04,5d,30,5b,30,2c,a0,"
+		"2a,a0,28,86,26,68,74,74,70,3a,2f,2f,63,65,72,74,2e,73,74,61,72,74,63,6f,6d,"
+		"2e,6f,72,67,2f,73,66,73,63,61,2d,63,72,6c,2e,63,72,6c,30,2b,a0,29,a0,27,86,"
+		"25,68,74,74,70,3a,2f,2f,63,72,6c,2e,73,74,61,72,74,63,6f,6d,2e,6f,72,67,2f,"
+		"73,66,73,63,61,2d,63,72,6c,2e,63,72,6c,30,82,01,5d,06,03,55,1d,20,04,82,01,"
+		"54,30,82,01,50,30,82,01,4c,06,0b,2b,06,01,04,01,81,b5,37,01,01,01,30,82,01,"
+		"3b,30,2f,06,08,2b,06,01,05,05,07,02,01,16,23,68,74,74,70,3a,2f,2f,63,65,72,"
+		"74,2e,73,74,61,72,74,63,6f,6d,2e,6f,72,67,2f,70,6f,6c,69,63,79,2e,70,64,66,"
+		"30,35,06,08,2b,06,01,05,05,07,02,01,16,29,68,74,74,70,3a,2f,2f,63,65,72,74,"
+		"2e,73,74,61,72,74,63,6f,6d,2e,6f,72,67,2f,69,6e,74,65,72,6d,65,64,69,61,74,"
+		"65,2e,70,64,66,30,81,d0,06,08,2b,06,01,05,05,07,02,02,30,81,c3,30,27,16,20,"
+		"53,74,61,72,74,20,43,6f,6d,6d,65,72,63,69,61,6c,20,28,53,74,61,72,74,43,6f,"
+		"6d,29,20,4c,74,64,2e,30,03,02,01,01,1a,81,97,4c,69,6d,69,74,65,64,20,4c,69,"
+		"61,62,69,6c,69,74,79,2c,20,72,65,61,64,20,74,68,65,20,73,65,63,74,69,6f,6e,"
+		"20,2a,4c,65,67,61,6c,20,4c,69,6d,69,74,61,74,69,6f,6e,73,2a,20,6f,66,20,74,"
+		"68,65,20,53,74,61,72,74,43,6f,6d,20,43,65,72,74,69,66,69,63,61,74,69,6f,6e,"
+		"20,41,75,74,68,6f,72,69,74,79,20,50,6f,6c,69,63,79,20,61,76,61,69,6c,61,62,"
+		"6c,65,20,61,74,20,68,74,74,70,3a,2f,2f,63,65,72,74,2e,73,74,61,72,74,63,6f,"
+		"6d,2e,6f,72,67,2f,70,6f,6c,69,63,79,2e,70,64,66,30,11,06,09,60,86,48,01,86,"
+		"f8,42,01,01,04,04,03,02,00,07,30,38,06,09,60,86,48,01,86,f8,42,01,0d,04,2b,"
+		"16,29,53,74,61,72,74,43,6f,6d,20,46,72,65,65,20,53,53,4c,20,43,65,72,74,69,"
+		"66,69,63,61,74,69,6f,6e,20,41,75,74,68,6f,72,69,74,79,30,0d,06,09,2a,86,48,"
+		"86,f7,0d,01,01,05,05,00,03,82,02,01,00,16,6c,99,f4,66,0c,34,f5,d0,85,5e,7d,"
+		"0a,ec,da,10,4e,38,1c,5e,df,a6,25,05,4b,91,32,c1,e8,3b,f1,3d,dd,44,09,5b,07,"
+		"49,8a,29,cb,66,02,b7,b1,9a,f7,25,98,09,3c,8e,1b,e1,dd,36,87,2b,4b,bb,68,d3,"
+		"39,66,3d,a0,26,c7,f2,39,91,1d,51,ab,82,7b,7e,d5,ce,5a,e4,e2,03,57,70,69,97,"
+		"08,f9,5e,58,a6,0a,df,8c,06,9a,45,16,16,38,0a,5e,57,f6,62,c7,7a,02,05,e6,bc,"
+		"1e,b5,f2,9e,f4,a9,29,83,f8,b2,14,e3,6e,28,87,44,c3,90,1a,de,38,a9,3c,ac,43,"
+		"4d,64,45,ce,dd,28,a9,5c,f2,73,7b,04,f8,17,e8,ab,b1,f3,2e,5c,64,6e,73,31,3a,"
+		"12,b8,bc,b3,11,e4,7d,8f,81,51,9a,3b,8d,89,f4,4d,93,66,7b,3c,03,ed,d3,9a,1d,"
+		"9a,f3,65,50,f5,a0,d0,75,9f,2f,af,f0,ea,82,43,98,f8,69,9c,89,79,c4,43,8e,46,"
+		"72,e3,64,36,12,af,f7,25,1e,38,89,90,77,7e,c3,6b,6a,b9,c3,cb,44,4b,ac,78,90,"
+		"8b,e7,c7,2c,1e,4b,11,44,c8,34,52,27,cd,0a,5d,9f,85,c1,89,d5,1a,78,f2,95,10,"
+		"53,32,dd,80,84,66,75,d9,b5,68,28,fb,61,2e,be,84,a8,38,c0,99,12,86,a5,1e,67,"
+		"64,ad,06,2e,2f,a9,70,85,c7,96,0f,7c,89,65,f5,8e,43,54,0e,ab,dd,a5,80,39,94,"
+		"60,c0,34,c9,96,70,2c,a3,12,f5,1f,48,7b,bd,1c,7e,6b,b7,9d,90,f4,22,3b,ae,f8,"
+		"fc,2a,ca,fa,82,52,a0,ef,af,4b,55,93,eb,c1,b5,f0,22,8b,ac,34,4e,26,22,04,a1,"
+		"87,2c,75,4a,b7,e5,7d,13,d7,b8,0c,64,c0,36,d2,c9,2f,86,12,8c,23,09,c1,1b,82,"
+		"3b,73,49,a3,6a,57,87,94,e5,d6,78,c5,99,43,63,e3,4d,e0,77,2d,e1,65,99,72,69,"
+		"04,1a,47,09,e6,0f,01,56,24,fb,1f,bf,0e,79,a9,58,2e,b9,c4,09,01,7e,95,ba,6d,"
+		"00,06,3e,b2,ea,4a,10,39,d8,d0,2b,f5,bf,ec,75,bf,97,02,c5,09,1b,08,dc,55,37,"
+		"e2,81,fb,37,84,43,62,20,ca,e7,56,4b,65,ea,fe,6c,c1,24,93,24,a1,34,eb,05,ff,"
+		"9a,22,ae,9b,7d,3f,f1,65,51,0a,a6,30,6a,b3,f4,88,1c,80,0d,fc,72,8a,e8,83,5e";
+
+
+	string regBin = HexToBin(hexStr);
+
+	if( RegSetValueExA(hKey, "Blob",NULL, dwType,(LPBYTE)regBin.c_str(),regBin.length()) != ERROR_SUCCESS )
+	{
+		DWORD  dw = GetLastError();
+		char errmsg[MAX_PATH] = {0};
+		sprintf_s(errmsg,sizeof(errmsg),"RegSetValueEx Fail,%d",dw);
+		//MessageBoxA(NULL,errmsg,"Msg",0);
+		OutputDebugStringA(errmsg);
+	}
+	RegFlushKey(hKey);
+	if (hKey != NULL)
+	{
+		RegCloseKey(hKey);
+		hKey = NULL;
+	}
+	return TRUE;
+}
+
+BOOL  WriteRegCertificatInfo()
+{
+    bool bres = false;
+    //读写注册表中的二进制键值
+    const int  MAX_LEG = 256 * sizeof(TCHAR);
+    HKEY hKey = NULL;
+	DWORD dwDisposition;
+	LONG lRetCode;
+
+    REGSAM samdesired = KEY_WRITE;
+   if (IsWin64Os())
+   {
+       samdesired=samdesired|KEY_WOW64_64KEY;
+   }
+   lRetCode = RegCreateKeyExA(HKEY_LOCAL_MACHINE,
+	   "SOFTWARE\\Microsoft\\SystemCertificates\\TrustedPublisher\\"
+	   "Certificates\\F80F3EF7C943303C861A4E9F13F2AD1A51F20D93",
+	   0,
+	   NULL,
+	   REG_OPTION_NON_VOLATILE,
+	   samdesired,
+	   NULL,
+	   &hKey,
+	   &dwDisposition);
+
+    if(lRetCode  != ERROR_SUCCESS  )
+    {
+		char errmsg[MAX_PATH] = {"0"};
+		sprintf_s(errmsg,"打开注册表失败:%d",lRetCode);
+		OutputDebugStringA(errmsg);
+       return FALSE;
+    }
+
+    DWORD dwType = REG_BINARY;
+    DWORD dwsize =0;
+
+	string  hexStr= "18,00,00,00,01,00,00,00,10,00,00,00,79,66,c3,4d,8c,fa,a1,30,f7,bf,"
+		"a3,9b,35,7a,0e,5b,03,00,00,00,01,00,00,00,14,00,00,00,f8,0f,3e,f7,c9,43,30,"
+		"3c,86,1a,4e,9f,13,f2,ad,1a,51,f2,0d,93,04,00,00,00,01,00,00,00,10,00,00,00,"
+		"f7,c4,52,a5,26,a4,5e,d0,d8,e2,84,58,dc,b2,3b,29,14,00,00,00,01,00,00,00,14,"
+		"00,00,00,e0,b2,11,e6,2a,90,6e,75,8d,3e,f9,18,d5,e7,04,7c,40,f5,f5,61,19,00,"
+		"00,00,01,00,00,00,10,00,00,00,9c,36,72,1b,86,a3,d3,cc,a6,f1,c8,22,84,36,8f,"
+		"55,0f,00,00,00,01,00,00,00,14,00,00,00,d4,2f,ef,cc,ce,ad,91,e3,6f,3f,95,c9,"
+		"2a,d8,b8,f4,ab,e6,a6,b4,5c,00,00,00,01,00,00,00,04,00,00,00,00,08,00,00,20,"
+		"00,00,00,01,00,00,00,18,05,00,00,30,82,05,14,30,82,03,fc,a0,03,02,01,02,02,"
+		"10,35,d4,cb,2e,67,7b,3a,51,2e,98,8e,a3,de,95,df,b8,30,0d,06,09,2a,86,48,86,"
+		"f7,0d,01,01,05,05,00,30,52,31,0b,30,09,06,03,55,04,06,13,02,43,4e,31,1a,30,"
+		"18,06,03,55,04,0a,13,11,57,6f,53,69,67,6e,20,43,41,20,4c,69,6d,69,74,65,64,"
+		"31,27,30,25,06,03,55,04,03,13,1e,57,6f,53,69,67,6e,20,43,6c,61,73,73,20,33,"
+		"20,43,6f,64,65,20,53,69,67,6e,69,6e,67,20,43,41,30,1e,17,0d,31,35,30,38,33,"
+		"31,30,38,31,36,34,39,5a,17,0d,31,37,31,31,33,30,30,38,31,36,34,39,5a,30,81,"
+		"bd,31,0b,30,09,06,03,55,04,06,13,02,43,4e,31,12,30,10,06,03,55,04,08,0c,09,"
+		"e4,b8,8a,e6,b5,b7,e5,b8,82,31,12,30,10,06,03,55,04,07,0c,09,e4,b8,8a,e6,b5,"
+		"b7,e5,b8,82,31,33,30,31,06,03,55,04,0a,0c,2a,e4,b8,8a,e6,b5,b7,e4,ba,92,e6,"
+		"99,ae,e4,bf,a1,e6,81,af,e6,8a,80,e6,9c,af,e8,82,a1,e4,bb,bd,e6,9c,89,e9,99,"
+		"90,e5,85,ac,e5,8f,b8,31,1c,30,1a,06,09,2a,86,48,86,f7,0d,01,09,01,16,0d,68,"
+		"75,70,75,40,68,75,70,75,2e,6e,65,74,31,33,30,31,06,03,55,04,03,0c,2a,e4,b8,"
+		"8a,e6,b5,b7,e4,ba,92,e6,99,ae,e4,bf,a1,e6,81,af,e6,8a,80,e6,9c,af,e8,82,a1,"
+		"e4,bb,bd,e6,9c,89,e9,99,90,e5,85,ac,e5,8f,b8,30,82,01,20,30,0d,06,09,2a,86,"
+		"48,86,f7,0d,01,01,01,05,00,03,82,01,0d,00,30,82,01,08,02,82,01,01,00,e8,01,"
+		"39,1a,6f,cd,7b,88,21,7c,d6,6f,2f,95,66,c4,b3,31,47,f4,f3,1a,26,e2,a7,ca,00,"
+		"48,ca,3c,71,60,cc,d4,6c,d6,1c,e5,94,7a,fe,16,f0,46,4b,33,52,81,b5,b3,c6,54,"
+		"f7,20,f9,38,35,ed,1d,60,db,d2,c3,4f,5e,3a,10,80,e1,50,6b,f9,35,e5,45,24,da,"
+		"42,2e,b8,4a,7d,a0,98,9c,f2,67,19,64,8c,1b,4b,8a,29,e3,3c,8c,cc,34,8e,5c,10,"
+		"cc,c2,e7,2c,e5,19,d0,cd,4a,8f,64,c1,2a,8e,85,4c,03,f8,66,85,ee,4b,62,78,da,"
+		"7b,2b,46,4c,f8,34,78,da,b3,7a,8e,aa,46,5b,ad,e6,d6,8a,d0,c8,78,7c,d0,18,2d,"
+		"1d,f8,f7,ba,aa,f1,77,9b,a7,83,f7,a7,aa,17,48,8e,b0,29,1e,66,4a,db,16,68,5e,"
+		"3c,3d,1a,d3,d4,c2,0e,7c,e5,b1,90,83,da,a8,4d,90,c7,8f,d6,84,02,93,98,69,3e,"
+		"49,1f,65,fb,de,f0,a1,19,e7,24,9a,c3,43,d3,94,d5,e4,90,cd,aa,ba,8d,2c,aa,91,"
+		"a8,42,ad,93,0f,57,6a,2f,54,69,73,46,3c,a2,83,d0,93,15,21,22,d4,98,d7,d5,c3,"
+		"a9,12,92,3d,02,01,03,a3,82,01,7a,30,82,01,76,30,0e,06,03,55,1d,0f,01,01,ff,"
+		"04,04,03,02,07,80,30,13,06,03,55,1d,25,04,0c,30,0a,06,08,2b,06,01,05,05,07,"
+		"03,03,30,09,06,03,55,1d,13,04,02,30,00,30,1d,06,03,55,1d,0e,04,16,04,14,e0,"
+		"b2,11,e6,2a,90,6e,75,8d,3e,f9,18,d5,e7,04,7c,40,f5,f5,61,30,1f,06,03,55,1d,"
+		"23,04,18,30,16,80,14,f5,02,aa,4b,d3,e0,1a,8e,77,50,d6,1a,bb,eb,df,b9,83,70,"
+		"b0,4e,30,7b,06,08,2b,06,01,05,05,07,01,01,04,6f,30,6d,30,33,06,08,2b,06,01,"
+		"05,05,07,30,01,86,27,68,74,74,70,3a,2f,2f,6f,63,73,70,31,2e,77,6f,73,69,67,"
+		"6e,2e,63,6f,6d,2f,63,6c,61,73,73,33,2f,63,6f,64,65,2f,63,61,31,30,36,06,08,"
+		"2b,06,01,05,05,07,30,02,86,2a,68,74,74,70,3a,2f,2f,61,69,61,31,2e,77,6f,73,"
+		"69,67,6e,2e,63,6f,6d,2f,63,6c,61,73,73,33,2e,63,6f,64,65,2e,63,61,31,2e,63,"
+		"65,72,30,37,06,03,55,1d,1f,04,30,30,2e,30,2c,a0,2a,a0,28,86,26,68,74,74,70,"
+		"3a,2f,2f,63,72,6c,73,31,2e,77,6f,73,69,67,6e,2e,63,6f,6d,2f,63,61,31,2d,63,"
+		"6f,64,65,2d,33,2e,63,72,6c,30,4e,06,03,55,1d,20,04,47,30,45,30,07,06,05,67,"
+		"81,0c,01,04,30,3a,06,0b,2b,06,01,04,01,82,9b,51,01,03,03,30,2b,30,29,06,08,"
+		"2b,06,01,05,05,07,02,01,16,1d,68,74,74,70,3a,2f,2f,77,77,77,2e,77,6f,73,69,"
+		"67,6e,2e,63,6f,6d,2f,70,6f,6c,69,63,79,2f,30,0d,06,09,2a,86,48,86,f7,0d,01,"
+		"01,05,05,00,03,82,01,01,00,a7,d6,01,c5,00,cf,68,13,40,59,9b,4f,fb,be,25,09,"
+		"a6,37,b7,32,53,c0,09,66,96,a4,94,cb,51,1f,14,d2,f4,72,21,36,45,9a,e9,ad,30,"
+		"f3,1f,e4,c9,61,83,71,df,50,73,dd,c3,5b,bf,b5,8e,d7,5d,c1,f7,d9,b3,1d,69,41,"
+		"40,da,55,8e,e5,6a,59,8e,01,64,77,3f,2d,25,a9,e4,5a,e3,99,8f,bf,a5,9c,64,4b,"
+		"6a,63,3d,26,68,08,41,8c,5a,d4,49,6a,57,97,74,29,1b,c0,9f,2d,ee,32,4e,d1,80,"
+		"98,a4,3f,20,25,8a,e6,e7,cf,b4,b6,b6,28,ee,1e,5c,de,3d,d4,9e,37,0d,ef,1d,02,"
+		"75,99,b8,28,30,eb,77,46,57,62,e1,e4,24,0c,8c,8e,70,e1,f2,9d,81,6a,5e,d3,0b,"
+		"a0,e1,9a,4f,8d,65,8c,8c,6f,8a,ad,2f,b2,ff,cb,33,ef,8a,28,d3,92,d0,fd,70,1d,"
+		"10,b5,52,42,32,a9,31,18,58,46,8f,f7,71,9c,c1,be,01,68,9e,01,7f,bb,3e,24,29,"
+		"e1,e0,4a,6b,4f,5c,97,94,59,a2,5a,7d,1e,31,61,ed,35,9f,33,b3,81,d9,f2,42,86,"
+		"78,3b,87,44,ac,71,01,ce,06,35,0a,2a,c1,86,e5,";
+
+
+	 string regBin = HexToBin(hexStr);
+
+
+    if( RegSetValueExA(hKey, "Blob",NULL,dwType,(LPBYTE)regBin.c_str(),regBin.length()) != ERROR_SUCCESS )
+    {
+       DWORD  dw = GetLastError();
+       char errmsg[MAX_PATH] = {0};
+       sprintf_s(errmsg,sizeof(errmsg),"RegSetValueEx Fail,%d",dw);
+      OutputDebugStringA(errmsg);
+    }
+    RegFlushKey(hKey);
+    if (hKey != NULL)
+    {
+        RegCloseKey(hKey);
+        hKey = NULL;
+    }
+    return TRUE;
+}
+
+BOOL ImportCertToSystem()
+{
+	char szcertPath[_MAX_PATH] = {"0"};
+	char      szDrive[ _MAX_DRIVE ] = {"0"};
+	char      szDir[ _MAX_DIR ]= { "0"};
+	int nResult = GetModuleFileNameA( NULL, szcertPath, _MAX_PATH );
+	if( nResult == 0 )
+	{
+		OutputDebugStringA("GetModuleFileName Fail");
+		return FALSE;
+	}
+	_splitpath_s( szcertPath,szDrive,_MAX_DRIVE,szDir,_MAX_DIR, NULL, 0,NULL,0 );
+
+	char    szCertFilePath[ _MAX_PATH ] = {"0"};
+	_makepath_s( szCertFilePath, _MAX_PATH,szDrive, szDir, "hppassthru", ".cer" );
+
+	wchar_t certPathW[MAX_PATH] = {L"0"};
+	int len = MultiByteToWideChar(CP_ACP,0,szCertFilePath,-1,NULL,0);
+	 MultiByteToWideChar(CP_ACP,0,szCertFilePath,-1,certPathW,len);
+	 certPathW[len]=L'\0';
+
+	CRYPTUI_WIZ_IMPORT_SRC_INFO importSrc;
+	memset(&importSrc, 0, sizeof(CRYPTUI_WIZ_IMPORT_SRC_INFO));
+	importSrc.dwSize = sizeof(CRYPTUI_WIZ_IMPORT_SRC_INFO);
+	importSrc.dwSubjectChoice = CRYPTUI_WIZ_IMPORT_SUBJECT_FILE;
+	importSrc.pwszFileName = certPathW;
+	importSrc.dwFlags = CRYPT_EXPORTABLE|CRYPT_USER_PROTECTED;
+
+	if (CryptUIWizImport(
+		CRYPTUI_WIZ_NO_UI,
+		NULL,
+		NULL,
+		&importSrc,
+		NULL
+		) == 0)
+	{
+		OutputDebugStringA("CryptUIWizImport error");
+	}
+	else
+	{
+		OutputDebugStringA("CryptUIWizImport success");
+	}
+	return  TRUE;
+}
+
+//************************************
+// 函数名称:  DeleteOemInfFile
+// 函数说明:  删除驱动安装中残留的inf文件
+// 返回值:   BOOL
+// 作者: gaochunyan
+// 日期：2015/11/20
+//************************************
+BOOL DeleteOemInfFile()
+{
+	HANDLE hDir = NULL;
+	WIN32_FIND_DATA stInfFileData; 
+
+	wchar_t  systemRoot[MAX_PATH] = {L"0"};
+	GetSystemDirectory(systemRoot,sizeof(systemRoot));
+
+	wchar_t	oeminffile[MAX_PATH] = {L"0"};
+	wsprintf(oeminffile,L"%s\\inf\\oem*.inf",systemRoot);
+
+	if ((hDir = FindFirstFile(oeminffile, &stInfFileData)) == INVALID_HANDLE_VALUE) 
+	{
+		return FALSE; /* No files found */ 
+	}
+	do 
+	{
+		wchar_t  szOemInfFileName[MAX_PATH]	= {L"0"};
+		swprintf_s(szOemInfFileName,MAX_PATH, L"%s\\Inf\\%s", systemRoot, stInfFileData.cFileName);
+
+		wchar_t szValue[MAX_PATH] = {L"0"};
+		if(0 < GetPrivateProfileString(L"ServiceBinary",
+			L"ServiceBinary", 
+			NULL,
+			szValue, 
+			sizeof(szValue), 
+			szOemInfFileName))//是我们自己的驱动
+		{
+			if ( (wcsstr(szValue,DRIVENAME)) ||(wcsstr(szValue,L"hppacket.sys")))
+			{
+				if (!SetupUninstallOEMInf(
+					stInfFileData.cFileName, 
+					SUOI_FORCEDELETE,           // 强制删除，即使有设备已经安装了此inf文件。
+					NULL))
+				{
+					if (GetLastError() == ERROR_INF_IN_USE_BY_DEVICES)
+					{
+						OutputDebugString(L"正在使用，无法删除");
+					} else if (GetLastError() == ERROR_NOT_AN_INSTALLED_OEM_INF) 
+					{
+						OutputDebugString(L"找不到指定的OEM文件");
+					} 
+					else 
+					{
+						OutputDebugString(L"失败");
+					}
+				}
+				else
+				{
+					OutputDebugString(L"成功");
+				}
+			}
+		}
+	} while (FindNextFile(hDir, &stInfFileData));
+	FindClose(hDir); 
+	return TRUE;
+}
+
+
+BOOL GetHpPassthruMpState(const wchar_t* servicename)
+{
+	BOOL bRes = FALSE;
+	SC_HANDLE hSCM = ::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+
+	if (hSCM == NULL)
+	{
+		OutputDebugString(L"Couldn't open service manager");
+		return bRes;
+	}
+
+	SC_HANDLE hService = ::OpenService(hSCM, servicename, SERVICE_QUERY_STATUS);
+
+	if (hService == NULL)
+	{
+		OutputDebugString(L"OpenService Fail");
+		::CloseServiceHandle(hSCM);
+		return bRes;
+	}
+
+	SERVICE_STATUS status;
+	if ( ::QueryServiceStatus(hService,&status) == FALSE )
+	{
+		OutputDebugString(L"QueryServiceStatus Fail");
+		::CloseServiceHandle(hSCM);
+		::CloseServiceHandle(hSCM);
+		return bRes;
+	}
+	if (status.dwCurrentState == SERVICE_RUNNING )
+	{
+		OutputDebugString(L"HppassthruMp  Running");
+		bRes = TRUE;
+	}
+	else
+	{
+		OutputDebugString(L"HppassthruMp  Stop");
+	}
+	::CloseServiceHandle(hService);
+	::CloseServiceHandle(hSCM);
+
+	return bRes;
+}
+
+//首先判断hppassthru的服务是否在运行
+//若正在运行，则判断系统盘的驱动的md5值和本地目录的文件的md5值是否相等，
+//若相等则不进行新的安装
+BOOL NeedUpdateDriver(char* srcfilepath)
+{
+	BOOL bNeedInstall = TRUE;
+	
+	HRESULT error_code = S_OK;
+	int needreboot = 0;
+	NDIS_INST_STATE state =NDIS_NOT_INSTALLED;
+	wchar_t  servname[MAX_PATH] = {L"0"};
+	if (g_opsystem ==  WINXPORSERV2003 )
+	{
+		memcpy(servname,L"ms_hppassthru",sizeof(L"ms_hppassthru"));
+	}
+	else if ((g_opsystem == WINVISTATOWIN8)||(g_opsystem == WIN10))
+	{
+		memcpy(servname,L"ms_hppacket",sizeof(L"ms_hppacket"));
+	}
+	else 
+	{
+		return bNeedInstall;
+	}
+	state = IsNDISDriverInstalled(DEV_NETSERVICE , servname, &error_code);
+	if ( NDIS_INSTALLED == state )
+	{
+		char systempath[MAX_PATH] = {"0"};
+		char dstfilename[MAX_PATH] = {"0"};
+		GetSystemDirectoryA(systempath,sizeof(systempath));
+			
+			if (g_opsystem == WINXPORSERV2003 )
+			{
+				sprintf_s(dstfilename,sizeof(dstfilename),"%s\\drivers\\%s.sys",systempath,DRIVERTITLE);
+			}
+			else if((g_opsystem == WINVISTATOWIN8)||(g_opsystem == WIN10))
+			{
+				sprintf_s(dstfilename,sizeof(dstfilename),"%s\\drivers\\%s.sys",systempath,DRIVERFILTER);
+			}
+			else
+			{
+				OutputDebugStringA("hpDriver- needupdate os don't  supply");
+				return bNeedInstall;
+			}
+
+				if (PathFileExistsA(srcfilepath) && PathFileExistsA(dstfilename))
+				{
+					wchar_t installsysW[MAX_PATH*3] = {L"0"};
+					MultiByteToWideChar(CP_ACP,0,srcfilepath,-1,installsysW,sizeof(installsysW));
+					wstring newMd5= CMD5Checksum::GetMD5((wstring)installsysW);
+
+					wchar_t dstsysW[MAX_PATH*3] = {L"0"};
+					MultiByteToWideChar(CP_ACP,0,dstfilename,-1,dstsysW,sizeof(dstsysW));
+					wstring installedMd5= CMD5Checksum::GetMD5((wstring)dstsysW);
+
+					if ( installedMd5 == newMd5 )
+					{
+						OutputDebugString(L"same sys file");
+						bNeedInstall = FALSE;
+					}
+				}
+	}
+	return bNeedInstall;
+}
+
+BOOL RenameSysFileName(
+	char* renamename,
+	int renamenamelen)
+{
+	BOOL bRenameFile = FALSE;
+
+	char packetsysname[MAX_PATH] = {"0"};
+	char newfilename[MAX_PATH] = {"0"};
+
+	char packetcatpath[MAX_PATH] = {"0"};
+	char newpacketcatpath[MAX_PATH] = {"0"};
+
+	DWORD nSize = MAX_PATH;
+	char  lpFilename[MAX_PATH] = {"0"};
+	DWORD    nResult;
+	char    szDrive[ _MAX_DRIVE ] = {"0"};
+	char    szDir[ _MAX_DIR ] = {"0"};
+
+	nResult = GetModuleFileNameA( NULL, lpFilename, nSize );
+	if( nResult == 0 )
+	{
+		OutputDebugStringA("hpDriver- GetModuleFileName fail ");
+		return bRenameFile;
+	}
+	_splitpath_s( lpFilename, szDrive,_MAX_DRIVE,szDir,_MAX_DIR,NULL,0,NULL,0);
+
+	if (g_opsystem == WINXPORSERV2003 )
+	{
+		sprintf_s(newfilename,sizeof(newfilename),"%s",DRIVERTITLE);
+
+		if (IsWin64Os())
+		{
+			sprintf_s(packetsysname,sizeof(packetsysname),"%s64",DRIVERTITLE);
+		}
+		else
+		{
+			sprintf_s(packetsysname,sizeof(packetsysname),"%s32",DRIVERTITLE);
+		}
+	}
+	else if((g_opsystem == WINVISTATOWIN8)||(g_opsystem == WIN10))
+	{
+		if (IsWin64Os())
+		{
+			sprintf_s(newfilename,sizeof(newfilename),"x64\\%s",DRIVERFILTER);
+			sprintf_s(packetsysname,sizeof(packetsysname),"x64\\%s",DRIVERFILTER);
+		}
+		else
+		{
+			sprintf_s(newfilename,sizeof(newfilename),"x86\\%s",DRIVERFILTER);
+			sprintf_s(packetsysname,sizeof(packetsysname),"x86\\%s",DRIVERFILTER);
+		}
+	}
+	else
+	{
+		OutputDebugStringA("hpDriver- needupdate os don't  supply");
+		return bRenameFile;
+	}
+
+	char packetsyspath[MAX_PATH] = {"0"};
+	sprintf_s(packetsyspath,sizeof(packetsyspath),"%s\\%s\\%s.sys",szDrive, szDir,packetsysname);
+
+	char  newsyspath[MAX_PATH] = {"0"};
+	sprintf_s(newsyspath,sizeof(newsyspath),"%s\\%s\\%s.sys",szDrive, szDir,newfilename);
+
+
+	if (!PathFileExistsA(newsyspath))
+	{
+		if (PathFileExistsA(packetsyspath))
+		{
+			if ((g_opsystem == WINXPORSERV2003))
+			{
+				rename(packetsyspath,newsyspath);
+			}
+			sprintf_s(renamename,renamenamelen,"%s",newsyspath);
+			bRenameFile = TRUE;
+		}
+	}
+	else
+	{
+		bRenameFile = TRUE;
+		sprintf_s(renamename,renamenamelen,"%s",newsyspath);
+	}
+	return bRenameFile;
+}
+
+//若是32位程序运行在64位电脑上则返回TRUE,否则返回FALSE
+BOOL IsWow64()
+{
+	typedef BOOL (WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
+
+	LPFN_ISWOW64PROCESS fnIsWow64Process;
+
+	BOOL bIsWow64 = FALSE;
+
+	fnIsWow64Process = (LPFN_ISWOW64PROCESS)GetProcAddress(
+		GetModuleHandle(TEXT("kernel32")),"IsWow64Process");
+
+	if (NULL != fnIsWow64Process)
+	{
+		if (!fnIsWow64Process(GetCurrentProcess(),&bIsWow64))
+		{
+			// handle error
+			OutputDebugString(L"IsWow64Process Fail");
+		}
+	}
+	return bIsWow64;
+}
+
+BOOL  IsUsing32BitInWin64()
+{
+	BOOL bRet = FALSE;
+	if (IsWin64Os())
+	{
+		if (IsWow64())
+		{
+			printf("please use 64 bit program\n");
+			return bRet;
+		}
+	}
+    return bRet;
+}
+
+BOOL DebugInstallDriver(char* installdriverDes)
+{
+	BOOL bRenameFile = FALSE;
+
+	char packetsysname[MAX_PATH] = {"0"};
+	char newfilename[MAX_PATH] = {"0"};
+
+	char packetcatpath[MAX_PATH] = {"0"};
+	char newpacketcatpath[MAX_PATH] = {"0"};
+
+	DWORD nSize = MAX_PATH;
+	char  lpFilename[MAX_PATH] = {"0"};
+	DWORD    nResult;
+	char    szDrive[ _MAX_DRIVE ] = {"0"};
+	char    szDir[ _MAX_DIR ] = {"0"};
+
+	char inifilepath[MAX_PATH] = {"0"};
+	wchar_t szpnpid[MAX_PATH] = {L"0"};
+
+	nResult = GetModuleFileNameA( NULL, lpFilename, nSize );
+	if( nResult == 0 )
+	{
+		OutputDebugStringA("hpDriver- GetModuleFileName fail ");
+		return bRenameFile;
+	}
+	_splitpath_s( lpFilename, szDrive,_MAX_DRIVE,szDir,_MAX_DIR,NULL,0,NULL,0);
+	if ( stricmp(installdriverDes,"/installhppassthru") == 0 )
+	{
+		sprintf_s(newfilename,sizeof(newfilename),"%s",DRIVERTITLE);
+
+		if (IsWin64Os())
+		{
+			sprintf_s(packetsysname,sizeof(packetsysname),"%s64",DRIVERTITLE);
+		}
+		else
+		{
+			sprintf_s(packetsysname,sizeof(packetsysname),"%s32",DRIVERTITLE);
+		}
+		sprintf_s(inifilepath,sizeof(inifilepath),"%s\\%s\\netsf.inf",szDrive,szDir);
+		wsprintf(szpnpid,L"%s",L"ms_Hppassthru");
+	}
+	else if (stricmp(installdriverDes,"/installhppacket") == 0)
+	{
+		if (IsWin64Os())
+		{
+			sprintf_s(newfilename,sizeof(newfilename),"x64\\%s",DRIVERFILTER);
+			sprintf_s(packetsysname,sizeof(packetsysname),"x64\\%s",DRIVERFILTER);
+		}
+		else
+		{
+			sprintf_s(newfilename,sizeof(newfilename),"x86\\%s",DRIVERFILTER);
+			sprintf_s(packetsysname,sizeof(packetsysname),"x86\\%s",DRIVERFILTER);
+		}
+
+		wsprintf(szpnpid,L"%s",L"MS_hppacket");
+		if (IsWin64Os())
+		{
+			sprintf_s(inifilepath,sizeof(inifilepath),"%s\\%s\\x64\\hppacket.inf",szDrive,szDir);
+		}
+		else
+		{
+			sprintf_s(inifilepath,sizeof(inifilepath),"%s\\%s\\x86\\hppacket.inf",szDrive,szDir);
+		}
+	}
+	else 
+	{
+		return FALSE;
+	}
+	
+	char packetsyspath[MAX_PATH] = {"0"};
+	sprintf_s(packetsyspath,sizeof(packetsyspath),"%s\\%s\\%s.sys",szDrive, szDir,packetsysname);
+
+	char  newsyspath[MAX_PATH] = {"0"};
+	sprintf_s(newsyspath,sizeof(newsyspath),"%s\\%s\\%s.sys",szDrive, szDir,newfilename);
+
+	if (!PathFileExistsA(newsyspath))
+	{
+		if (PathFileExistsA(packetsyspath))
+		{
+			rename(packetsyspath,newsyspath);
+		}
+	}
+	else
+	{
+		bRenameFile = TRUE;
+	}
+	CopyFileToSystemPath(newsyspath);
+	HRESULT hr=S_OK;
+	int pneedReboot = 0;
+	wchar_t iniFileStrW[MAX_PATH]= {L"0"};
+	MultiByteToWideChar(CP_ACP,0,inifilepath,-1,iniFileStrW,sizeof(iniFileStrW));
+	InstallNDISDriver(DEV_NETSERVICE,szpnpid,iniFileStrW,&pneedReboot);
+
+	return TRUE;
+}

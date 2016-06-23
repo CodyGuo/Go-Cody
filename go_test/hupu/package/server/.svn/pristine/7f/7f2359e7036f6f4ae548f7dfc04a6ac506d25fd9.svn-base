@@ -1,0 +1,469 @@
+#include "StdAfx.h"
+#include "UsingIllegalInternet.h"
+#include "..\GlobalDate.h"
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+#include "SafeCheckFuntion.h"
+#include "TimeCalculation.h"
+
+
+#include "..\..\..\hpDriverIoctl\hpDriverIoctl\hpioctl.h"
+#pragma comment(lib,"hpDriverIoctl.lib")
+
+/*************************************************
+File Name: CUsingIllegalInternet
+Description:  违规外联检查
+          1)在认证流程执行阶段，使用服务器通知的时间戳进行查询当前是否开启了违规外联，
+		  若开启，则将该点的违规外联的执行结果回传给服务器
+          2)开启违规外联后，若违规外联，则实时将数据回传到服务器
+          3)违反违规外联的标准:除内网和d,e类ip地址，其他的为互联网地址，违规外联
+		   之后将数据存储在日志数据库中，安检时回传数据到服务器
+**************************************************/
+
+/*
+ 局域网ip:
+ A类：10.0.0.0--10.255.255.255 
+ B类：172.16.0.0--172.31.255.255 
+ C类：192.168.0.0--192.168.255.255 
+*/
+/*
+ D类:224.0.0.0-239.255.255.255
+ E类:240.0.0.0-254.255.255.255
+*/
+/*
+ A类中的0.0.0.0-0.255.255.255
+  127.0.0.0-127.255.255.255
+*/
+
+//下发到驱动的ip值:IPAddrArray[0]-IPAddrArray[1]是一个ip段
+//例如下发10.10.2.230的服务器ip和0.0.0.0-0.255.255.255的值到驱动
+//则表示为IPAddrArray[0]=10.10.2.230，IPAddrArray[1]=10.10.2.230,
+//IPAddrArray[2]=0.0.0.0,IPAddrArray[3]=0.255.255.255
+
+const char*  ipvalue[] = {
+	"0.0.0.0",
+	"0.255.255.255",
+	"10.0.0.0",
+	"10.255.255.255",
+	"172.16.0.0",
+	"172.31.255.255",
+	"192.168.0.0",
+	"192.168.255.255",
+	"224.0.0.0",
+	"254.255.255.255",
+};
+
+
+CUsingIllegalInternet::CUsingIllegalInternet(void):
+m_numcount(0),
+m_failcnt(0),
+m_illIntLastStat(0)
+{
+	memset(&m_illegalIntConf,0,sizeof(SAFECHECKSAMEATTRIBUTE));
+	GetLocalTime(&m_starttime);
+}
+
+
+CUsingIllegalInternet::~CUsingIllegalInternet(void)
+{
+
+}
+
+int CUsingIllegalInternet::GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday,bool execioctl)
+ {
+	 int ret = SQLITE_OK;
+    if (HP_openDB(dirpath) == HP_DB_OPENFAIL)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"打开数据库失败");
+        return HP_DB_OPENFAIL;
+    }
+    else
+    {
+        InitIllegalInternetData();
+
+        //获取WSUS配置数据
+        char sql[HP_C_SQLDATA]={0}; 
+        char sqlReal[HP_C_SQLDATA]={0};
+        char **pszResult='\0';
+        CHAR *szErrMsg='\0';
+        INT nRow = 0;
+        INT nCloumn = 0;	
+
+          sprintf_s(sql,HP_C_SQLDATA,"SELECT %s FROM tstgillegalinternet  a WHERE  (a.iuserid=\'%s\') AND (usertype=\'%s\') \
+        AND (dstartdate<=\'%s\') AND (denddate>=\'%s\') AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\") \
+        ORDER BY a.ipriority ASC ",HP_ATTRIBUTE_SQLNAME,userid,usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));	
+
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "查询违规外联SQL语句:", sql);
+        Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+
+		//EnterCriticalSection(&g_opdbcs);
+        if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+        {
+			//LeaveCriticalSection(&g_opdbcs);
+           WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "查询违规外联SQL语句失败:", szErrMsg);
+            sqlite3_free_table(pszResult);
+            ret = sqlite3_close(g_db);
+            g_db = NULL;
+            return HP_DB_GETTABLEFAIL;
+        }
+        if ((nRow > 0) && (nCloumn > 0))
+        {	
+            for (int i=0;i<1;i++)
+            {
+                for (int j=0; j < nCloumn; j++)
+                {
+                    GetdbColumndata(pszResult[j],pszResult[(i+1)*nCloumn+j],	&m_illegalIntConf);
+                }//for (int j=0; j < nCloumn; j++)
+            }//for (int i=0;i<nRow;i++)
+
+             m_numcount++;
+            if ( atoi(m_illegalIntConf.spolicyaction) == REFUSE )
+            {
+                 GetLocalTime(&m_starttime);
+				 if (execioctl)
+				 {
+					 if ( m_illIntLastStat != REFUSE )
+					 {
+						 StartIllegalInternet();
+						 //开启日志打印
+						 //SetStartWriteLog();
+
+						 m_illIntLastStat = REFUSE;
+					 }
+				 }
+				
+            }
+            else
+            {
+				if (execioctl)
+				{
+					if (  m_illIntLastStat != ALLOW )
+					{
+						//关闭日志打印
+						//SetStopWriteLog();
+						//关闭违规外联
+						UnSetIllegalnternet();
+						m_illIntLastStat = ALLOW;
+
+						if (PathFileExistsA(DRIVERPACKETLOG))
+						{
+							DeleteFileA(DRIVERPACKETLOG);
+						}
+
+					}
+				}
+				
+            }
+        }//if ((nRow > 0) && (nCloumn > 0))
+		else//在什么都不存在的情况下也需要关闭违规外联,针对原始配置禁止违规外联后来删除策略的情况
+		{
+			if (execioctl)
+			{
+				if (  m_illIntLastStat != ALLOW )
+				{
+					//关闭日志打印
+					//SetStopWriteLog();
+					//关闭违规外联
+					UnSetIllegalnternet();
+					m_illIntLastStat = ALLOW;
+					if (PathFileExistsA(DRIVERPACKETLOG))
+					{
+						DeleteFileA(DRIVERPACKETLOG);
+					}
+				}
+			}
+		}
+        sqlite3_free_table(pszResult);
+		//LeaveCriticalSection(&g_opdbcs);
+    }
+    return HP_SUCCESS;
+ }
+
+ string CUsingIllegalInternet::ExecIllegalInternetItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,bool bUploadSuccMsg,int  *IsSuccess)
+ {
+	 char tempheader[MAX_PATH]={"0"};
+	 sprintf_s(tempheader, MAX_PATH, "%s;%s;%d;%d;1;%d;%s;", servertime, g_deviceid.c_str(), totalitem, curritem, nextitem, mac);
+	 bool bIsSucces = true;
+	 string xmlstring="";
+	 //错误描述
+	 char errdescript[MAX_PATH*4] = {"0"};
+
+     if ( atoi(m_illegalIntConf.spolicyaction) == REFUSE )
+     {
+         if ( PathFileExistsA(DRIVERPACKETLOG))
+         {
+             if ( !ReadDriverPacketData(errdescript,sizeof(errdescript)) )
+             {
+                 bIsSucces = false;
+                 WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "查询到违规外联数据包");
+             }   
+         }
+         else
+         {
+             bIsSucces = true;
+         }
+     }
+     else
+     {
+          bIsSucces = true;
+     }
+	 if(bIsSucces)
+	 {
+		 if ( bUploadSuccMsg )
+		 {
+			 IsSuccess[ILLEGALINTERNET] = HP_SUCCESS;
+			 xmlstring =SendSingleItemSafeCheckSuccess(tempheader);
+		 }
+	 }
+	 else
+	 {
+		 IsSuccess[ILLEGALINTERNET] = HP_SF_SAFECHECKFAIL;
+		 string SendProcessItem = "<iman succflag =\"0\">";
+		 SendProcessItem += errdescript;
+		 string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+		 string  xmltail ="</nac>";
+		 SendProcessItem += "</iman>";
+		 xmlstring = tempheader+xmlHeader+SendProcessItem+xmltail;
+	 }
+
+	 WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, (char*)xmlstring.c_str());
+
+	 return xmlstring;
+ }
+
+int CUsingIllegalInternet::RestoreFailItem()
+{
+	return false;
+}
+
+void CUsingIllegalInternet::InitIllegalInternetData()
+{
+	memset(&m_illegalIntConf,0,sizeof(SAFECHECKSAMEATTRIBUTE));
+	m_numcount = 0;
+	m_failcnt = 0;
+
+	list<IP_ENTERVAL>::iterator  iter;
+	for (iter = m_ipintervallist.begin( ); iter != m_ipintervallist.end( );  )
+	{
+		m_ipintervallist.erase(iter++);
+	}
+
+}
+
+void CUsingIllegalInternet::GetdbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, SAFECHECKSAMEATTRIBUTE *dbrowdata)
+{
+    if( strcmp(dbcolumnname, "ipriority")==0 )
+    {			
+        memset(dbrowdata->ipriority, 0, sizeof(dbrowdata->ipriority));
+        Convert(dbcolumnvalue, dbrowdata->ipriority, sizeof(dbrowdata->ipriority),CP_UTF8, CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname, "spolicyaction")==0)
+    {			
+        memset(dbrowdata->spolicyaction,0,sizeof(dbrowdata->spolicyaction));
+        Convert(dbcolumnvalue,dbrowdata->spolicyaction,sizeof(dbrowdata->spolicyaction),CP_UTF8,CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname, "spromptinfo")==0)
+    {
+        memset(dbrowdata->spromptinfo,0,sizeof(dbrowdata->spromptinfo));
+        Convert(dbcolumnvalue,dbrowdata->spromptinfo,sizeof(dbrowdata->spromptinfo),CP_UTF8,CP_ACP);					
+    }
+    else  if(strcmp(dbcolumnname, "warningcont")==0)
+    {
+        memset(dbrowdata->warningcont,0,sizeof(dbrowdata->warningcont));
+        Convert(dbcolumnvalue,dbrowdata->warningcont,sizeof(dbrowdata->warningcont),CP_UTF8,CP_ACP);					
+    }	
+    else  if(strcmp(dbcolumnname,"warninglevel")==0)
+    {
+        memset(dbrowdata->warninglevel,0,sizeof(dbrowdata->warninglevel));
+        Convert(dbcolumnvalue,dbrowdata->warninglevel,sizeof(dbrowdata->warninglevel),CP_UTF8,CP_ACP);					
+    }	
+    else  if(strcmp(dbcolumnname,"srcevent")==0)
+    {
+        memset(dbrowdata->srcevent,0,sizeof(dbrowdata->srcevent));
+        Convert(dbcolumnvalue,dbrowdata->srcevent,sizeof(dbrowdata->srcevent),CP_UTF8,CP_ACP);					
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有该字段");
+    }
+}
+
+void CUsingIllegalInternet::StartIllegalInternet()
+{
+	WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "m_illIntLastStat == Refuse");
+
+    char seripstr[16] = {"0"};
+    ConvertW2A(g_ServerIp,seripstr,sizeof(seripstr));
+
+	IP_ENTERVAL serviceip;
+	memset(&serviceip,0,sizeof(IP_ENTERVAL));
+	serviceip.startip = ntohl(inet_addr(seripstr));
+	serviceip.endip= ntohl(inet_addr(seripstr));
+	m_ipintervallist.push_back(serviceip);
+
+	int count = sizeof(ipvalue)/sizeof(ipvalue[0]);
+	for (int i = 0;i<count-1;i=i+2)
+	{
+		IP_ENTERVAL ipinterval;
+		memset(&ipinterval,0,sizeof(IP_ENTERVAL));
+		ipinterval.startip =  ntohl(inet_addr(ipvalue[i]));
+		ipinterval.endip = ntohl(inet_addr(ipvalue[i+1]));
+		m_ipintervallist.push_back(ipinterval);
+	}
+	
+	const int ipvaluenum = 20;
+   ULONG sendip[ipvaluenum] = {0};
+   sendip[0] = ntohl(inet_addr(seripstr));
+   sendip[1] = ntohl(inet_addr(seripstr));
+   for (int i = 0;i<count-1;i++)
+   {
+	   sendip[i+2]= ntohl(inet_addr(ipvalue[i]));
+   }
+    SetIllegalnternet(sendip,count+2);
+}
+
+//查询到有违规外联的数据包则返回失败，否则返回成功
+BOOL CUsingIllegalInternet::ReadDriverPacketData(char* errdes,int errdeslen)
+{
+	BOOL bRes = TRUE;
+
+	SYSTEMTIME endtime;
+	GetLocalTime(&endtime);
+
+	string Packetbuffer;
+
+	// 打开文件句柄
+	HANDLE hFile = ::CreateFile(L"C:\\hppacketlog.txt", GENERIC_READ | FILE_SHARE_READ, 0, 
+		NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile == INVALID_HANDLE_VALUE)
+	{
+		return bRes;
+	}
+
+	// 获取文件大小
+	UINT64 uFileSize = 0;
+	::GetFileSizeEx(hFile, reinterpret_cast<PLARGE_INTEGER>(&uFileSize));
+	::CloseHandle(hFile);
+
+	//查询这段时间中是否有违规外联的数据，有的话返回给服务器进行记录
+	FILE  *iFile = NULL;
+	errno_t err;
+	if( (err  = fopen_s( &iFile, DRIVERPACKETLOG, "rb" )) ==0 )
+	{
+		if (iFile != NULL)
+		{
+			char *buffer = new char[static_cast<int>(uFileSize)+1];
+			memset(buffer ,0 ,static_cast<size_t>(uFileSize+1));
+			fseek(iFile , 0 , SEEK_SET);
+			fread_s(buffer,static_cast<size_t>(uFileSize),1,static_cast<size_t>(uFileSize),iFile);
+			buffer[uFileSize] = '\0';
+
+			string bufferstr = buffer;
+			int timestartpos = bufferstr.find(TIMESTR,0);
+			while ( timestartpos != string::npos )
+			{
+				int endpos = bufferstr.find("#",timestartpos);
+				string timestr = bufferstr.substr(timestartpos+TIMESTRLEN,endpos-timestartpos-TIMESTRLEN);
+			 	unsigned long packettime = ConvertSystemUserBlackSpaceToSecond(timestr);
+				if (packettime != 0 )
+				{
+					char starttimestr[20] = {"0"};
+					sprintf_s(starttimestr,sizeof(starttimestr),"%04d-%02d-%02d-%02d-%02d-%02d",
+						m_starttime.wYear,m_starttime.wMonth,m_starttime.wDay,m_starttime.wHour,m_starttime.wMinute,m_starttime.wSecond);
+					unsigned long sfcheckstarttime =  ConvertSystemUserBlackSpaceToSecond(string(starttimestr));
+					char endtimestr[20] = {"0"};
+					sprintf_s(endtimestr,sizeof(endtimestr),"%04d-%02d-%02d-%02d-%02d-%02d",
+						endtime.wYear,endtime.wMonth,endtime.wDay,endtime.wHour,endtime.wMinute,endtime.wSecond);
+					unsigned long sfcheckendtime =  ConvertSystemUserBlackSpaceToSecond(string(endtimestr));
+
+					BOOL  BcurrTime = (packettime>=sfcheckstarttime)&&(packettime<=sfcheckendtime);
+					if (BcurrTime)
+					{
+						int isrcipstart = bufferstr.find(SRCIPSTR,endpos+1);
+						int isrcipend = bufferstr.find("#",isrcipstart);
+						if (isrcipend != string::npos )
+						{
+							string srcipstr = bufferstr.substr(isrcipstart+SRCIPSTRLEN,isrcipend-isrcipstart-SRCIPSTRLEN);
+							int idstipstart = bufferstr.find(DSTIPSTR,isrcipend+1);
+							int idstipend= bufferstr.find("#",idstipstart);
+							if ( idstipend != string::npos )
+							{
+								string endipstr = bufferstr.substr(idstipstart+DSTIPSTRLEN,idstipend-idstipstart-DSTIPSTRLEN);
+								BOOL bInternet = compareipresult(srcipstr,endipstr);
+								if (bInternet)
+								{
+									bRes = FALSE;
+									sprintf_s(errdes,errdeslen,"<subitem checkItemId=\"0\" checkItemAction=\"d\" faildes=\"违规外联安检项失败，违规访问了ip段:源ip:%s,目的ip:%s\" name=\"违规外联\" swarnname=\"%s\"  iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",
+										REFUSE,srcipstr.c_str(),endipstr.c_str(),m_illegalIntConf.warningcont,m_illegalIntConf.warninglevel,m_illegalIntConf.srcevent);
+									break;
+								}
+							}
+						}
+					}
+				}
+				else
+				{
+				  WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"获取数据包时间错误");
+				}
+				timestartpos = bufferstr.find(TIMESTR,endpos+1);
+			}
+
+			if (buffer != NULL )
+			{
+				delete[]  buffer;
+				buffer = NULL;
+			}
+		}
+	}
+	if ( iFile != NULL )
+	{
+		fclose(iFile);
+		iFile = NULL;
+	}
+	return bRes;
+}
+
+//判断是否是互联网ip，若是则返回true,不是则返回失败
+BOOL CUsingIllegalInternet::compareipresult(string srcip,string dstip)
+{
+    BOOL bRes = TRUE;
+    ULONG packetsrcip= ntohl(inet_addr(srcip.c_str()));
+    ULONG packetdstip = ntohl(inet_addr(dstip.c_str()));
+
+	list<IP_ENTERVAL>::iterator  ipiter;
+	for ( ipiter=m_ipintervallist.begin();ipiter != m_ipintervallist.end();++ipiter )
+	{
+		 IP_ENTERVAL ipinterval = *ipiter;
+		 if ( ((ipinterval.startip <= packetsrcip)&&(ipinterval.endip>=packetsrcip)) &&  //开始ip在局域网范围中
+			 ((ipinterval.startip <= packetdstip)&&(ipinterval.endip>= packetdstip)) ) //结束ip在局域网范围中
+		 {
+			 bRes = FALSE;
+			 char msginfo[MAX_PATH] = {"0"};
+			 sprintf_s(msginfo,sizeof(msginfo),"源ip%s和目的ip%s属于局域网ip段%d-%d",
+				 srcip.c_str(),dstip.c_str(),ipinterval.startip,ipinterval.endip);
+			 WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,msginfo);
+			  break;
+		 }
+	}
+    return bRes;
+}
+
+void CUsingIllegalInternet::StopIllegalInternet()
+{
+	if (  m_illIntLastStat != ALLOW )
+	{
+		//关闭日志打印
+		SetStopWriteLog();
+		//关闭违规外联
+		UnSetIllegalnternet();
+		m_illIntLastStat = ALLOW;
+		if (PathFileExistsA(DRIVERPACKETLOG))
+		{
+			DeleteFileA(DRIVERPACKETLOG);
+		}
+	}
+	else
+	{
+		//WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "illegal internet alread allow");
+	}
+}

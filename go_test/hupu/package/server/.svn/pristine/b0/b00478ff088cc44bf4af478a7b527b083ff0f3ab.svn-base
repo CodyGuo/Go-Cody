@@ -1,0 +1,38 @@
+
+#ifndef _NDIS_DRIVER_INST_H_INCLUDED
+#define _NDIS_DRIVER_INST_H_INCLUDED
+
+    enum NDIS_INST_STATE
+    {
+        NDIS_INSTALLED,
+        NDIS_NOT_INSTALLED,
+        NDIS_QUERY_ERROR,
+    };
+
+    //驱动类型
+    enum NDIS_DEV_CLASS
+    {
+        DEV_NETCLIENT,          //客户端
+        DEV_NETSERVICE,         //服务
+        DEV_NETTRANS,           //协议
+    };
+
+
+    /************************************************************************
+    param:          DevCls                              驱动类型
+    param:          szComponentId                       组件ID，INF文件中指定的名称
+    param:          pResult                             错误码。错误码的使用见示例
+    ************************************************************************/
+     NDIS_INST_STATE __stdcall IsNDISDriverInstalled(const NDIS_DEV_CLASS DevCls, const wchar_t *szComponentId, HRESULT *pResult);
+
+    /************************************************************************
+    param:          DevCls                    驱动类型
+    param:          szInfFile                           用于安装驱动的INF文件路径
+    param:          szComponentId                       参见IsNDISDriverInstalled
+    param:          pNeedReboot                         函数成功返回后，若此值为非0，则表示需要重启，否则不需重启
+    ************************************************************************/
+     HRESULT __stdcall InstallNDISDriver(const NDIS_DEV_CLASS DevCls,const wchar_t *szComponentId, const wchar_t *szInfFile, int *pNeedReboot);
+     HRESULT __stdcall UninstallNDISDriver(const wchar_t *szComponentId, int *pNeedReboot);
+
+
+#endif

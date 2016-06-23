@@ -1,0 +1,29 @@
+#pragma once
+class ScreenSave
+{
+public:
+	ScreenSave(void);
+	~ScreenSave(void);
+public:
+
+	int GetScreenSaverIsPwd();
+	///////////执行函数
+	bool GetScreenSaverActive( );                 // —— 判断屏幕保护程序是否开启，如果开启则返回true否则返回false 
+
+	void StartScreenSaver(int secondtimeout,int userpwd);
+	void CloseScreenSaver();
+
+    //bDeleteKey表示是否删除键值，false为创建键值，true为删除键值
+	int _SetCurrentUserReg( LPCTSTR lpszPath,  LPCTSTR lpszKey, LPCTSTR lpszValue,bool bDeleteKey = false );
+	int _GetCurrentUserReg( LPCTSTR lpszPath,  LPTSTR lpszKey, LPTSTR lpszValue );
+
+    ///////////屏保函数
+    int GetScreenSaverTimeout( );                 // —— 返回当前屏幕保护程序等待时间设置，以秒位单位 
+
+private:
+	//BOOL LaunchAppIntoDifferentSession();
+
+	BOOL GetSCRFile(_TCHAR  *scrpath);
+	int  m_verplatform;
+};
+

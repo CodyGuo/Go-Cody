@@ -1,0 +1,25 @@
+#pragma once
+
+#include "DuilibConfig.h"
+
+
+class CDuiRect : public tagRECT
+{
+public:
+	CDuiRect();
+	CDuiRect(const RECT& src);
+	CDuiRect(int iLeft, int iTop, int iRight, int iBottom);
+
+	int GetWidth() const;
+	int GetHeight() const;
+	void Empty();
+	bool IsNull() const;
+	void Join(const RECT& rc);
+	void ResetOffset();
+	void Normalize();
+	void Offset(int cx, int cy);
+	void Inflate(int cx, int cy);
+	void Deflate(int cx, int cy);
+	void Union(CDuiRect& rc);
+};
+

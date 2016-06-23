@@ -1,0 +1,282 @@
+#include "StdAfx.h"
+#include "NLANetwork.h"
+
+#include "..\DebugInfo.h"
+
+
+//initialize callback parameters
+void *ptrNotificationContext = NULL;
+APCNotificationCallback notificationCallBack = NULL;
+
+//Initialize staic member variable
+CNLANetwork * CNLANetwork::m_ptrNetowrkAvailabilityCheck = new CNLANetwork();
+
+//APC notification callback
+void CALLBACK NotifyAPC(DWORD dwError, DWORD cbTransferred, LPWSAOVERLAPPED lpOverlapped, DWORD dwFlags);
+
+//Constructor
+CNLANetwork::CNLANetwork():m_bStop(false),m_bInitialized(false)
+{
+
+}
+
+//Destructor
+CNLANetwork::~CNLANetwork()
+{
+	CleanUpNLA();
+}
+
+void CNLANetwork::RegisterAPCNotification(APCNotificationCallback callback, void *notificationContext)
+{
+	notificationCallBack = callback;
+	ptrNotificationContext = notificationContext;
+}
+
+//get the NetworkAvailability instance
+CNLANetwork* CNLANetwork::GetNetworkAvailability()
+{
+	return m_ptrNetowrkAvailabilityCheck;
+}
+
+
+//Initializatin of NLA class
+bool CNLANetwork::InitializeNLA()
+{
+	WSAData wsaData;
+	WORD wVersionRequested = MAKEWORD(2,2);
+	if(0 != WSAStartup(wVersionRequested, &wsaData))
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"Cannot Initialize socket library");
+		return false;
+	}
+
+	//Create event
+	m_hStopLookingForConnection = WSACreateEvent();
+	if(WSA_INVALID_EVENT == m_hStopLookingForConnection)
+	{
+		int iError = WSAGetLastError();
+		char msg[MAX_PATH] = {"0"};
+		sprintf_s(msg,"m_hStopLookingForConnection Fail=%d",iError);
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,msg);
+		return false;
+	}
+
+	//Reset event
+	WSAResetEvent(m_hStopLookingForConnection);
+	m_bInitialized = true;
+
+	return true;
+}
+
+//CleanUp of NLA class
+bool CNLANetwork::CleanUpNLA()
+{
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CleanUpNLA");
+
+	CloseHandle(m_hStopLookingForConnection);
+	if(0 == WSACleanup())
+	{
+		return true;
+	}
+
+	return false;
+}
+
+//Stops looking for connection change
+void CNLANetwork::StopLookForConnectionChange()
+{
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"StopLookForConnectionChange");
+
+	m_bStop = true;
+	WSASetEvent(m_hStopLookingForConnection);
+	WSASetEvent(m_hWsaEvent);
+}
+
+//Starts new thread for connection change
+DWORD CNLANetwork::StartNewConnectionThreadProc(void *ptrParams)
+{
+	CNLANetwork *ptrMySelf = static_cast<CNLANetwork*>(ptrParams);
+	DWORD dwResult=0;
+	bool bResult = true;
+	if(ptrMySelf)
+	{
+		//We need to set this flag true if stop has changed it to false
+		ptrMySelf->SetStopFlag(false);
+		while(bResult)
+		{
+			bResult = ptrMySelf->StartLookingForConnectionChange(ptrMySelf->GetNotificationType());
+		}
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"ptrMySelf=NULL");
+	}
+
+	return dwResult;
+}
+
+void CNLANetwork::SetStopFlag(bool bStop)
+{
+	m_bStop = bStop;
+}
+
+bool CNLANetwork::StartLookingForConnectionChange(ENotification notification)
+{
+	if(m_bStop)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"StartLookingForConnectionChange");
+		return false;
+	}
+
+	//Check for NLA Initialization
+	if(!m_bInitialized)
+	{
+		if(!InitializeNLA())
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"Couldn't initialize NLA");
+			return false;
+		}
+	}
+
+	//set qeryset
+	WSAQUERYSET *ptrWsaQuerySet = new WSAQUERYSET;//(WSAQUERYSET *)malloc(sizeof(WSAQUERYSET));
+	memset(ptrWsaQuerySet, 0, sizeof(WSAQUERYSET));
+	ptrWsaQuerySet->dwSize = sizeof(WSAQUERYSET);
+	ptrWsaQuerySet->dwNameSpace = NS_ALL;
+
+
+	//initiate client query and gets look up handle
+	HANDLE hLookupHandle;
+	DWORD dwControlFlags = LUP_RETURN_ALL;/*LUP_RETURN_ALL|LUP_DEEP;*/
+
+	if(0 != WSALookupServiceBegin(ptrWsaQuerySet,dwControlFlags, &hLookupHandle))
+	{
+		int iError = WSAGetLastError();
+		char errmsg[MAX_PATH] = {"0"};
+		sprintf_s(errmsg,sizeof(errmsg),"Failed to get handle from WSALookupServiceBegin,Getlasterror=%d",iError);
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"Failed to get handle from WSALookupServiceBegin",errmsg);
+		return false;
+	}
+
+	if(m_bStop)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"m_bStop");
+		return false;
+	}
+
+	//Create WSAEvent object for WSAOVERLAPPED
+	m_hWsaEvent = WSACreateEvent();
+	if(WSA_INVALID_EVENT == m_hWsaEvent)
+	{
+		int iError = WSAGetLastError();	//couldn't get evnet handle
+		char errmsg[MAX_PATH] = {"0"};
+		sprintf_s(errmsg,"WSA_INVALID_EVENT == m_hWsaEvent,GetLasterr=%d",iError);
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,errmsg);
+		return false;
+	}
+
+	//Completion structure
+	WSAOVERLAPPED *ptrWSAOverlapped = new WSAOVERLAPPED;
+
+	WSACOMPLETION *ptrWSACompletion = new WSACOMPLETION;
+	if(EventNotification == notification)
+	{
+		//Create WSAOverlepped structure for WSACompletion
+		ptrWSAOverlapped->hEvent = m_hWsaEvent;
+
+		//Event : fill up WSACompletion structure
+		ptrWSACompletion->Type = NSP_NOTIFY_EVENT;
+		ptrWSACompletion->Parameters.Event.lpOverlapped = ptrWSAOverlapped;
+	}
+	else if(APCNotification == notification)
+	{
+		//Create WSAOverLapped structure for WSACmpletion
+		ptrWSAOverlapped->hEvent = m_hWsaEvent;
+
+		//APC : Fill up the structure 
+		ptrWSACompletion->Type = NSP_NOTIFY_APC;
+		ptrWSACompletion->Parameters.Apc.lpOverlapped = ptrWSAOverlapped;
+		ptrWSACompletion->Parameters.Apc.lpfnCompletionProc = /*(LPWSAOVERLAPPED_COMPLETION_ROUTINE)*/ NotifyAPC;
+	}
+
+	if(m_bStop)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"m_bStop");
+		return false;
+	}
+
+	//set a callback that can be called once we get new network connection
+	DWORD dwBytesReturned=0;
+	if(SOCKET_ERROR == WSANSPIoctl(hLookupHandle, SIO_NSP_NOTIFY_CHANGE, NULL, 0, NULL, 0, &dwBytesReturned, ptrWSACompletion))
+	{
+		int iError = WSAGetLastError();
+		if (WSA_IO_PENDING != iError)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"WSA_IO_PENDING != iError");
+			return false;
+		}
+	}
+
+	//Wait for connection changes
+	if (WAIT_IO_COMPLETION == WaitForSingleObjectEx(m_hWsaEvent, WSA_INFINITE, true))
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"IO Complete");
+	}
+
+	WSAResetEvent(m_hWsaEvent);
+
+	//Free allocate resources
+	delete ptrWSAOverlapped;
+	delete ptrWSACompletion;
+	delete ptrWsaQuerySet;
+
+	if(m_bStop)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"m_bStop");
+		return false;
+	}
+
+	return true;
+}
+
+void CNLANetwork::SetNotificationType(ENotification notification)
+{
+	m_eNotification = notification;
+}
+
+ENotification CNLANetwork::GetNotificationType()
+{
+	return m_eNotification;
+}
+
+//Listen for the new network connection
+bool CNLANetwork::LookForConnectionChange(bool bIsBlocking/*=true*/)
+{
+	if(bIsBlocking)
+	{
+		DWORD dwThreadId;
+		HANDLE hConnection = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)StartNewConnectionThreadProc, (LPVOID)this, 0, &dwThreadId);
+	}
+	else
+	{
+		//call this function directly if call is blocking 
+		StartLookingForConnectionChange(m_eNotification);
+	}
+
+	return true;
+}
+
+//APC Notification callback
+void CALLBACK NotifyAPC(DWORD dwError, DWORD cbTransferred, LPWSAOVERLAPPED lpOverlapped, DWORD dwFlags)
+{
+	UNREFERENCED_PARAMETER(dwError);
+	UNREFERENCED_PARAMETER(cbTransferred);
+	UNREFERENCED_PARAMETER(dwFlags);
+
+	//call registerd callback with supplied arguments
+	if (notificationCallBack)
+	{
+		notificationCallBack(ptrNotificationContext);
+	}
+	WSASetEvent(lpOverlapped->hEvent);
+}

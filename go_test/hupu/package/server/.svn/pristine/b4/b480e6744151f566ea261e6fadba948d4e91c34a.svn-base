@@ -1,0 +1,357 @@
+#include "StdAfx.h"
+#include "GetLangValue.h"
+#include "GlobalFunction.h"
+
+const char *SFDOMAINKEYSTR[]={
+	"SF_SFDOMAIN_NAME",
+	"SF_SFDOMAIN_WHITEUSER",
+	"SF_SFDOMAIN_INDOMAINBLACKUSER",
+	"SF_SFDOMAIN_NOTDOMAINBLACKUSER",
+	"SF_SFDOMAIN_INREFUSEDOMAIN",
+	"SF_SFDOMAIN_NOTDOMAINNEEDDOMAIN",
+	"SF_SFDOMAIN_INDOMAINNEEDDOMAIN",
+	"SF_SFDOMAIN_INREFUSEDOMAINNEEDDOMAIN",
+	"SF_SFDOMAIN_INDOMAINNOTDOMAINUSER",
+	"SF_SFDOMAIN_IDENTIFYTIPTITLE",
+	"SF_SFDOMAIN_IDENTIFYTIPAPPENDINFP",
+	"SF_SFDOMAIN_IDENTIFYTIPAPPENDHOUR",
+	"SF_SFDOMAIN_IDENTIFYBLACKUSER",
+	"SF_SFDOMAIN_IDENTIFYWHITEUSER",
+	"SF_SFDOMAIN_IDENTIFYSUCCESS",
+	"SF_SFDOMAIN_IDENTIFYFAIL",
+	"SF_SFDOMAIN_IDENTIFYDELAYOFFLINE",
+	"SF_SFDOMAIN_IDENTIFYDELAYOFFLINEBLACKUSER",
+};
+
+const char *SOCKTIPKEYSTR[]={
+	"SOCK_TIP_TITLE",
+	"SOCK_TIP_DEFAULTTIP",
+	"SOCK_TIP_CONNECTSERV",
+	"SOCK_TIP_UPDATE",
+	"SOCK_TIP_LOGONSUCC",
+	"SOCK_TIP_DEVICETOSERV",
+	"SOCK_TIP_SERVUSER",
+	"SOCK_TIP_FORCETOOFFLINE",
+	"SOCK_TIP_LOGOFF",
+	"SOCK_TIP_LOGON",
+	"SOCK_TIP_LOGOFFISOLATION",
+	"SOCK_TIP_LOGONISOLATION",
+	"SOCK_TIP_KEYISOLATION",
+	"SOCK_TIP_ASCESCAPEORDISABLE",
+	"SOCK_TIP_ASCLOGOFF",
+	"SOCK_TIP_SFCHECKONLINE",
+	"SOCK_TIP_SFCHECKOFFLINE",
+	"SOCK_TIP_UNINSTALL",
+	"SOCK_TIP_RESTART",
+	"SOCK_TIP_NATIGNORE",
+	"SOCK_TIP_NATFORBIT",
+	"SOCK_TIP_SWITCHTEC",
+	"SOCK_TIP_DISCONONLINE",
+	"SOCK_TIP_NETWORKCHANGE",
+	"SOCK_TIP_SWITCHUSER",
+	"SOCK_TIP_SWITCHLANG",
+	"SOCK_TIP_AUTOREDISTER",
+	"SOCK_TIP_PWDEXPIRED",
+};
+
+const char *pSfCustomKeyStr[]=
+{
+	"SF_CHECK_SUCESS_ILLEGAL",
+	"SF_FILE_EXIST",
+	"SF_FILE_NOT_EXIST",
+	"SF_FILESIZE_NOT_EXIST",
+	"SF_FILESIZE_MORE",
+	"SF_FILESIZE_LESS",
+	"SF_FILESIZE_NO_EQUAL",
+	"SF_FILESIZE_EQUAL",
+	"SF_FILEMD5_NOT_EXIST",
+	"SF_FILEMD5_EQUAL",
+	"SF_FILEMD5_NO_EQUAL",
+	"SF_FILE_VERSION_NOT_EXIST",
+	"SF_FILE_VERSION_GET_FALSE",
+	"SF_FILE_VERSION_MORE",
+	"SF_FILE_VERSION_LESS",
+	"SF_FILE_VERSION_NO_EQUAL",
+	"SF_FILE_VERSION_EQUAL",
+
+	"SF_REG_EXIST",
+	"SF_REG_NOT_EXIST",
+	"SF_REGVALUE_EXIST",
+	"SF_REGVALUE_NOT_EXIST",
+	"SF_REGVALUEEQUAL_NOT_EXIST",
+	"SF_REGVALUEEQUAL_MORE",
+	"SF_REGVALUEEQUAL_LESS",
+	"SF_REGVALUEEQUAL_EQUAL",
+	"SF_REGVALUEEQUAL_NO_EQUAL",
+	"SF_REGVALUEEQUAL_INCLUDE",
+	"SF_REGVALUEEQUAL_NO_INCLUDE",
+
+	"SF_PROC_EXIST",
+	"SF_PROC_NOT_EXIST",
+	"SF_PROC_NOT_INCLUD",
+	"SF_PROC_INCLUD",
+	"SF_PORT_EXIST",
+	"SF_PORT_NOT_EXIST",
+	"SF_PORT_OR_EXIST",
+	"SF_PORT_OR_NOT_EXIST",
+	"SF_PORT_AND_EXIST",
+	"SF_PORT_AND_NOT_EXIST",
+
+	"SF_SERVICE_EXIST",
+	"SF_SERVICE_NOT_EXIST",
+	"SF_SERVICE_RUN",
+	"SF_SERVICE_NOT_RUN",
+
+	"SF_PROC_RETURN_SET_FALSE",
+	"SF_PROC_RETURN_GET_FALSE",
+	"SF_PROC_RETURN_CMP_FALSE",
+	"SF_PROC_RETURN_CMP_TRUE",
+	"SF_PROC_OUTPUT_INCLUD",
+	"SF_PROC_OUTPUT_NOT_INCLUD",
+};
+
+const char *pSfDeskWallKeyStr[]=
+{
+	"SF_DESKWALL_NAME",
+	"SF_WALL_PAPER_FALSE",
+	"SF_DESK_STYLE_FALSE",
+	"SF_DESKWALL_STYLE_FALSE",
+};
+
+const char *pSfIEExtensionKeyStr[]=
+{
+	"SF_IEEXTENSION_NAME",
+	"SF_IEEXTENSION_MUSTINSTALL",
+	"SF_IEEXTENSION_NEEDUNINSTALL",
+	"SF_IEEXTENSION_NEEDENABLE",
+};
+
+const char *pSfPwdPolicyKeyStr[]=
+{
+	"SF_PWDPOLICY_NAME",
+	"SF_PWDCOMPLEXITY_FALSE",
+	"SF_PWDMINLEN_FALSE",
+	"SF_PWDMAXAGE_FALSE",
+	"SF_PWDPOLICY_FALSE",
+};
+
+const char *pSfJunkFileKeyStr[]=
+{
+	"SF_JUNKFILES_NAME",
+	"SF_JUNKFILES_RECYCLEBIN_TEMP_FALSE",
+	"SF_JUNKFILES_RECYCLEBIN_FALSE",
+	"SF_JUNKFILES_TEMP_FALSE",
+};
+
+CGetLangValue::CGetLangValue(void)
+{
+
+}
+
+
+CGetLangValue::~CGetLangValue(void)
+{
+
+}
+
+//************************************
+// 函数名称:  GetLangByKey
+// 函数说明:  
+// 返回值:   const char
+// 参数: lang:语言类型
+//           appname:键值
+//          keyname:key值
+//         defaultvalue:默认值
+//         valueA:获取的结果
+//         valuesize:字符串的大小
+// 作者: gcy
+// 日期：2016/01/07
+//************************************
+void GetLangValueByKeyA(LANGUAGETYPE lang,const char* appname,const char* keyname,const char* defaultvalue,char* valueA,int valuesize)
+{
+	char langfilename[HP_C_USERCONTENTLEN] = {"0"};
+	ConvertW2A(LANGUAGECONFIG[lang],langfilename,sizeof(langfilename));
+	char langinipath[MAX_PATH] = {"0"};
+    sprintf_s(langinipath,sizeof(langinipath),"%s\\lang\\%s.ini",g_nacdirpath,langfilename);
+	GetPrivateProfileStringA(appname,keyname,defaultvalue,valueA,valuesize,langinipath);
+}
+
+void GetLangValueByKeyW(LANGUAGETYPE lang,const char* appname,const char* keyname,const char* defaultvalue,wchar_t* valueW,int valuesize)
+{
+	int valuestrlen = valuesize/2;
+	char *valueA = new char[valuestrlen];
+	memset(valueA,0,valuestrlen);
+	GetLangValueByKeyA(lang,appname,keyname,defaultvalue,valueA,valuestrlen);
+	ConvertA2W(valueA,valueW,valuesize);
+	if (valueA)
+	{
+		delete[] valueA;
+		valueA = NULL;
+	}
+}
+
+string GetLangKeyValue(LANGUAGETYPE ltLang, const char* szAppName, const char* szKeyName, const char* szDefaultValue)
+{
+	wchar_t cszMsg[MAX_BUF_LEN] = {0};
+	wstring wstrAppName = L"";
+	wstring wstrKeyName = L"";
+	wstring wstrDefaultValue = L"";
+	wstring wstrLangIniPath = L"";
+	string strRet = "";
+
+	if (szAppName && strlen(szAppName) >= 1)
+	{
+		wstrAppName = AnsiToWChar(szAppName);
+	}
+	if (szKeyName && strlen(szKeyName) >= 1)
+	{
+		wstrKeyName = AnsiToWChar(szKeyName);
+	}
+	if (szDefaultValue && strlen(szDefaultValue) >= 1)
+	{
+		wstrDefaultValue = AnsiToWChar(szDefaultValue);
+	}
+	wstrLangIniPath = AnsiToWChar(g_nacdirpath);
+	wstrLangIniPath += L"\\lang\\";
+	wstrLangIniPath += LANGUAGECONFIG[ltLang];
+	wstrLangIniPath += L".ini";
+
+	GetPrivateProfileString(wstrAppName.c_str(), wstrKeyName.c_str(), wstrDefaultValue.c_str(), cszMsg, MAX_BUF_LEN, wstrLangIniPath.c_str());
+	strRet = WCharToAnsi(cszMsg);
+
+	return strRet;
+}
+
+//************************************
+// 函数名称:  GetLangByKey
+// 函数说明:  
+// 返回值:   const char
+// 参数: lang:语言类型
+//           appname:键值
+//          keyname:key值
+//         defaultvalue:默认值
+//         strsize:估计的字符串的大小值
+//         paramnum:参数个数
+//         valuevecA:根据#的分隔符得到的字符串容器
+// 作者: gcy
+// 日期：2016/01/07
+//************************************
+BOOL GetLangVectorByKeyA(LANGUAGETYPE lang,const char* appname,const char* keyname,const char* defaultvalue,int strsize,unsigned int paramnum,vector<string>* valuevecA)
+{
+	UNREFERENCED_PARAMETER(strsize);
+
+	BOOL bRet = FALSE;
+	string strIniStrValue = GetLangKeyValue(lang, appname, keyname, defaultvalue);
+
+	if (strcmp((char*)strIniStrValue.c_str(),defaultvalue) == 0 )
+	{
+		bRet = FALSE;
+	}
+	else
+	{
+		*valuevecA=split(strIniStrValue, "#");
+		if ((*valuevecA).size() == paramnum)
+		{
+			bRet = TRUE;
+		}
+	}
+
+	return bRet;
+}
+
+BOOL GetLangVectorByKeyW(LANGUAGETYPE lang,const char* appname,const char* keyname,const char* defaultvalue,int strsize,unsigned int paramnum,vector<wstring>* valuevecW)
+{
+	BOOL bRet = FALSE;
+	char *valueA = new char[strsize];
+	memset(valueA,0,strsize);
+	GetLangValueByKeyA(lang,appname,keyname,defaultvalue,valueA,strsize);
+	string inistrvalue = valueA;
+	if (strcmp((char*)inistrvalue.c_str(),defaultvalue) == 0 )
+	{
+		bRet = FALSE;
+	}
+	else
+	{
+		  wchar_t  *valueW = new wchar_t[strsize*2];
+		  memset(valueW,0,(strsize*2)*sizeof(wchar_t));
+		  ConvertA2W(valueA,valueW,strsize*2);
+		  wstring valueWstr = valueW;
+		*valuevecW=splitwstr(valueWstr,L"#");
+		if ((*valuevecW).size() ==paramnum)
+		{
+			bRet = TRUE;
+		}
+		if (valueW)
+		{
+			delete[] valueW;
+			valueW = NULL;
+		}
+	}
+	if (valueA)
+	{
+		delete[] valueA;
+		valueA = NULL;
+	}
+	return bRet;
+}
+
+BOOL GetLangVector(LANGUAGETYPE ltLang, const char* szAppName,const char* szKeyName, const char* szDefaultValue, unsigned int iParaNnum, vector<string>* vectStr)
+{
+	BOOL bRet = FALSE;
+	string strValue = GetLangKeyValue(ltLang, szAppName, szKeyName, szDefaultValue);
+
+	if (strcmp((char*)strValue.c_str(), szDefaultValue) == 0 )
+	{
+		bRet = FALSE;
+	}
+	else
+	{
+		*vectStr = split(strValue, "#");
+		if ((*vectStr).size() == iParaNnum)
+		{
+			bRet = TRUE;
+		}
+	}
+	return bRet;
+}
+
+string PackageLangInfo(	IN LANGUAGETYPE lang, 
+						IN const char* szAppName, 
+						IN const char* szKeyName, 
+						IN const char* szDefaultValue, 
+						IN int iStrSize, 
+						IN unsigned int iParaNnum, 
+						IN vector<string> vectStr)
+{
+	UNREFERENCED_PARAMETER(iStrSize);
+
+	string strRet = "";
+
+	if (iParaNnum == 1)
+	{
+		strRet = GetLangKeyValue(lang, szAppName, szKeyName, szDefaultValue);
+	}
+	else
+	{
+		vector<string> vecLangMsg;
+
+		if(GetLangVector(lang, 
+			szAppName, 
+			szKeyName,
+			szDefaultValue,
+			iParaNnum,
+			&vecLangMsg))
+		{
+			for (unsigned int i = 0; i < iParaNnum; i++)
+			{
+				strRet +=  vecLangMsg[i];
+				if (i < (iParaNnum -1))
+				{
+					strRet +=  vectStr[i];
+				}
+			}
+		}
+	}
+
+	return strRet;
+}

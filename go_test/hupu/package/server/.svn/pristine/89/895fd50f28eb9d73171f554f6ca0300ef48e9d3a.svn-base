@@ -1,0 +1,294 @@
+#include "StdAfx.h"
+#include "FileinfoCheckSum.h"
+
+#include <shlwapi.h>
+#pragma comment(lib,"shlwapi.lib")
+
+#include "MD5Checksum.h"
+#include "SafeCheckItem/TimeCalculation.h"
+#include "DebugInfo.h"
+
+const char TIMEINIT[]={"0000000000000"};
+
+#include <string>
+using namespace std;
+
+//效验文件信息
+
+
+CFileinfoCheckSum::CFileinfoCheckSum(void)
+{
+
+}
+
+
+CFileinfoCheckSum::~CFileinfoCheckSum(void)
+{
+
+}
+
+BOOL CFileinfoCheckSum::MakeFileMd5Value(IN char* filepath,OUT char* md5value,int md5valuelen)
+{
+	HANDLE hFile = NULL;
+	hFile=CreateFileA(filepath,GENERIC_READ|GENERIC_WRITE,0,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+	if(hFile==INVALID_HANDLE_VALUE)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"打开文件失败");
+		return FALSE;	
+	}
+	FILETIME CreateTime;// 文件创建的时间
+	FILETIME VisitTime;//文件访问时间
+	FILETIME ModifyTime;// 文件修改时间
+	BOOL bGotFileCreateTime = GetFileTime( hFile, &CreateTime, &VisitTime, &ModifyTime );
+	if (bGotFileCreateTime)
+	{
+		SYSTEMTIME tCreate;
+		FileTimeToSystemTime(&CreateTime,&tCreate);
+
+		SYSTEMTIME tModify;
+		FileTimeToSystemTime(&ModifyTime,&tModify);
+
+		wchar_t timestrinfo[MAX_PATH] = {L"0"};
+		wsprintf(timestrinfo,L"%04d-%02d-%02d-%02d-%02d-%02d;%04d-%02d-%02d-%02d-%02d-%02d;hupunac",tCreate.wYear,
+			tCreate.wMonth,tCreate.wDay,tCreate.wHour,tCreate.wMinute,tCreate.wSecond,tModify.wYear,tModify.wMonth,tModify.wDay,
+			tModify.wHour,tModify.wMinute,tModify.wSecond);
+
+		  CString md5Str = CMD5Checksum::GetMD5((BYTE*)timestrinfo,wcslen(timestrinfo)*sizeof(wchar_t));
+		  
+		  WideCharToMultiByte(CP_ACP,0,md5Str.GetBuffer(),md5Str.GetLength(),md5value,md5valuelen,NULL,NULL);
+		  md5Str.ReleaseBuffer();
+	}
+	else
+	{
+		CloseHandle(hFile);
+		hFile = NULL;
+		return FALSE;
+	}
+	CloseHandle(hFile);
+	hFile = NULL;
+	return TRUE;
+}
+
+
+//制作字符串的MD5值:根据固定的字符串制作md5值:定时安检中使用
+BOOL CFileinfoCheckSum::MakeStringMd5Value(IN char* filepath,IN char* appname,IN char* keyname,OUT char* md5value,int md5valuelen)
+{
+	char lastsftime[MAX_PATH] = {"0"};//上次安检的时间
+	GetPrivateProfileStringA(appname, keyname,TIMEINIT, lastsftime, sizeof(lastsftime), filepath);
+
+	wchar_t lastsftimeW[MAX_PATH*2] = {L"0"};
+	ConvertA2W(lastsftime,lastsftimeW,sizeof(lastsftimeW));
+
+	wchar_t encrytstrW[MAX_PATH*2] = {L"0"};
+	wsprintf(encrytstrW,L"%s;hupunac",lastsftimeW);
+	CString md5Str = CMD5Checksum::GetMD5((BYTE*)encrytstrW,wcslen(encrytstrW)*sizeof(wchar_t));
+
+	WideCharToMultiByte(CP_ACP,0,md5Str.GetBuffer(),md5Str.GetLength(),md5value,md5valuelen,NULL,NULL);
+	md5Str.ReleaseBuffer();
+
+	return TRUE;
+}
+
+//记录开始定时安检信息时间到ini文件
+BOOL CFileinfoCheckSum::WriteSFOnTimeTimerToIniFile(IN char* servicevalue)
+{
+	HANDLE hFile = NULL;
+	char filepath[MAX_PATH] = {"0"};
+	sprintf_s(filepath,sizeof(filepath),"%s\\data\\time.ini",g_nacdirpath);
+	if (!PathFileExistsA(filepath))
+	{
+		hFile=CreateFileA(filepath,GENERIC_READ|GENERIC_WRITE,0,NULL,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,NULL);
+	}
+	else
+	{
+		hFile=CreateFileA(filepath,GENERIC_READ|GENERIC_WRITE,0,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+	}
+	if(hFile==INVALID_HANDLE_VALUE)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"创建或者打开文件失败");
+		return FALSE;	
+	}
+	CloseHandle(hFile);
+	WritePrivateProfileStringA(const_cast<char*>(ONTIMER_APPNAME), const_cast<char*>(ONTIMER_TIMER),servicevalue,filepath);
+
+
+	char iniconf[MAX_PATH] = {"0"};
+	sprintf_s(iniconf,sizeof(iniconf),"%s\\data\\VersAndLog_config.ini",g_nacdirpath);
+
+	char newMd5[HP_C_USERCONTENTLEN] = {"0"};
+	MakeFileMd5Value(filepath,newMd5,sizeof(newMd5));
+
+	WritePrivateProfileStringA(const_cast<char*>(ONTIMER_APPNAME), const_cast<char*>(ONTIMER_MD5),newMd5,iniconf);
+
+	return TRUE;
+}
+
+//************************************
+// 函数名称:  bStartOntimer
+// 函数说明:  
+// 返回值:   BOOL
+// 参数: IN char * servertime:服务器的时间戳
+// 参数: IN unsigned long serverfrequery:服务器端配置的定时安检的频率，单位为秒
+// 参数: OUT unsigned long * ontimerfrequency：需要下次安检的剩余时间
+// 作者: gcy
+// 日期：2015/12/18
+//************************************
+BOOL  CFileinfoCheckSum::bStartOntimer(IN string clientonlinetime,IN char *servertime,IN unsigned long  serverfrequery,OUT unsigned long *ontimerfrequency)
+{
+	//1.文件存在MD5值比对不一样需要立即安检
+	//2.文件MD5值一样时间超过定时安检的时间需要立即安检
+	*ontimerfrequency = serverfrequery;
+
+	BOOL bshouldstart = TRUE;
+	char timeinifile[MAX_PATH] = {"0"};
+	sprintf_s(timeinifile,sizeof(timeinifile),"%s\\data\\time.ini",g_nacdirpath);
+	if (PathFileExistsA(timeinifile))
+	{
+		char md5value[HP_C_USERCONTENTLEN] = {"0"};
+		MakeFileMd5Value(timeinifile,md5value,sizeof(md5value));
+
+		char timevalue[HP_C_USERCONTENTLEN] = {"0"};
+		sprintf_s(timevalue,sizeof(timevalue),"%s",TIMEINIT);
+		GetPrivateProfileStringA(const_cast<char*>(ONTIMER_APPNAME),const_cast<char*>(ONTIMER_TIMER),TIMEINIT, timevalue, sizeof(timevalue), timeinifile);
+
+		//获取配置文件中的ini的md5值
+		char iniconf[MAX_PATH]= {"0"};
+		sprintf_s(iniconf,sizeof(iniconf),"%s\\data\\VersAndLog_config.ini",g_nacdirpath);
+
+		char md5iniconf[HP_C_USERCONTENTLEN] = {"0"};
+		GetPrivateProfileStringA(const_cast<char*>(ONTIMER_APPNAME),const_cast<char*>(ONTIMER_MD5),"0", md5iniconf, sizeof(md5iniconf), iniconf);
+
+		if ( strcmp(md5value,md5iniconf) == 0)
+		{
+			//做时间差进行判断
+			unsigned long lastsfontimer = ConvertServiceTimevalToSecond(timevalue);
+			unsigned long currservtimer = ConvertServiceTimevalToSecond(servertime);
+			unsigned long  resultvalue= (currservtimer-lastsfontimer)*1000;
+			if (resultvalue>0)
+			{
+				if ( resultvalue < serverfrequery )//还需要serverfrequery-resultvalue这么长时间才需要定时安检
+				{
+					*ontimerfrequency = serverfrequery-resultvalue;
+					bshouldstart = FALSE;
+				}
+			}
+			else
+			{
+				bshouldstart = TRUE;
+			}
+		}
+		else
+		{
+			bshouldstart = TRUE;
+		}
+	}
+	else///表示还没有执行过定时安检，与客户端的上线时间进行比较，查看还剩余多长时间需要进行安检
+	{
+		if ( clientonlinetime == "null" )//表示不存在上线时间，等待配置的时间再进行定时安检
+		{
+			bshouldstart = FALSE;
+		}
+		else
+		{
+			//做时间差进行判断
+			unsigned long lastsfontimer = ConvertServiceTimevalToSecond(clientonlinetime.c_str());
+			unsigned long currservtimer = ConvertServiceTimevalToSecond(servertime);
+			unsigned long  resultvalue= (currservtimer-lastsfontimer)*1000;
+			if (resultvalue>0)
+			{
+				if ( resultvalue < serverfrequery )//还需要serverfrequery-resultvalue这么长时间才需要定时安检
+				{
+					*ontimerfrequency = serverfrequery-resultvalue;
+					bshouldstart = FALSE;
+				}
+			}
+			else
+			{
+				bshouldstart = TRUE;
+			}
+		}
+	}
+	return bshouldstart;
+}
+
+BOOL  CFileinfoCheckSum::DeleteSFOnTimeTimerToIniFile()
+{
+	char timeinifile[MAX_PATH] = {"0"};
+	sprintf_s(timeinifile,sizeof(timeinifile),"%s\\data\\time.ini",g_nacdirpath);
+	if (PathFileExistsA(timeinifile))
+	{
+		DeleteFileA(timeinifile);
+	}
+	return TRUE;
+}
+
+
+BOOL  CFileinfoCheckSum::bShouldContinueExecDelayOffline(IN string clientonlinetime,IN string servertime,long long *pidentimediffer)
+{
+	BOOL bshouldcont = FALSE;
+	char timeinifile[MAX_PATH] = {"0"};
+	sprintf_s(timeinifile,sizeof(timeinifile),"%s\\data\\identify.ini",g_nacdirpath);
+	if (PathFileExistsA(timeinifile))
+	{
+		char md5value[HP_C_USERCONTENTLEN] = {"0"};
+		MakeFileMd5Value(timeinifile,md5value,sizeof(md5value));
+
+		char timevalue[HP_C_USERCONTENTLEN] = {"0"};
+		sprintf_s(timevalue,sizeof(timevalue),"%s",TIMEINIT);
+		GetPrivateProfileStringA(const_cast<char*>(ONTIMER_APPNAME),const_cast<char*>(DOMAINIDENTIFY_STARTTIME),TIMEINIT, timevalue, sizeof(timevalue), timeinifile);
+
+		//获取配置文件中的ini的md5值
+		char iniconf[MAX_PATH]= {"0"};
+		sprintf_s(iniconf,sizeof(iniconf),"%s\\data\\VersAndLog_config.ini",g_nacdirpath);
+
+		char md5iniconf[HP_C_USERCONTENTLEN] = {"0"};
+		GetPrivateProfileStringA(const_cast<char*>(ONTIMER_APPNAME),const_cast<char*>(DOMAINIDENTIFY_MD5),"0", md5iniconf, sizeof(md5iniconf), iniconf);
+
+		if ( strcmp(md5value,md5iniconf) == 0)
+		{
+			*pidentimediffer = _atoi64((char*)timevalue);
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+//记录域用户验证延时下线的剩余时间
+BOOL CFileinfoCheckSum::WriteIdentifyDomainOnTimerToIniFile(char* startidentifytime)
+{
+	HANDLE hFile = NULL;
+	char filepath[MAX_PATH] = {"0"};
+	sprintf_s(filepath,sizeof(filepath),"%s\\data\\identify.ini",g_nacdirpath);
+	if (stricmp(startidentifytime,"#")==0)
+	{
+		DeleteFileA(filepath);
+	}
+	else
+	{
+		if (!PathFileExistsA(filepath))
+		{
+			hFile=CreateFileA(filepath,GENERIC_READ|GENERIC_WRITE,0,NULL,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,NULL);
+		}
+		else
+		{
+			hFile=CreateFileA(filepath,GENERIC_READ|GENERIC_WRITE,0,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+		}
+		if(hFile==INVALID_HANDLE_VALUE)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"创建或者打开文件失败");
+			return FALSE;	
+		}
+		CloseHandle(hFile);
+		WritePrivateProfileStringA(const_cast<char*>(ONTIMER_APPNAME), const_cast<char*>(DOMAINIDENTIFY_STARTTIME),startidentifytime,filepath);
+
+
+		char iniconf[MAX_PATH] = {"0"};
+		sprintf_s(iniconf,sizeof(iniconf),"%s\\data\\VersAndLog_config.ini",g_nacdirpath);
+
+		char newMd5[HP_C_USERCONTENTLEN] = {"0"};
+		MakeFileMd5Value(filepath,newMd5,sizeof(newMd5));
+
+		WritePrivateProfileStringA(const_cast<char*>(ONTIMER_APPNAME), const_cast<char*>(DOMAINIDENTIFY_MD5),newMd5,iniconf);
+	}
+	return TRUE;
+}

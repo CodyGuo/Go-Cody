@@ -1,0 +1,1227 @@
+#include "StdAfx.h"
+#include <stdio.h>
+#include <tchar.h>
+#include <process.h>
+#include <crtdbg.h>
+#include "SocketComm.h"
+
+#include "DebugInfo.h"
+
+#include "SafeCheckItem/SafeCheckFuntion.h"
+#include "8021x/Hp8021x.h"
+#include "GlobalFunction.h"
+#include "GetAdapterInfo.h"
+
+const int CLIENTSTARTPRO = 1000;
+const int CLIENTENDPRO = 3000;
+
+SockAddrIn &SockAddrIn::Copy(const SockAddrIn &sin)
+{
+	memcpy(this, &sin, Size());
+	return *this;
+}
+///////////////////////////////////////////////////////////////////////////////
+// IsEqual
+bool  SockAddrIn::IsEqual(const SockAddrIn& sin) const 
+{
+	// Is it Equal? - ignore 'sin_zero'
+	return (memcmp(this,&sin,Size()-sizeof(sin_zero))==0);
+}
+///////////////////////////////////////////////////////////////////////////////
+// IsLower
+bool SockAddrIn::IsLower(const SockAddrIn& sin) const
+{
+	// Is it Lower? - ignore 'sin_zero'
+	return (memcmp(this, &sin, Size()-sizeof(sin_zero)) < 0);
+}
+
+bool SockAddrIn::CreateFrom(LPCTSTR sAddr,LPCTSTR sService,int nFamily/*=AF_INET*/)
+{
+	try
+	{
+		Clear();
+		sin_addr.s_addr = htonl(CSocketComm::GetIPAddress(sAddr));
+		sin_port=htons(CSocketComm::GetPortNumber(sService));
+		sin_family = (short)nFamily;
+
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"CreateFrom Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "CreateFrom Exception");
+	}
+
+	return !IsNull();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Construct & Destruct
+
+CSocketComm::CSocketComm(void):
+m_bServer(false),m_bSmartAddressing(false),m_bBroadcast(false),
+	m_hComm(INVALID_HANDLE_VALUE),m_hThread(NULL),m_hMutex(NULL)
+{
+	memset(m_connsip,0,sizeof(SockAddrIn));
+}
+
+CSocketComm::~CSocketComm(void)
+{
+	StopComm();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Members
+///////////////////////////////////////////////////////////////////////////////
+
+bool CSocketComm::IsOpen() const
+{
+	return (INVALID_HANDLE_VALUE!=m_hComm);
+}
+
+bool CSocketComm::IsStart() const
+{
+	return (NULL!=m_hThread);
+}
+
+bool CSocketComm::IsServer() const
+{
+	return m_bServer;
+}
+bool CSocketComm::IsBroadcast() const
+{
+	return m_bBroadcast;
+}
+
+bool CSocketComm::IsSmartAddressing() const
+{
+	return m_bSmartAddressing;
+}
+
+SOCKET CSocketComm::GetSocket() const
+{
+	return (SOCKET)m_hComm;
+}
+
+void CSocketComm::LockList()
+{
+	if (NULL!=m_hMutex)
+	{
+		WaitForSingleObject(m_hMutex,INFINITE);
+	}
+}
+
+void CSocketComm::UnlockList()
+{
+	if (NULL!=m_hMutex)
+	{
+		ReleaseMutex(m_hMutex);
+	}
+}
+
+void CSocketComm::AddToList(const SockAddrIn& saddr_in)
+{
+	LockList();
+	m_AddrList.insert(m_AddrList.end(),saddr_in);
+	UnlockList();
+}
+
+void CSocketComm::RemoveFromList(const SockAddrIn& saddr_in)
+{
+	LockList();
+	m_AddrList.remove(saddr_in);
+	UnlockList();
+}
+
+void CSocketComm::SetServerState(bool bServer)
+{
+	if (!IsStart())
+	{
+		m_bServer = bServer;
+	}
+}
+
+void CSocketComm::SetSmartAddressing(bool bSmartAddressing)
+{
+	if (!IsStart())
+	{
+		m_bSmartAddressing = bSmartAddressing;
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// OnEvent
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              This function reports events & errors
+// PARAMETERS:
+//      UINT uEvent: can be one of the event value EVT_(events)
+//      LPVOID lpvData: Event data if any
+///////////////////////////////////////////////////////////////////////////////
+void CSocketComm::OnEvent(UINT uEvent, LPVOID lpvData)
+{
+    UNREFERENCED_PARAMETER(lpvData);
+    UNREFERENCED_PARAMETER(uEvent);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// GetPortNumber
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              Returns a port number based on service name or port number string
+// PARAMETERS:
+//  LPCTSTR strServiceName: Service name or port string
+///////////////////////////////////////////////////////////////////////////////
+USHORT CSocketComm::GetPortNumber(LPCTSTR strServiceName)
+{
+	try
+	{
+		LPSERVENT lpservent;
+		USHORT nPortNumber = 0;
+		if (_istdigit(strServiceName[0]))
+		{
+			nPortNumber = (USHORT)_ttoi(strServiceName);
+		}
+		else
+		{
+#ifdef  _UNICODE
+			char pstrService[HOSTNAME_SIZE];
+			WideCharToMultiByte(CP_ACP, 0, strServiceName, -1, pstrService, sizeof(pstrService), NULL, NULL );
+#else
+			LPCTSTR pstrService = strServiceName;
+#endif
+			// Convert network byte order to host byte order
+			if ((lpservent=getservbyname(pstrService,NULL))!=NULL)
+			{
+				nPortNumber=ntohs(lpservent->s_port);
+			}
+		}
+		return nPortNumber;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetPortNumber Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetPortNumber Exception");
+	}
+	return 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// GetIPAddress
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//      Returns an IP address.
+//          - It tries to convert the string directly
+//          - If that fails, it tries to resolve it as a hostname
+// PARAMETERS:
+//  LPCTSTR strHostName: host name to get IP address
+///////////////////////////////////////////////////////////////////////////////
+ULONG CSocketComm::GetIPAddress(LPCTSTR strHostName)
+{
+	try
+	{
+		LPHOSTENT lphostent;
+		ULONG uAddr = INADDR_NONE;
+		TCHAR  strLocal[HOSTNAME_SIZE]={0};
+		if (NULL==strHostName)
+		{
+			GetLocalName(strLocal,sizeof(strLocal));
+			strHostName =strLocal;
+
+		}
+#ifdef _UNICODE
+		char strHost[HOSTNAME_SIZE] = { 0 };
+		WideCharToMultiByte(CP_ACP, 0, strHostName, -1, strHost, sizeof(strHost), NULL, NULL );
+#else
+		LPCTSTR strHost = strHostName;
+#endif
+		//Check for an Internet Protocal dotted address string
+		uAddr=inet_addr(strHost);
+		if ((INADDR_NONE==uAddr)&&(strcmp(strHost,"255.255.255.255")))
+		{
+			// It's not an address, then try to resolve it as a hostname
+			if (lphostent=gethostbyname(strHost))
+			{
+				uAddr=*((ULONG*)lphostent->h_addr_list[0]);
+
+				for(int j=0; lphostent != NULL && lphostent->h_addr_list[j] != NULL;j++)
+				{
+					uAddr=*((ULONG*)lphostent->h_addr_list[j]);
+					
+				}
+			}
+		}
+		//
+		return ntohl(uAddr);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetIPAddress Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetIPAddress Exception");
+	}
+	return INADDR_NONE;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// GetLocalName
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              Get local computer name.  Something like: "mycomputer.myserver.net"
+// PARAMETERS:
+//  LPTSTR strName: name of the computer is returned here
+//  UINT nSize: size max of buffer "strName"
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::GetLocalName(LPTSTR strName,UINT nSize)
+{
+	try
+	{
+		if (strName!=NULL&&nSize>0)
+		{
+			char strHost[HOSTNAME_SIZE]={0};
+
+			// get host name, if fail, SetLastError is set
+			if (SOCKET_ERROR != gethostname(strHost,sizeof(strHost)))
+			{
+				struct hostent* hp;
+				hp=gethostbyname(strHost);
+				if (hp!=NULL)
+				{
+					strncpy_s(strHost,hp->h_name,HOSTNAME_SIZE);
+				}
+
+				// check if user provide enough buffer
+				if (strlen(strHost)>nSize)
+				{
+					SetLastError(ERROR_INSUFFICIENT_BUFFER);
+					return false;
+				}
+
+				// Unicode conversion
+#ifdef _UNICODE
+				return (0 != MultiByteToWideChar(CP_ACP, 0, strHost, -1, strName, nSize ));
+#else
+				_tcscpy(strName, strHost);
+				return true;
+#endif
+			}
+		}
+		else
+		{
+			SetLastError(ERROR_INVALID_PARAMETER);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetLocalName Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetLocalName Exception");
+	}
+	
+	return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// GetLocalAddress
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              Get TCP address of local computer in dot format ex: "127.0.0.0"
+// PARAMETERS:
+//  LPTSTR strAddress: pointer to hold address string, must be long enough
+//  UINT nSize: maximum size of this buffer
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::GetLocalAddress(LPTSTR strAddress,UINT nSize)
+{
+	try
+	{
+		// Get computer local address
+		if (strAddress!=NULL&&nSize>0)
+		{
+			char strHost[HOSTNAME_SIZE]={0};
+			// get host name, if fail, SetLastError is called
+			if (SOCKET_ERROR!=gethostname(strHost,sizeof(strHost)))
+			{
+				struct hostent *hp;
+				hp=gethostbyname(strHost);
+				if (hp!=NULL&&hp->h_addr_list[0]!=NULL)
+				{
+					// IPv4: Address is four bytes (32-bit)
+					if (hp->h_length<4){
+						return false;
+					}
+					strHost[0]=0;
+					// IPv4: Create Address string
+					sprintf_s(strHost,HOSTNAME_SIZE,"%u.%u.%u.%u",(UINT)((PBYTE)hp->h_addr_list[0][0]),
+						(UINT)((PBYTE)hp->h_addr_list[0][1]),(UINT)((PBYTE)hp->h_addr_list[0][2]),
+						(UINT)((PBYTE)hp->h_addr_list[0][3]));
+					//check if user provide enough buffer
+					if (strlen(strHost)>nSize)
+					{
+						SetLastError(ERROR_INSUFFICIENT_BUFFER);
+						return false;
+					}
+					// Unicode conversion
+#ifdef _UNICODE
+					return (0 != MultiByteToWideChar(CP_ACP, 0, strHost, -1, strAddress,nSize ));
+#else
+					_tcscpy(strAddress, strHost);
+					return true;
+#endif
+				}
+			}
+		}
+		else
+			SetLastError(ERROR_INVALID_PARAMETER);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetLocalAddress Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetLocalAddress Exception");
+	}
+	return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// WaitForConnection
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              Wait for a network connection.  Only for connection type of socket
+//              This function may fail, in this case it returns "INVALID_SOCKET"
+// PARAMETERS:
+//  SOCKET sock: a socket capable of receiving new connection (TCP: SOCK_STREAM)
+///////////////////////////////////////////////////////////////////////////////
+SOCKET CSocketComm::WaitForConnection(SOCKET sock)
+{
+	// Accept an incoming connection - blocking
+	// no information about remote address is returned
+	return accept(sock,0,0);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// ShutdownConnection
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              Shutdown a connection and close socket.  This will force all
+//              transmission/reception to fail.
+// PARAMETERS:
+//  SOCKET sock: Socket to close
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::ShutDownConnection(SOCKET sock)
+{
+	shutdown(sock,SD_BOTH);
+	return (0==closesocket(sock));
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// GetSockName
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              retrieves the local name for a socket
+// PARAMETERS:
+//  SockAddrIn& saddr_in: object to store address
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::GetSocketName(SockAddrIn& saddr_in)
+{
+	try
+	{
+		if (IsOpen())
+		{
+			int namelen = saddr_in.Size();
+			return (SOCKET_ERROR != getsockname(GetSocket(), saddr_in, &namelen));
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetSocketName Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetSocketName Exception");
+	}
+
+	return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// GetPeerName
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              retrieves the name of the peer to which a socket is connected
+// PARAMETERS:
+//  SockAddrIn& saddr_in: object to store address
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::GetPeerName(SockAddrIn& saddr_in)
+{
+	try
+	{
+		if (IsOpen())
+		{
+			int namelen = saddr_in.Size();
+			return (SOCKET_ERROR!=getpeername(GetSocket(),saddr_in,&namelen));
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetPeerName Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetPeerName Exception");
+	}
+	
+	return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// AddMembership
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              Add membership to a multicast address
+// PARAMETERS:
+//  LPCTSTR strAddress: ip address for membership
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::AddMembership(LPCTSTR strAddress)
+{
+	try
+	{
+		if (IsOpen())
+		{
+			int nType = 0;
+			int nOptLen = sizeof(int);
+			SOCKET sock=(SOCKET)m_hComm;
+			if (SOCKET_ERROR != getsockopt(sock, SOL_SOCKET, SO_TYPE, (char*)&nType, &nOptLen))
+			{
+				if (nType==SOCK_DGRAM)
+				{
+					int nTTL = 5;
+					if (SOCKET_ERROR != setsockopt(sock,IPPROTO_IP,IP_MULTICAST_TTL,(const char*)&nTTL,sizeof(nTTL)))
+					{
+						ip_mreq mreq;
+						mreq.imr_multiaddr.s_addr=htonl(CSocketComm::GetIPAddress(strAddress));
+						mreq.imr_interface.s_addr=htonl(INADDR_ANY);
+						return (SOCKET_ERROR!=setsockopt(sock,IPPROTO_IP,IP_ADD_MEMBERSHIP,(const char *)&mreq,sizeof(mreq)));
+					}
+				}
+
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"AddMembership Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "AddMembership Exception");
+	}
+	return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// DropMembership
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              Remove membership from a multicast address
+// PARAMETERS:
+//  LPCTSTR strAddress: ip address for membership
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::DropMembership(LPCTSTR strAddress)
+{
+	try
+	{
+		if (IsOpen())
+		{
+			int nType = 0;
+			int nOptLen = sizeof(int);
+			SOCKET sock = (SOCKET)m_hComm;
+			if (SOCKET_ERROR!=getsockopt(sock,SOL_SOCKET,SO_TYPE,(char*)&nType,&nOptLen))
+			{
+				if (nType==SOCK_DGRAM)
+				{
+					ip_mreq mreq;
+					mreq.imr_multiaddr.s_addr = htonl(CSocketComm::GetIPAddress(strAddress));
+					mreq.imr_interface.s_addr=htonl(INADDR_ANY);
+					return(SOCKET_ERROR!=setsockopt(sock,IPPROTO_IP,IP_DROP_MEMBERSHIP,
+						(const char*)&mreq,sizeof(mreq)));
+				}
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"DropMembership Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "DropMembership Exception");
+	}
+	return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// CreateSocketEx
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              This function creates a new socket for connection (SOCK_STREAM)
+//              or an connectionless socket (SOCK_DGRAM).  A connectionless
+//              socket should not call "accept()" since it cannot receive new
+//              connection.  This is used as SERVER socket
+// PARAMETERS:
+//  LPCTSTR strHost: Hostname or adapter IP address
+//  LPCTSTR strServiceName: Service name or port number
+//  int nFamily: address family to use (set to AF_INET)
+//  int nType: type of socket to create (SOCK_STREAM, SOCK_DGRAM)
+//  UINT uOptions: other options to use
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::CreateSocketEx(LPCTSTR strHost,LPCTSTR strServiceName,int nFamily,int nType,UINT uOptions/*=0*/)
+{
+	SOCKET sock;
+
+	try
+	{
+		if (IsOpen())
+			return false;
+
+		sock = socket(nFamily,nType,IPPROTO_IP);
+
+		if (INVALID_SOCKET!=sock)
+		{
+			//if (uOptions&SO_REUSEADDR)
+			//{
+				// Inform Windows Sockets provider that a bind on a socket should not be disallowed
+				// because the desired address is already in use by another socket
+				BOOL optval = TRUE;
+				if (SOCKET_ERROR==setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,(char*)&optval,sizeof(BOOL)))
+				{
+					closesocket(sock);
+					return false;
+				}
+			//}
+			if (nType==SOCK_DGRAM)
+			{
+				if (uOptions&SO_BROADCAST)
+				{
+					// Inform Windows Sockets provider that broadcast messages are allowed
+					BOOL optval = TRUE;
+					if (SOCKET_ERROR==setsockopt(sock,SOL_SOCKET,SO_BROADCAST,(char*)&optval,sizeof(BOOL)))
+					{
+						closesocket(sock);
+						return false;
+					}
+				}
+			}
+			// Associate a local address with the socket
+			SockAddrIn sockAddr;
+			sockAddr.CreateFrom(strHost,strServiceName,nFamily);
+			if (SOCKET_ERROR==bind(sock,sockAddr,sockAddr.Size()))
+			{
+				closesocket(sock);
+				return false;
+			}
+			// Listen to the socket, only valid for connection socket
+			if (SOCK_STREAM==nType)
+			{
+				if (SOCKET_ERROR==listen(sock,SOMAXCONN))
+				{
+					closesocket(sock);
+					return false;
+				}
+			}
+			m_hComm=(HANDLE)sock;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"CreateSocketEx Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "CreateSocketEx Exception");
+	}
+	return (INVALID_SOCKET!=sock);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// CreateSocket
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              This function creates a new socket for connection (SOCK_STREAM)
+//              or an connectionless socket (SOCK_DGRAM).  A connectionless
+//              socket should not call "accept()" since it cannot receive new
+//              connection.  This is used as SERVER socket
+// PARAMETERS:
+//  LPCTSTR strServiceName: Service name or port number
+//  int nFamily: address family to use (set to AF_INET)
+//  int nType: type of socket to create (SOCK_STREAM, SOCK_DGRAM)
+//  UINT uOptions: other options to use
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::CreateSocket(LPCTSTR strServiceName, int nFamily, int nType, UINT uOptions /* = 0 */)
+{
+	return CreateSocketEx(NULL,strServiceName,nFamily,nType,uOptions);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// ConnectTo
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//              Establish connection with a server service or port
+// PARAMETERS:
+//  LPCTSTR strDestination: hostname or address to connect (in .dot format)
+//  LPCTSTR strServiceName: Service name or port number
+//  int nFamily: address family to use (set to AF_INET)
+//  int nType: type of socket to create (SOCK_STREAM, SOCK_DGRAM)
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::ConnectTo(LPCTSTR strDestination, LPCTSTR strServiceName, int nFamily, int nType,char* clientsockip,int clientsockiplen)
+{
+	SOCKET sock;
+	try
+	{
+		// Associate a local address with the socket
+		bool createfromres = false;
+		SockAddrIn sockAddr;		
+
+		if (IsOpen())
+			return false;
+		sock = socket(nFamily,nType,0);
+		if (INVALID_SOCKET!=sock)
+		{
+			 list<AdapterInfo>  adaptlist;
+			 CGetAdapterInfo m_adapterinfo;
+			 m_adapterinfo.GetNetworkIpAndMac(adaptlist);
+			 list<AdapterInfo>::iterator   adaptiter;
+			 for (adaptiter =adaptlist.begin();adaptiter!=adaptlist.end(); ++adaptiter)
+			 {
+				 AdapterInfo tmpadapt = *adaptiter;
+				 wchar_t ipwstr[HP_C_IPLEN*2] = {L"0.0.0.0"};
+				 ConvertA2W(tmpadapt.ipvalue,ipwstr,sizeof(ipwstr));
+				 createfromres = sockAddr.CreateFrom(ipwstr, TEXT("0"), nFamily);
+				 if ( true == createfromres )
+				 {
+					break;
+				 }
+			 }
+
+			 if ( false == createfromres )
+			 {
+				 closesocket(sock);
+				 return false;
+			 }
+			 sockAddr.CreateFrom(strDestination,strServiceName);
+			 // try to connect - if fail, server not ready
+			if (SOCKET_ERROR == connect(sock, sockAddr, sockAddr.Size()))
+			{
+				closesocket(sock);
+				return false;
+			}
+
+            char ParamMsg[MAX_PATH]={"0"};
+            memset(ParamMsg,0,sizeof(ParamMsg));
+            sprintf_s(ParamMsg,MAX_PATH,"服务器Ip地址为%s,端口为%d",inet_ntoa(sockAddr.sin_addr),ntohs(sockAddr.sin_port));
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_SOCKETINFO,LOGLOCATION, ParamMsg);
+
+            SockAddrIn  sockaddrsrc;
+            int srclen = sizeof(SockAddrIn);
+            getsockname(sock,sockaddrsrc,&srclen);
+
+			m_connsip  = sockaddrsrc;
+
+			sprintf_s(clientsockip,clientsockiplen,"%s",inet_ntoa(sockaddrsrc.sin_addr));
+            memset(ParamMsg,0,sizeof(ParamMsg));
+            sprintf_s(ParamMsg,MAX_PATH,"客户端Ip地址为%s,端口为%d",clientsockip,ntohs(sockaddrsrc.sin_port));
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_SOCKETINFO,LOGLOCATION, ParamMsg);
+
+            // Success, now we may save this socket
+			m_hComm=(HANDLE)sock;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"ConnectTo Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ConnectTo Exception");
+	}
+	return (INVALID_SOCKET!=sock);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// CloseComm
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//      Close Socket Communication
+// PARAMETERS:
+//      None
+///////////////////////////////////////////////////////////////////////////////
+void CSocketComm::CloseComm()
+{
+	if (IsOpen())
+	{
+		ShutDownConnection((SOCKET)m_hComm);
+		m_hComm=INVALID_HANDLE_VALUE;
+		m_bBroadcast = false;
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// WatchComm
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//      Starts Socket Communication Working thread
+// PARAMETERS:
+//      None
+///////////////////////////////////////////////////////////////////////////////
+bool CSocketComm::WatchComm()
+{
+    try
+    {
+        if (!IsStart())
+        {
+            if (IsOpen())
+            {
+                HANDLE hThread;
+                UINT uiThreadId = 0;
+                hThread = (HANDLE)_beginthreadex(NULL,  // Security attributes
+                                                0,    // stack
+                                                SocketThreadProc,   // Thread proc
+                                                this,   // Thread param
+                                                CREATE_SUSPENDED,   // creation mode
+                                                &uiThreadId);   // Thread ID
+                if (NULL!=hThread)
+                {
+                    //SetThreadPriority(hThread, THREAD_PRIORITY_ABOVE_NORMAL);
+                    ResumeThread(hThread);
+                    m_hThread=hThread;
+                    return true;
+                }
+            }
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+		::MessageBox(NULL, L"WatchComm Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "WatchComm Exception");
+    }
+
+	return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// StopComm
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//      Close Socket and Stop Communication thread
+// PARAMETERS:
+//      None
+///////////////////////////////////////////////////////////////////////////////
+void CSocketComm::StopComm()
+{
+	try
+	{
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOCKETINFO,LOGLOCATION,"enter  StopComm");
+
+		if (IsOpen())
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOCKETINFO,LOGLOCATION,"CloseComm");
+			CloseComm();
+		}
+
+		if (IsStart())
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOCKETINFO,LOGLOCATION,"kill Thread");
+			SleepEx(HP_C_DEFAULT_TIMEOUT,TRUE);
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOCKETINFO,LOGLOCATION,"SleepEx");
+			if (WaitForSingleObject(m_hThread,1000L)==WAIT_TIMEOUT)
+			{
+				WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOCKETINFO,LOGLOCATION,"terminate Thread");
+			}
+			CloseHandle(m_hThread);
+			m_hThread=NULL;
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOCKETINFO,LOGLOCATION,"leave  kill Thread");
+		}
+
+		// Clear Address list
+		if (!m_AddrList.empty())
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOCKETINFO,LOGLOCATION," Clear Address list");
+			m_AddrList.clear();
+		}
+
+		// Destroy Synchronization objects
+		if (NULL!=m_hMutex)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOCKETINFO,LOGLOCATION," CloseHandle");
+			CloseHandle(m_hMutex);
+			m_hMutex=NULL;
+		}
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_SOCKETINFO,LOGLOCATION,"leave  StopComm");
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"StopComm Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "StopComm Exception");
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// ReadComm
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//      Reads the Socket Communication
+// PARAMETERS:
+//      LPBYTE lpBuffer: buffer to place new data
+//      DWORD dwSize: maximum size of buffer
+//      DWORD dwTimeout: timeout to use in millisecond
+///////////////////////////////////////////////////////////////////////////////
+DWORD CSocketComm::ReadComm(LPBYTE lpBuffer,DWORD dwSize,DWORD dwTimeout)
+{
+	DWORD dwBytesRead = 0L;
+
+	try
+	{
+		if(!IsOpen())
+		{
+			return (DWORD)-1L;
+		}
+		if (lpBuffer==NULL||dwSize<1L)
+			return 0L;
+		fd_set fdRead={0};
+		TIMEVAL stTime;
+		TIMEVAL *pstTime = NULL;
+		if (INFINITE!=dwTimeout)
+		{
+			stTime.tv_sec=dwTimeout/1000;
+			stTime.tv_usec=(dwTimeout%1000)*1000;
+			pstTime=&stTime;
+		}
+		SOCKET s = (SOCKET)m_hComm;
+		// Set Descriptor
+		if (!FD_ISSET(s, &fdRead))
+		{
+			FD_SET(s,&fdRead);
+		}
+		//Select function set read timeout
+		int res = select(s+1,&fdRead,NULL,NULL,pstTime);
+		if (res>0) 
+		{
+			res=recv(s,(LPSTR)lpBuffer,dwSize,0);
+			if((res <0) )
+			{
+				DWORD dwres = GetLastError();
+				char msginfo[MAX_PATH] = {"0"};
+				
+				WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "recv error,GetLastError()=", GetLastError());
+			/*	if((errno == EINTR || errno == EWOULDBLOCK || errno == EAGAIN))
+				{
+					WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_SOCKETINFO,LOGLOCATION,"recv<0 but continue recv");
+					res=recv(s,(LPSTR)lpBuffer,dwSize,0);
+					if((errno == EINTR || errno == EWOULDBLOCK || errno == EAGAIN))
+					{
+						WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_SOCKETINFO,LOGLOCATION,"recv<0 but continue recv");
+						res=recv(s,(LPSTR)lpBuffer,dwSize,0);
+					}
+				}
+				else
+				{
+					WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_SOCKETINFO,LOGLOCATION,"recv<0 terminate");
+				}*/
+			}
+			if(res == 0)
+			{
+				WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_SOCKETINFO,LOGLOCATION,"recv=0");
+			}
+		}
+		dwBytesRead=(DWORD)((res>0)?(res):(-1L));
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"ReadComm Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ReadComm Exception");
+	}
+	return dwBytesRead;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// WriteComm
+///////////////////////////////////////////////////////////////////////////////
+// DESCRIPTION:
+//      Writes data to the Socket Communication
+// PARAMETERS:
+//      const LPBYTE lpBuffer: data to write
+//      DWORD dwCount: maximum characters to write
+//      DWORD dwTimeout: timeout to use in millisecond
+///////////////////////////////////////////////////////////////////////////////
+DWORD CSocketComm::WriteComm(const LPBYTE lpBuffer, DWORD dwCount, DWORD dwTimeout)
+{
+	DWORD dwBytesWritten = 0L;
+
+	ASSERT(lpBuffer);
+
+	try
+	{
+		if(!IsOpen())
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "WriteComm socket Close");
+			return (DWORD)-1L;
+		}
+		m_Lock.Lock();
+
+		fd_set fdWrite  = { 0 };
+		TIMEVAL stTime;
+		TIMEVAL *pstTime = NULL;
+
+		if ( INFINITE != dwTimeout ) 
+		{
+			stTime.tv_sec = dwTimeout/1000;
+			stTime.tv_usec = (dwTimeout%1000)*1000;
+			pstTime = &stTime;
+		}
+
+		SOCKET s= (SOCKET)m_hComm;
+
+		// Set Descriptor
+		if (!FD_ISSET(s,&fdWrite))
+		{
+			FD_SET(s,&fdWrite);
+		}
+
+		// Select function set write timeout
+		int res = select(s+1, NULL, &fdWrite, NULL, pstTime);
+
+		if (res)
+		{
+			// Send message to peer or broadcast it
+			bool bSmartAddressing = IsSmartAddressing();
+
+			if(!IsOpen())
+			{
+				m_Lock.UnLock();
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "WriteComm send Close");
+				return (DWORD)-1L;
+			}
+			res=send(s,(LPCSTR)lpBuffer, dwCount, 0);
+			if (res<0)
+				WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "GetLastError()=", GetLastError());
+		}
+		dwBytesWritten = (DWORD)((res>=0)?(res):(-1L));
+		m_Lock.UnLock();
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"CSocketComm::WriteComm Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "CSocketComm::WriteComm Exception");
+	}
+	if (!IsOpen()||NULL==lpBuffer)
+	{
+		return 0L;
+	}
+
+	return dwBytesWritten;
+}
+
+void CSocketComm::Run()
+{
+    try
+    {
+        stMessageProxy stMsgProxy;
+        DWORD   dwBytes  = 0L;
+        DWORD   dwTimeout = HP_C_SELECTMODETIMEOUT;
+        LPBYTE  lpData  = (LPBYTE)&stMsgProxy;
+        DWORD   dwSize  = sizeof(stMsgProxy);
+
+        bool bSmartAddressing = IsSmartAddressing();
+        if ( !bSmartAddressing )
+        {
+            lpData = stMsgProxy.byData;
+            dwSize = sizeof(stMsgProxy.byData)-1;
+        }
+        memset(lpData, 0, HP_C_RECVLEN);
+		
+        // Should we run as server mode
+        if (IsServer() && !bSmartAddressing)
+        {
+            if (!IsBroadcast())
+            {
+                SOCKET sock = (SOCKET) m_hComm;
+                sock = WaitForConnection( sock );
+
+                // Get new connection socket
+                if (sock != INVALID_SOCKET)
+                {
+                    ShutDownConnection( (SOCKET) m_hComm);
+                    m_hComm = (HANDLE) sock;
+                    OnEvent( EVT_CONSUCCESS, NULL ); // connect
+                }
+                else
+                {
+                    // Do not send event if we are closing
+                    if (IsOpen())
+                        OnEvent( EVT_CONFAILURE, NULL ); // wait fail
+                    return;
+                }
+            }
+        }
+        else
+        {
+            GetPeerName( stMsgProxy.address );
+        }
+
+        while( IsOpen() )
+        {
+            // Blocking mode: Wait for event
+            char getDatalen[10] = {0};
+
+            dwBytes = ReadComm((LPBYTE)getDatalen, HP_C_SENDSTRHEADER, dwTimeout);
+
+            if ( dwBytes ==  (DWORD)-1L)
+            {
+                if (IsOpen())
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "读取字节头时与服务器连接断开");
+                }
+                else
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "读取字节头失败且sock已经关闭");
+                }
+                m_discallback(0);
+                break;
+            }
+            else
+            {
+                RECVMSG *RecvLen = NULL;
+                RecvLen = (RECVMSG*)getDatalen;
+                short int flag = RecvLen->Flag;//发送的标志
+                short int Reserve = (short int)0;
+                 int len = RecvLen->TotalLen;//发送的总长度
+
+                if (((flag<CLIENTSTARTPRO) &&(flag>1))
+                      ||(flag>CLIENTENDPRO) || len <=0)
+                {
+                   m_discallback(0);
+                    WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "接收到异常数据与服务器连接断开");
+                    break;
+                }
+                else
+                {
+                   
+                    DWORD sumLen = 0;//接收到的总长度
+                    char  *pdata = NULL;
+                    BOOL brecvSucc = TRUE;
+
+                    pdata = new char[len+1];
+                    memset(pdata,0,len+1);
+                    DWORD remaindatalen = len;
+
+                    do
+                    {
+                        memset(lpData, 0, HP_C_RECVLEN);
+                        if ( remaindatalen < HP_C_RECVLEN  )
+                        {
+                            dwBytes = ReadComm(lpData, remaindatalen, dwTimeout);
+                        }
+                        else
+                        {
+                            dwBytes = ReadComm(lpData, HP_C_RECVLEN, dwTimeout);
+                        }
+                        if ( (dwBytes ==  (DWORD)-1L)||( dwBytes == 0 ) )
+                        {
+                            brecvSucc = FALSE;
+                            if (IsOpen())
+                            {
+                                WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "读取数据内容时与服务器连接断开");
+                            }
+                            else
+                            {
+                                WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "读取数据内容失败且sock已经关闭");
+                            }
+                              m_discallback(0);
+                              break;
+                        }
+                        else
+                        {
+                            memcpy(pdata+sumLen, lpData, dwBytes);
+                            sumLen=sumLen+dwBytes;
+                            remaindatalen = len - sumLen;
+                        }
+                    }while (sumLen < len);
+
+                    if ( brecvSucc )
+                    {
+                        recvdata(flag,(char*)pdata,len); 
+                    } 
+                    if ( pdata != NULL )
+                    {
+                        delete[] pdata;
+                        pdata = NULL;
+                    }
+                    if ( sumLen < len )//表示接收到异常数据
+                    {
+                        WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "接收到异常数据退出");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        ::MessageBox(NULL, L"CSocketComm::Run Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "CSocketComm::Run Exception");
+    }
+}
+
+
+UINT WINAPI CSocketComm::SocketThreadProc(LPVOID pParam)
+{
+	try
+	{
+		CSocketComm* pThis = reinterpret_cast<CSocketComm*>(pParam);
+
+		_ASSERTE(pThis != NULL);
+		pThis->Run();
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SocketThreadProc Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SocketThreadProc Exception");
+	}
+
+	return 1L;
+}
+
+
+void  CSocketComm::InitParam(fnDataCallBackFunc callbackfn, fnDisConCallBackFunc disconn)
+{
+	try
+	{
+		if (recvdata == NULL)
+		{
+			recvdata = callbackfn;
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, "重新为recvdata赋值");
+		}
+        if ( m_discallback == NULL )
+        {
+            m_discallback = disconn;
+        }
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"InitParam Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "InitParam Exception");
+	}
+}

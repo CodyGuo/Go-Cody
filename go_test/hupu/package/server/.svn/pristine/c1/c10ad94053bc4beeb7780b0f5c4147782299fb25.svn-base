@@ -1,0 +1,150 @@
+#pragma once
+
+#include <ntsecapi.h>//用户权限分配
+
+#include <string>
+using namespace std;
+
+const int HP_WEAKPWD_GETDIRCCONTFAIL = 1041;
+
+const int HP_WEAKPWD_NOTEXCEPTION = 1042;
+
+#ifndef STATUS_SUCCESS
+#define STATUS_SUCCESS  ((NTSTATUS)0x00000000L)
+#endif
+
+#define RET_OK 1
+#define RET_ERR 2
+#define RET_UKN 0
+#define MAX_NAME_LEN 200
+
+typedef struct  FAILACCONTINFO
+{
+	string accountstr;
+	string pwdstr;
+	string fullname;
+	string comment;
+	string failmsg;
+   /* char accontName[MAX_PATH];
+    char accontpwd[MAX_PATH];
+	char acctfullname[MAX_PATH];
+	char acctcommt[MAX_PATH];
+    char failmsginfo[MAX_PATH];*/
+}_FAILACCONTINFO;
+
+typedef struct USERACCOUNTINFO
+{
+    //用户状态,0表示禁用,1表示启用
+    int accountstartstat;
+    //用户密码状态:0表示勾选下次登录时修改密码,
+   //1表示不勾选下次登录时修改密码
+    int accountpwdstat;
+    //用户名称
+ //   char username[HP_C_USERCONTENTLEN];
+	////用户全名
+	//char userfullname[MAX_PATH];
+	////用户描述
+	//char usercomment[MAX_PATH];
+
+	string accountstr;
+	string fullname;
+	string comment;
+
+}_USERACCOUNTINFO;
+
+typedef struct WEKPWDDATAINFO
+{
+    //例外用户名
+	string exceptionuser;
+   // char exceptionuser[HP_C_USERCONTENTLEN];
+
+    //是否检查禁用账户
+    char bcheckforbituser[HP_C_USERCONTENTLEN];
+
+    //弱口令数据字典路径
+	string pwddirectory;
+    //char weakpwddirectory[MAX_PATH];
+
+    safecheckattr attriinfo;
+}_WEKPWDDATAINFO;
+
+class checkpwd
+{
+public:
+    checkpwd(void);
+
+    ~checkpwd(void);
+
+    //策略的项数
+    int m_numcount;
+
+    //要执行的策略信息
+     list<WEKPWDDATAINFO>  m_execdata;
+
+    //策略失败的项数
+    int m_numfailcount;
+
+    //策略失败的项
+     list<FAILACCONTINFO> m_failItem;
+
+    //获取用户的信息
+    int GetLocalUserInfo(bool IsCheckForb);
+
+    int GetDataFromDB(wchar_t  *dirpath, char *userid, char* usertype, char *currdata, char *millisecond, char *weekday);
+
+    string ExecWeakPwdItem(char *servertime, char* mac, int totalitem, int curritem, int nextitem, int *IsSuccess);
+
+    int RestoreFailItem();
+
+	int RestoreWeakpwd(int userindex,string forbitstr,string userpwd);
+
+private:
+    //是否检查禁用账户
+    bool m_bcheckforbitUser;
+
+    //用户信息列表
+    list<USERACCOUNTINFO> m_useraccount;
+
+    //数据字典内容
+    list<string> m_pwdContlist;
+
+    list<WEKPWDDATAINFO>  m_totaldata;
+
+    //是否有组策略
+    bool m_bhasgroupstg;
+
+    //组策略列表
+    wstring m_groupuserinfo;
+
+    int UseUserNameAndPwdToLogOn(string username,string userpwd);
+
+    //从服务器端下载字典表并读出字典表中的内容
+    int ReadDirecContFromServer();
+
+    void InitData();
+
+    //根据数据库中的字段转化为结构体字段
+    void GetdbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, WEKPWDDATAINFO *dbrowdata);
+
+    //读取弱口令字典中的数据
+    int ReadWeakpwdDirectoryFile(char* filepath);
+
+    //判断用户是否属于例外用户
+    int IsInExceptionUserList(string username);
+
+    //获取用户当前的状态
+    int GetUserState(IN string username,OUT DWORD &dFlag);
+
+    //设置用户的禁用启用状态
+    BOOL SetUserState(IN string username,IN int iflag);                   
+             
+    int RefuseLocalUserLogonStrategyList();
+
+    BOOL SetGroupStratage(int iflag);
+
+	BOOL SetUserPwd(string username,string userpwd);
+
+	int ForbitUser(string  username);
+
+};
+

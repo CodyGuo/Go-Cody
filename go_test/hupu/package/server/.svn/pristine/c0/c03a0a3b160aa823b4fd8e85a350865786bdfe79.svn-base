@@ -1,0 +1,120 @@
+#ifndef ASSISTRUNALERT_H_
+#define ASSISTRUNALERT_H_ 1
+
+//事件编码长度
+#define  EVENT_CODE_LEN 5
+
+//事件字符长度
+#define TIME_BUF_LEN 20
+
+//警告字符大小
+#define WARNNAME_LEN 30
+
+//最大字符串长度
+#define MAX_STRING_LEN 512
+
+//小助手运行编号
+#define ASSIST_RUN_CODE "A007"
+
+//小助手退出编号
+#define ASSIST_EXIT_CODE "A008"
+
+//小助手用户注销编号
+#define USER_LOGOFF_CODE "A009"
+
+//小助手卸载编号
+#define ASSIST_UNINSTALL_CODE "A010"
+
+typedef struct _ASSISTRUNSTG
+{
+    //警报事件
+    CHAR eventCode[EVENT_CODE_LEN];
+
+    //是否报警：0：不报警；1：报警
+    BOOL ifalarm;
+
+    //报警等级，如不报警则'-1'
+    int warnlevel;
+
+    //报警名称，如不报警则''
+    CHAR warnname[WARNNAME_LEN];
+
+}ASSISTRUNSTG, *PASSISTRUNSTG;
+
+//小助手启动策略
+extern ASSISTRUNSTG runStg;
+
+//小助手运行事件标志，提交启动事件后标志置为FALSE
+extern BOOL g_runEventFlag; 
+
+//小助手退出策略
+extern ASSISTRUNSTG exitStg;
+
+//小助手小助手用户注销策略
+extern ASSISTRUNSTG userLogoffStg;
+
+//小助手卸载策略
+extern ASSISTRUNSTG uninstallStg;
+
+/************************************************************
+ Description: 获取当前系统时间
+ output: 当前系统时间
+ Return: NULL
+*************************************************************/
+void GetCurTime(OUT char* pCurTime);
+
+/************************************************************
+ Description: 获取系统报警策略
+ Return: NULL
+*************************************************************/
+void GetAssistRunAlarmPolicy();
+
+/************************************************************
+ Description: 发送小助手事件动作
+ Return: NULL
+*************************************************************/
+void SendAssistEventPolicy(IN const CHAR* pSendMsgBuf);
+
+/************************************************************
+ Description: 解析事件策略
+ input: 时间节点元素
+ Return: NULL
+*************************************************************/
+int ParseMsgBuf(IN char* pMsgBuf);
+
+/************************************************************
+ Description: 组织发送消息策略
+ input: 
+ Return: NULL
+*************************************************************/
+void PacketSendMsgBuf(IN CHAR* pEventCode, IN BOOL ifalarm, IN int warnlevel, IN CHAR* pWarnName, IN CHAR* pCurTime, OUT string& sendMsgBuf);
+
+/************************************************************
+ Description: 小助手事件警报
+ input: pCurPath，当前路径；assistRunStg，小助手发生事件
+ Return: NULL
+*************************************************************/
+void AssistEventAlarm(IN WCHAR* pCurPath, IN PASSISTRUNSTG assistRunStg);
+
+/************************************************************
+ Description: 插入小助手事件到数据库
+ input:  pCurPath，当前路径；pEventCode，发生事件类型；assistRunStg，小助手发生事件
+ Return: NULL
+*************************************************************/
+BOOL InsertAssistEventToDb(IN WCHAR* pCurPath, IN PASSISTRUNSTG assistRunStg, IN CHAR* pCurTime);
+
+/************************************************************
+ Description: 从数据库中获取并提交未上传的小助手事件动作
+ input:  pCurPath，当前路径
+ Return: 0[成功]，非0[失败]
+*************************************************************/
+BOOL SendAssistEventFromDbData(IN WCHAR* pCurPath);
+
+/************************************************************
+ Description:获得最近一次关机时间
+ Input: [VOID] 
+ Return: 若为0，则失败；返回格式为Unix时间，若需要其他格式时间请稍作修改即可
+*************************************************************/
+void GetLastTurnOffTime(OUT CHAR* pCurTime);
+
+#endif

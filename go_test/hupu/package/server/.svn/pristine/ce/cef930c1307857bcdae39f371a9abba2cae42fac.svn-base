@@ -1,0 +1,593 @@
+#include "StdAfx.h"
+#include "FireWall.h"
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+
+#include "SingServerPage.h"
+
+
+CFireWall::CFireWall(void)
+{
+   
+}
+
+CFireWall::~CFireWall(void)
+{
+
+}
+
+int CFireWall::SetFireWareOption(bool turnoffflag)
+{
+	OSVERSIONINFO m_WinVer;
+	::ZeroMemory(&m_WinVer,sizeof(m_WinVer));
+	m_WinVer.dwOSVersionInfoSize = sizeof(m_WinVer);
+	::GetVersionEx(&m_WinVer);
+	int res = -1;
+	if(m_WinVer.dwMajorVersion<=5)
+		res=TurnOffFireWallOnXP(turnoffflag);
+	if(m_WinVer.dwMajorVersion>=6)
+		res=DisableWindowsFirewallOnWin7(turnoffflag);
+	return res;
+}
+/////XP
+int CFireWall::TurnOffFireWallOnXP(bool turnoffflag)
+{
+	int execresult = 0;
+
+	HRESULT hr=S_OK;
+	HRESULT comInit = E_FAIL;
+	INetFwProfile *fwProfile = NULL;
+	//Initialize COM
+	comInit = CoInitializeEx(0,COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	// Ignore RPC_E_CHANGED_MODE; this just means that COM has already been
+	// initialized with a different mode. Since we don't care what the mode is,
+	// we'll just use the existing mode.
+	if(comInit!=RPC_E_CHANGED_MODE)
+	{
+		hr=comInit;
+		if(FAILED(hr))
+		{
+			wchar_t ErrorMsg[MAX_PATH]={L"0"};
+			wsprintf(ErrorMsg,L"CoInitializeEx failed: 0x%08lx\n",hr);
+			execresult=-1;
+			goto error;
+		}
+	}
+
+	INetFwMgr* fwMgr=NULL;
+	INetFwPolicy *fwPolicy = NULL;
+	_ASSERT(fwProfile==NULL);
+
+	//Create an instance of the firewall settings manager.
+	hr = CoCreateInstance(__uuidof(NetFwMgr),NULL,CLSCTX_INPROC_SERVER,__uuidof(INetFwMgr),
+		(void**)&fwMgr);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"CoCreateInstance failed: 0x%08lx\n",hr);
+		execresult=-1;
+		goto error;
+	}
+	// Retrieve the local firewall policy.
+	hr=fwMgr->get_LocalPolicy(&fwPolicy);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_LocalPolicy failed: 0x%08lx\n",hr);
+		execresult=-1;
+		goto error;
+	}
+	// Retrieve the firewall profile currently in effect.
+	hr=fwPolicy->get_CurrentProfile(&fwProfile);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_CurrentProfile failed: 0x%08lx\n",hr);
+		execresult=-1;
+		goto error;
+	}
+
+	BOOL fwOn=FALSE;
+	VARIANT_BOOL fwEnabled;
+	// Get the current state of the firewall.
+	hr=fwProfile->get_FirewallEnabled(&fwEnabled);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_FirewallEnabled failed: 0x%08lx\n",hr);
+		execresult=-1;
+		goto error;
+	}
+	// Check to see if the firewall is on.
+	if(fwEnabled!=VARIANT_FALSE)
+	{
+		fwOn= TRUE;
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_FIREWALL,LOGLOCATION,"The firewall is off");
+	}
+
+
+	VARIANT_BOOL fwOpt;
+	if(turnoffflag)
+		fwOpt=VARIANT_FALSE;
+	if(!turnoffflag)
+		fwOpt=VARIANT_TRUE;
+	hr=fwProfile->put_FirewallEnabled(fwOpt);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"Turn Off firewall Fail,put_FirewallEnabled failed: 0x%08lx\n",hr);
+		execresult=-1;
+		goto error;
+	}
+
+
+error:
+	// Release the firewall profile.
+	if(fwProfile!=NULL)
+		fwProfile->Release();
+	if(fwPolicy!=NULL)
+		fwPolicy->Release();
+	if(fwMgr!=NULL)
+		fwMgr->Release();
+	// Uninitialize COM.
+	if (SUCCEEDED(comInit))
+	{
+		CoUninitialize();
+	}
+	return execresult;
+}
+
+HRESULT CFireWall::WFCOMInitialize(INetFwPolicy2 ** ppNetFwPolicy2)
+{
+	HRESULT hr = S_OK;
+	hr=CoCreateInstance(__uuidof(NetFwPolicy2),NULL,CLSCTX_INPROC_SERVER,__uuidof(INetFwPolicy2),
+		(void**)ppNetFwPolicy2);
+	if(FAILED(hr))
+	{
+		goto error;
+	}
+error:
+	return hr;
+}
+
+int CFireWall::DisableWindowsFirewallOnWin7(bool turnoffflag)
+{
+	int execresult = 0;
+	HRESULT hrComInit = S_OK;
+	HRESULT hr=S_OK;
+	INetFwPolicy2 *pNetFwPolicy2 =NULL;
+
+	//Initalize COM
+	hrComInit =CoInitializeEx(0,COINIT_APARTMENTTHREADED);
+	// Ignore RPC_E_CHANGED_MODE; this just means that COM has already been
+	// initialized with a different mode. Since we don't care what the mode is,
+	// we'll just use the existing mode.
+	if(hrComInit!=RPC_E_CHANGED_MODE)
+	{
+		if(FAILED(hrComInit))
+		{
+			wchar_t ErrorMsg[MAX_PATH]={L"0"};
+			wsprintf(ErrorMsg,L"CoInitializeEx failed: 0x%08lx\n",hrComInit);
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_FIREWALL,LOGLOCATION,ErrorMsg);
+			execresult=-1;
+			goto Cleanup;
+		}
+	}
+	hr = WFCOMInitialize(&pNetFwPolicy2);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"CoInitializeEx failed: 0x%08lx\n",hr);
+		::OutputDebugString(ErrorMsg);
+		execresult=-1;
+		goto Cleanup;
+	}
+
+	BOOL fwOn=FALSE;
+	VARIANT_BOOL  fwEnabled;
+	hr=pNetFwPolicy2->get_FirewallEnabled(NET_FW_PROFILE2_DOMAIN,&fwEnabled);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_FirewallEnabled failed: 0x%08lx\n",hr);
+		execresult=-1;
+		goto Cleanup;
+	}
+	// Check to see if the firewall is on.
+	if(fwEnabled!=VARIANT_FALSE)
+	{
+		fwOn= TRUE;
+	}
+
+	VARIANT_BOOL fwOpt;
+	if(turnoffflag)
+		fwOpt=VARIANT_FALSE;
+	if(!turnoffflag)
+		fwOpt=VARIANT_TRUE;
+	// SET Windows Firewall for the Domain profile
+	hr = pNetFwPolicy2->put_FirewallEnabled(NET_FW_PROFILE2_DOMAIN,fwOpt);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"CoInitializeEx failed: 0x%08lx\n",hr);
+		::OutputDebugString(ErrorMsg);
+		execresult=-1;
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_FIREWALL,LOGLOCATION,ErrorMsg);
+		goto Cleanup;
+	}
+
+	fwOn = FALSE;
+	hr=pNetFwPolicy2->get_FirewallEnabled(NET_FW_PROFILE2_PRIVATE,&fwEnabled);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_FirewallEnabled failed: 0x%08lx\n",hr);
+		::OutputDebugString(ErrorMsg);
+		execresult=-1;
+		goto Cleanup;
+	}
+	// Check to see if the firewall is on.
+	if(fwEnabled!=VARIANT_FALSE)
+	{
+		fwOn= TRUE;
+		::OutputDebugStringA("The firewall is on");
+	}
+
+	if(turnoffflag)
+		fwOpt=VARIANT_FALSE;
+	if(!turnoffflag)
+		fwOpt=VARIANT_TRUE;
+
+	// SET Windows Firewall for the Domain profile
+	hr = pNetFwPolicy2->put_FirewallEnabled(NET_FW_PROFILE2_PRIVATE,fwOpt);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"CoInitializeEx failed: 0x%08lx\n",hr);
+		::OutputDebugString(ErrorMsg);
+		execresult=-1;
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_FIREWALL,LOGLOCATION,ErrorMsg);
+		goto Cleanup;
+	}
+
+
+	fwOn = FALSE;
+	hr=pNetFwPolicy2->get_FirewallEnabled(NET_FW_PROFILE2_PUBLIC,&fwEnabled);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_FirewallEnabled failed: 0x%08lx\n",hr);
+		::OutputDebugString(ErrorMsg);
+		execresult=-1;
+		goto Cleanup;
+	}
+	// Check to see if the firewall is on.
+	if(fwEnabled!=VARIANT_FALSE)
+	{
+		fwOn= TRUE;
+		::OutputDebugStringA("The firewall is on");
+	}
+
+
+	if(turnoffflag)
+		fwOpt=VARIANT_FALSE;
+	if(!turnoffflag)
+		fwOpt=VARIANT_TRUE;
+
+	// SET Windows Firewall for the Domain profile
+	hr = pNetFwPolicy2->put_FirewallEnabled(NET_FW_PROFILE2_PUBLIC,fwOpt);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"CoInitializeEx failed: 0x%08lx\n",hr);
+		::OutputDebugStringA("The firewall is on");
+		execresult=-1;
+		goto Cleanup;
+	}
+
+
+Cleanup:
+	if(pNetFwPolicy2!=NULL)
+		pNetFwPolicy2->Release();
+	if(SUCCEEDED(hrComInit))
+		CoUninitialize();
+	return execresult;
+}
+
+
+
+int CFireWall::GetFireWareStat(int  *flag)
+{
+	OSVERSIONINFO m_WinVer;
+	::ZeroMemory(&m_WinVer,sizeof(m_WinVer));
+	m_WinVer.dwOSVersionInfoSize = sizeof(m_WinVer);
+	::GetVersionEx(&m_WinVer);
+	int res = -1;
+	int  stat=-1;
+	if(m_WinVer.dwMajorVersion<=5)
+		res=GetFireWallXP(&stat);
+	if(m_WinVer.dwMajorVersion>=6)
+		res=GetFireWallWin7(&stat);
+	*flag=stat;
+	return res;
+}
+
+int CFireWall::GetFireWallXP(int  *flag)
+{
+	int execresult = 0;
+	HRESULT hr=S_OK;
+	HRESULT comInit = E_FAIL;
+	INetFwProfile *fwProfile = NULL;
+	//Initialize COM
+	comInit = CoInitializeEx(0,COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	// Ignore RPC_E_CHANGED_MODE; this just means that COM has already been
+	// initialized with a different mode. Since we don't care what the mode is,
+	// we'll just use the existing mode.
+	if(comInit!=RPC_E_CHANGED_MODE)
+	{
+		hr=comInit;
+		if(FAILED(hr))
+		{
+			wchar_t ErrorMsg[MAX_PATH] = {L"0"};
+
+			wsprintf(ErrorMsg, L"CoInitializeEx failed: 0x%08lx\n", hr);
+			execresult=-1;
+			goto error;
+		}
+	}
+
+	INetFwMgr* fwMgr=NULL;
+	INetFwPolicy *fwPolicy = NULL;
+	_ASSERT(fwProfile==NULL);
+
+	//Create an instance of the firewall settings manager.
+	hr = CoCreateInstance(__uuidof(NetFwMgr),NULL,CLSCTX_INPROC_SERVER,__uuidof(INetFwMgr),
+		(void**)&fwMgr);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"CoCreateInstance failed: 0x%08lx\n",hr);
+		execresult=-1;
+		goto error;
+	}
+	// Retrieve the local firewall policy.
+	hr=fwMgr->get_LocalPolicy(&fwPolicy);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_LocalPolicy failed: 0x%08lx\n",hr);
+		execresult=-1;
+		goto error;
+	}
+	// Retrieve the firewall profile currently in effect.
+	hr = fwPolicy->get_CurrentProfile(&fwProfile);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_CurrentProfile failed: 0x%08lx\n",hr);
+		execresult =-1;
+		goto error;
+	}
+
+	BOOL fwOn=FALSE;
+	VARIANT_BOOL fwEnabled;
+	// Get the current state of the firewall.
+	hr=fwProfile->get_FirewallEnabled(&fwEnabled);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_FirewallEnabled failed: 0x%08lx\n",hr);
+		execresult=-1;
+		goto error;
+	}
+	// Check to see if the firewall is on.
+	if(fwEnabled!=VARIANT_FALSE)
+	{
+		fwOn= TRUE;
+	}
+
+	if (fwOn)
+		*flag=0;
+	else
+		*flag=1;
+
+error:
+	// Release the firewall profile.
+	if(fwProfile!=NULL)
+		fwProfile->Release();
+	if(fwPolicy!=NULL)
+		fwPolicy->Release();
+	if(fwMgr!=NULL)
+		fwMgr->Release();
+	// Uninitialize COM.
+	if (SUCCEEDED(comInit))
+	{
+		CoUninitialize();
+	}
+	return execresult;
+}
+
+int CFireWall::GetFireWallWin7(int *flag)
+{
+	int execresult = 0;
+	HRESULT hrComInit = S_OK;
+	HRESULT hr=S_OK;
+	INetFwPolicy2 *pNetFwPolicy2 =NULL;
+	//Initalize COM
+	hrComInit =CoInitializeEx(0,COINIT_APARTMENTTHREADED);
+	// Ignore RPC_E_CHANGED_MODE; this just means that COM has already been
+	// initialized with a different mode. Since we don't care what the mode is,
+	// we'll just use the existing mode.
+	if(hrComInit !=RPC_E_CHANGED_MODE)
+	{
+		if(FAILED(hrComInit))
+		{
+			wchar_t ErrorMsg[MAX_PATH] = {L"0"};
+             
+			wsprintf(ErrorMsg,L"CoInitializeEx failed: 0x%08lx\n",hrComInit);
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_FIREWALL,LOGLOCATION, ErrorMsg);
+			execresult=-1;
+			goto Cleanup;
+		}
+	}
+	hr = WFCOMInitialize(&pNetFwPolicy2);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+
+		wsprintf(ErrorMsg,L"CoInitializeEx failed: 0x%08lx\n",hr);
+		::OutputDebugString(ErrorMsg);
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_FIREWALL, LOGLOCATION,ErrorMsg);
+		execresult=-1;
+		goto Cleanup;
+	}
+
+	BOOL fwdomain=FALSE;
+	int     domainres=0;
+	BOOL fwprivate=FALSE;
+	int  privateres=0;
+	BOOL fwpublic=FALSE;
+	int publicres=0;
+	VARIANT_BOOL  fwEnabled;
+	hr=pNetFwPolicy2->get_FirewallEnabled(NET_FW_PROFILE2_DOMAIN,&fwEnabled);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_FirewallEnabled failed: 0x%08lx\n",hr);
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_FIREWALL,LOGLOCATION,ErrorMsg);
+		domainres=-1;
+		goto Cleanup;
+	}
+	// Check to see if the firewall is on.
+	if(fwEnabled!=VARIANT_FALSE){
+		fwdomain= TRUE;
+	}
+	hr=pNetFwPolicy2->get_FirewallEnabled(NET_FW_PROFILE2_PRIVATE,&fwEnabled);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH]={L"0"};
+		wsprintf(ErrorMsg,L"get_FirewallEnabled failed: 0x%08lx\n",hr);
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_FIREWALL,LOGLOCATION,ErrorMsg);
+		::OutputDebugString(ErrorMsg);
+		privateres=-1;
+		goto Cleanup;
+	}
+	// Check to see if the firewall is on.
+	if(fwEnabled!=VARIANT_FALSE)
+	{
+		fwprivate= TRUE;
+		::OutputDebugStringA("The firewall is on");
+	}
+	else
+		::OutputDebugStringA("The firewall is off");
+
+	hr=pNetFwPolicy2->get_FirewallEnabled(NET_FW_PROFILE2_PUBLIC, &fwEnabled);
+	if(FAILED(hr))
+	{
+		wchar_t ErrorMsg[MAX_PATH] = {L"0"};
+
+		wsprintf(ErrorMsg, L"get_FirewallEnabled failed: 0x%08lx\n", hr);
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_FIREWALL,LOGLOCATION,ErrorMsg);
+		::OutputDebugString(ErrorMsg);
+		publicres=-1;
+
+		goto Cleanup;
+	}
+
+	// Check to see if the firewall is on.
+	if(fwEnabled != VARIANT_FALSE)
+	{
+		fwpublic= TRUE;
+		::OutputDebugStringA("The firewall is on");
+	}
+	else
+		::OutputDebugStringA("The firewall is on");
+
+	//若是三个都是-1，表示获取防火墙状态失败
+	if ((!domainres)&&(!privateres)&&(!publicres)&&(!execresult))
+	{
+		execresult = 0;
+		if (fwdomain && fwprivate && fwpublic)
+		{
+			::OutputDebugStringA("The firewall is on");
+			*flag=0;
+		}
+		else if ((!fwdomain)&&(!fwprivate)&&(!fwpublic))
+		{
+			::OutputDebugStringA("The firewall is off");
+			*flag=1;
+		}
+		else
+			*flag=2;
+	}
+	else
+		execresult=-1;
+
+Cleanup:
+	if(pNetFwPolicy2!=NULL)
+		pNetFwPolicy2->Release();
+	if(SUCCEEDED(hrComInit))
+		CoUninitialize();
+
+	return execresult;
+}
+
+/*************************************************
+Function Name: GetFireWallState
+Description: 获取防火墙的状态
+Input and output:  
+RetVal:
+      UNKNOWNSTATE:表示执行防火墙函数出错
+      ENABLE:表示防火墙处于开启状态
+      DISABLE:表示防火墙处于关闭状态
+**************************************************/
+ int SingServerPage::GetFireWallStateForSafeCheck()
+ {
+     int state = UNKNOWNSTATE;
+     CFireWall  firewall;
+     int fwonoff = 0;
+   firewall.GetFireWareStat(&fwonoff);
+    if ( 0==fwonoff )//防火墙是开着的
+    {
+        state =  ENABLE;
+    }
+    else
+    {
+        state = DISABLE;
+    }
+     return state;
+ }
+
+ /*************************************************
+Function Name: SetFireWallState
+Description: 设置防火墙的状态
+Input and output:  
+           action:1表示开启，0表示关闭
+RetVal:
+          HP_SUCCESS:表示防火墙的状态成功
+          HP_SF_REPAIRESAFECHECKFAIL:表示设置防火墙的状态失败
+**************************************************/
+ int SingServerPage::SetFireWallStateForSafeCheck(int action)
+ {
+     bool turnoffflag = false;
+     if (action == 1)
+     {
+         turnoffflag = false;
+     }
+     else
+     {
+         turnoffflag = true;
+     }
+      CFireWall  firewall;
+     if ( firewall.SetFireWareOption(turnoffflag) == 0)
+     {
+         return HP_SUCCESS;
+     }
+     else 
+     {
+         return HP_SF_REPAIRESAFECHECKFAIL;
+     }
+ }

@@ -1,0 +1,8 @@
+
+LIBRARY
+
+EXPORTS
+    ; Explicit exports can go here
+	ServiceMain
+	ServiceHandler
+	ProcMonitorThread

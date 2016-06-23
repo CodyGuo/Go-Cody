@@ -1,0 +1,13 @@
+TARGETNAME = HpNacMntor
+TARGETPATH = obj
+TARGETTYPE = DRIVER
+
+INCLUDES = 
+LINKER_FLAGS=/integritycheck
+
+SOURCES = HpNacMntor.c	\
+	  HpNacMntor.rc	\
+	  MntDeviceControl.c     \
+	  HpProcProtect.c	
+		
+MSC_WARNING_LEVEL = 

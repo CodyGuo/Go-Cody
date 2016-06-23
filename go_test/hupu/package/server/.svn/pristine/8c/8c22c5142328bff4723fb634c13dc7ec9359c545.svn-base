@@ -1,0 +1,662 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include <Windows.h>
+#include "GlobalFunction.h"
+#include "GlobalDate.h"
+#include <WtsApi32.h>
+#include <UserEnv.h>
+#include "SafeCheckItem\SafeCheckFuntion.h"
+#include "DebugInfo.h"
+#include <WinInet.h>
+#include <windef.h>
+#include <algorithm>
+#include <iterator>
+
+#include "SafeCheckItem\MD5Checksum.h"
+#pragma comment(lib, "WtsApi32.lib")
+
+OSVERSIONINFO g_osVer = {0};
+
+/************************************************************
+ Description: LPCWSTR转String
+ input: wstr[转换的字符串]
+ Return:  返回转换的string
+*************************************************************/
+std::string WCharToAnsi(LPCWSTR pwszSrc)
+{
+	try
+	{
+		char* pszDst = NULL;
+		std::string strTemp("");
+
+		int nLen = WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, NULL, 0, NULL, NULL);
+
+		if (nLen <= 0) 
+		{
+			return std::string("");
+		}
+
+		pszDst = new char[nLen];
+
+		if (NULL == pszDst) 
+		{
+			return std::string("");
+		}
+		WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, pszDst, nLen, NULL, NULL);
+		pszDst[nLen -1] = 0;
+
+		strTemp = pszDst;
+
+		delete [] pszDst;
+
+		return strTemp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"WCharToAnsi Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "WCharToAnsi Exception");
+	}
+	return "";
+}
+
+/************************************************************
+ Description: char*转wstring
+ input: pszSrc[转换的字符串]
+ Return:  返回转换的wstring
+*************************************************************/
+std::wstring AnsiToWChar(IN const char* pszSrc)
+{
+	try
+	{
+		wchar_t* pwszDst = NULL;
+		std::wstring wstrTemp(L"");
+
+		int nLen = MultiByteToWideChar(CP_ACP, 0, pszSrc, -1, pwszDst, 0);
+
+		if (nLen <= 0) 
+		{
+			return std::wstring(L"");
+		}
+
+		pwszDst = new wchar_t[nLen];
+
+		if (NULL == pwszDst) 
+		{
+			return std::wstring(L"");
+		}
+
+		MultiByteToWideChar(CP_ACP, 0, pszSrc, strlen(pszSrc), pwszDst, nLen);
+
+		pwszDst[nLen -1] = 0;
+
+		wstrTemp = pwszDst;
+
+		delete [] pwszDst;
+
+		return wstrTemp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"AnsiToWChar Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "AnsiToWChar Exception");
+	}
+	return L"";
+}
+
+/************************************************************
+ Description: ansi转unicode
+ input: instr[转换的字符串]
+ Output: outstr[转换后的字符串]
+ Return:  返回转换的长度
+*************************************************************/
+INT ans_to_uni(IN const CHAR* instr, OUT WCHAR* outstr)
+{
+	try
+	{
+		return MultiByteToWideChar(	CP_ACP, 
+									0, 
+									instr, 
+									(INT)strlen(instr), 
+									outstr, 
+									(INT)strlen(instr));
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"ans_to_uni Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ans_to_uni Exception");
+	}
+   return FALSE;
+}
+
+/************************************************************
+ Description: unicode转ansi
+ input: instr[转换的字符串]
+ Output: outstr[转换后的字符串]
+ Return:  返回转换的长度
+*************************************************************/
+INT uni_to_ans(IN const WCHAR* instr, OUT CHAR* outstr)
+{
+	try
+	{
+		return WideCharToMultiByte(	CP_ACP, 
+									NULL, 
+									instr, 
+									(INT)wcslen(instr),
+									outstr, 
+									(INT)wcslen(instr), 
+									NULL, 
+									NULL );
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"uni_to_ans Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "uni_to_ans Exception");
+	}
+	return FALSE;
+}
+
+/************************************************************
+ Description: 运行程序
+ input: sCommand[运行命令]；imilsec[运行等待时间]
+ Return: true[启动成功]；false[启动失败]
+*************************************************************/
+bool RunProcess(const char* sCommand, const unsigned long imilsec)
+{
+	try
+	{
+		STARTUPINFOA si;
+		PROCESS_INFORMATION pi;
+
+		memset(&si, 0, sizeof(si));
+		si.cb = sizeof(si);
+		si.dwFlags = STARTF_USESHOWWINDOW;
+		si.wShowWindow = SW_HIDE;
+		memset(&pi, 0, sizeof(pi));
+
+		if(!CreateProcessA(NULL, (LPSTR)sCommand, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+			return false;
+
+		WaitForSingleObject(pi.hProcess, imilsec);
+
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"RunProcess Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "RunProcess Exception");
+	}
+	return true;
+}
+
+
+/************************************************************ 
+ Description: 启动注册程序（hpregister.exe）
+ Input:imilsec[运行等待时间]
+*************************************************************/
+BOOL StartRegExePro(const unsigned long imilsec)
+{
+	try
+	{
+		STARTUPINFO si;
+		PROCESS_INFORMATION pi;
+		DWORD dwConsoleSessionId = 0;
+		HANDLE hTokenUser = NULL;
+		BOOL bRet = TRUE;
+		wchar_t wCommandLine[MAX_PATH] = {L"0"};
+		LPVOID lpvEnv = NULL; 
+
+		//表示进程已经存在
+		if (IsProcessExec(HP_REGISTEREXE_NAME) == HP_SUCCESS)
+		{
+			return bRet;
+		} 
+
+		dwConsoleSessionId = WTSGetActiveConsoleSessionId();
+
+		if(WTSQueryUserToken(dwConsoleSessionId, &hTokenUser))
+		{
+			if (!ImpersonateLoggedOnUser(hTokenUser))
+			{
+				return FALSE;
+			}
+
+			if(!CreateEnvironmentBlock(&lpvEnv, hTokenUser, FALSE))
+			{
+				return FALSE;
+			};
+		}
+
+		ZeroMemory( &si, sizeof(si) );
+		ZeroMemory( &pi, sizeof(pi) );
+
+		si.cb = sizeof(si);
+		si.wShowWindow = SW_HIDE;
+		si.dwFlags  = STARTF_USESHOWWINDOW;
+		memset(&pi, 0, sizeof(pi));
+
+		ConvertA2W(g_nacdirpath, wCommandLine, MAX_PATH);
+		wcscat_s(wCommandLine, MAX_PATH, L"\\");
+		wcscat_s(wCommandLine, MAX_PATH, HP_C_WEBBROWSER);
+
+		bRet = ::CreateProcessAsUser(   hTokenUser,
+										NULL,
+										wCommandLine, 
+										NULL,
+										NULL,
+										FALSE,
+										CREATE_UNICODE_ENVIRONMENT,
+										lpvEnv,
+										NULL,
+										&si,
+										&pi);
+
+		WaitForSingleObject(pi.hProcess, imilsec);
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+
+		RevertToSelf();
+		DestroyEnvironmentBlock(lpvEnv);
+
+		return bRet;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"StartRegExePro Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "StartRegExePro Exception");
+	}
+	return FALSE;
+}
+
+/************************************************************ 
+ Description: 创建进程，没有启动，隐藏UI启动
+ Input:
+ return: 非零[启动]、0[失败]
+*************************************************************/
+BOOL CreateExePro(IN const char* pApplicationName, IN const char* sCommand, IN WORD wShowWindow, IN const unsigned long imilsec, OUT LPDWORD lpExitCode)
+{
+	BOOL bRet = TRUE;
+
+	try
+	{
+		STARTUPINFOA si;
+		PROCESS_INFORMATION pi;
+		DWORD dwConsoleSessionId = 0;
+		HANDLE hTokenUser = NULL, hUserTokenDup = NULL;
+		LPVOID lpvEnv = NULL; 
+
+		dwConsoleSessionId = WTSGetActiveConsoleSessionId();
+		if(!WTSQueryUserToken(dwConsoleSessionId, &hTokenUser))
+		{
+			OutputDebugStringA("@WTSQueryUserToken ..failed..\n");
+			return FALSE;
+		}
+		DuplicateTokenEx(hTokenUser, MAXIMUM_ALLOWED, NULL, SecurityIdentification, TokenPrimary, &hUserTokenDup);
+		SetTokenInformation(hUserTokenDup, TokenSessionId, (void*)dwConsoleSessionId, sizeof(DWORD));
+
+		if(!CreateEnvironmentBlock(&lpvEnv, hTokenUser, FALSE))
+		{
+			OutputDebugStringA("@CreateEnvironmentBlock ..failed..\n");
+			return FALSE;
+		}
+
+		ZeroMemory( &si, sizeof(si) );
+		ZeroMemory( &pi, sizeof(pi) );
+
+		si.cb = sizeof(si);
+		si.wShowWindow = wShowWindow;
+		si.dwFlags  = STARTF_USESHOWWINDOW;
+		memset(&pi, 0, sizeof(pi));
+
+		bRet = ::CreateProcessAsUserA(  hUserTokenDup,
+										pApplicationName/*(wchar_t*)wstrApplicationName.c_str()*/,
+										(LPSTR)sCommand/*(wchar_t*)wstrCommandLine.c_str()*/, 
+										NULL,
+										NULL,
+										FALSE,
+										CREATE_UNICODE_ENVIRONMENT,
+										lpvEnv,
+										NULL,
+										&si,
+										&pi);
+
+		WaitForSingleObject(pi.hProcess, imilsec);
+
+		if (!GetExitCodeProcess(pi.hProcess, lpExitCode))
+		{
+			*lpExitCode = 0xFFFF;
+		}
+		TerminateProcess(pi.hProcess, 0);
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+		DestroyEnvironmentBlock(lpvEnv);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"CreateExePro Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "CreateExePro Exception");
+	}
+    return bRet;
+}
+
+/************************************************************
+ Description: 结束指定进程
+*************************************************************/
+void TerminateTheProcess(IN char* pProcName, IN BOOL bEndCurrProcessFlag)  
+{
+	try
+	{
+		HANDLE snap = INVALID_HANDLE_VALUE;
+		PROCESSENTRY32 proc;
+		BOOL theloop = FALSE;
+		DWORD dwCurProcId = 0;
+
+		snap = CreateToolhelp32Snapshot(TH32CS_SNAPALL, 0);
+		if( snap == INVALID_HANDLE_VALUE )
+		{
+			return;
+		}
+
+		if (!bEndCurrProcessFlag)
+		{
+			dwCurProcId = GetCurrentProcessId();
+		}
+
+		proc.dwSize = sizeof(PROCESSENTRY32);
+
+		theloop = Process32First(snap, &proc); 
+
+		while(theloop)
+		{
+			string strExeName =  WCharToAnsi(proc.szExeFile);
+			int nLen = min((int)strExeName.length(), (int)strlen(pProcName));
+
+			if (proc.th32ProcessID == dwCurProcId)
+			{
+				theloop = Process32Next(snap, &proc); 
+				continue;
+			}
+
+			if ( _strnicmp(strExeName.c_str(), pProcName, nLen ) == 0 )
+			{
+				HANDLE hProcess = NULL;
+
+				hProcess = OpenProcess( PROCESS_TERMINATE, FALSE, proc.th32ProcessID );
+				TerminateProcess( hProcess, 0);
+			}
+			theloop = Process32Next(snap, &proc); 
+		}
+		
+		CloseHandle(snap);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"TerminateAProcess Exception", L"Msg", 0);
+#endif
+	}
+} 
+
+/************************************************************
+ Description: 获取当前程序所在路径
+ output: pFullPath【当前路径】
+ Return: FALSE【获取失败】，TRUE【获取成功】
+*************************************************************/
+int	GetCurrentPath(__out PSTR pFullPath)
+{
+	try
+	{
+		BOOL					ret= FALSE;
+		CHAR					szPath[MAX_PATH];
+		CHAR					szDrive[_MAX_DRIVE];
+		CHAR					szDir[_MAX_DIR];
+		CHAR					szFname[_MAX_FNAME];
+		CHAR					szExtname[_MAX_EXT];
+
+		if(GetModuleFileNameA(NULL,szPath,MAX_PATH))
+		{
+			if(! _splitpath_s(szPath, szDrive, _MAX_DRIVE, szDir, _MAX_DIR, szFname,_MAX_FNAME, szExtname, _MAX_EXT))
+			{
+				sprintf_s(pFullPath, MAX_PATH, "%s%s", szDrive, szDir);
+				ret = TRUE;
+			}
+		}
+		return	ret;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetCurrentPath Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetCurrentPath Exception");
+	}
+	return FALSE;
+}
+
+/************************************************************
+ Description: 加密字符串
+ output: sdata【加密字符串】ilen【字符串长度】
+ Return: sdata【输出密文】
+*************************************************************/
+unsigned char* EncryptString(unsigned char* pdata, int ilen)
+{
+	try
+	{
+		for(int i = 0; i < ilen; i++)
+		{
+			pdata[i] += 'A';
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"EncryptString Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "EncryptString Exception");
+	}
+	
+	return pdata;
+}
+
+/************************************************************
+ Description: 解密字符串
+ output: sdata【解密字符串】ilen【字符串长度】
+ Return: sdata【输出明文】
+*************************************************************/
+unsigned char* DecryptString(unsigned char* pdata, int ilen)
+{
+	try
+	{
+		for(int i = 0; i < ilen; i++)
+		{
+			pdata[i] -= 'A';
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"DecryptString Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "DecryptString Exception");
+	}
+	return pdata;
+}
+
+/************************************************************ 
+ Description:下载文件
+ input:  strURL【下载路径】 strDownFilePath【下载文件名】
+ Return: S_FALSE【下载失败】 S_OK【下载成功】
+*************************************************************/
+HRESULT UrlDownFile(IN std::string &strURL, IN std::string &strDownFilePath)
+{
+	HRESULT hr = S_FALSE;
+
+	try
+	{
+		DeleteUrlCacheEntryA(strURL.c_str()); 
+		hr = URLDownloadToFileA(0, strURL.c_str(), strDownFilePath.c_str(), 0, NULL);
+
+		if (hr == S_OK)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "下载此文件成功 = ", (char*)strDownFilePath.c_str());
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "下载此文件失败 =", (char*)strDownFilePath.c_str());
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"UrlDownFile Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "UrlDownFile Exception");
+	}
+
+	return hr;
+}
+
+OSVERSIONINFO GetOsVersionInfo()
+{
+	OSVERSIONINFO   osVer;    
+
+	osVer.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);     
+	GetVersionEx(&osVer);     
+
+	return osVer;
+}
+
+/************************************************************
+ Description: 调整token权限
+ output: hToken【提权Token】 pszPrivName【提权名】 fEnable【是否提权】
+ Return: ERROR_SUCCESS【提权成功】 否则【提权失败】
+*************************************************************/
+BOOL AdustpTokenPrivilege(HANDLE hToken, LPCTSTR pszPrivName, BOOL fEnable /*= TRUE*/) 
+{    
+	BOOL fOk = FALSE;    
+	TOKEN_PRIVILEGES tp = { 1 };     
+
+	if (hToken != NULL)
+	{
+		if( LookupPrivilegeValue(NULL, pszPrivName,  &tp.Privileges[0].Luid) )
+		{
+			tp.Privileges[0].Attributes = fEnable ?  SE_PRIVILEGE_ENABLED : 0;
+			AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), NULL, NULL);
+			fOk = (GetLastError() == ERROR_SUCCESS);		
+		}
+	}
+
+	return(fOk);
+}
+
+/************************************************************
+ Description: 获取文件MD5值
+ output: strFilePath【文件路径】
+*************************************************************/
+string GetFileMD5(string& strFilePath)  
+{  
+	string  strFileMD5 = "";
+	wstring wstrFilePath = L"";
+	CString cstrLocalMd5 = L"";
+
+	wstrFilePath = AnsiToWChar(strFilePath.c_str());
+	cstrLocalMd5 = CMD5Checksum::GetMD5((CString)wstrFilePath.c_str());
+	strFileMD5 = WCharToAnsi(cstrLocalMd5.GetBuffer());
+
+	return strFileMD5; 
+}  
+
+std::string upper_string(const std::string& str)
+{
+	string upper;
+
+	transform(str.begin(), str.end(), std::back_inserter(upper), toupper);
+
+	return upper;
+}
+
+/************************************************************
+ Description: 不区分大小写查找字串
+ input: str【要查找的字符串】 substr【子字符串】
+*************************************************************/
+std::string::size_type StrIStr(const std::string& str, const std::string& substr)
+{
+	return upper_string(str).find(upper_string(substr));
+}
+
+std::wstring upper_wstring(const std::wstring& wstr)
+{
+	wstring wupper;
+
+	transform(wstr.begin(), wstr.end(), std::back_inserter(wupper), toupper);
+
+	return wupper;
+}
+
+/************************************************************
+ Description: 不区分大小写查找字串(宽字符)
+ input: wstr【要查找的字符串】 wsubstr【子字符串】
+*************************************************************/
+std::wstring::size_type wStrIStr(const std::wstring& wstr, const std::wstring& wsubstr)
+{
+	return upper_wstring(wstr).find(upper_wstring(wsubstr));
+}
+
+/************************************************************
+ Description: 判断字符串是否为数字
+ input: pStr【要判断的字符串】
+*************************************************************/
+BOOL IsDigit(const char* pStr)
+{
+	if (pStr)
+	{
+		for (unsigned int i = 0; i < strlen(pStr); i++)
+		{ 
+			if (pStr[0] > '9' || pStr[0] < '0')
+			{
+				return FALSE;
+			}
+		}
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/************************************************************
+ Description: 判断是否是64位操作系统
+ return:TRUE【64操作系统】 FALSE【不是64位操作系统】
+*************************************************************/
+BOOL IsWin64Os()
+{
+	BOOL bwin64 = FALSE;
+	SYSTEM_INFO  si;
+
+	::GetNativeSystemInfo(&si);
+	if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||   
+		si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 )  
+	{  
+		bwin64 = TRUE;
+	} 
+	return bwin64;
+}

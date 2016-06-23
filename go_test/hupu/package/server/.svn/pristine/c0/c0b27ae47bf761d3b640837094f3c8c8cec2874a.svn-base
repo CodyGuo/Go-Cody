@@ -1,0 +1,530 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#include "StdAfx.h"
+#include "8021xCommunicate.h"
+#include "../../common/com_class/MD5_CTX.h"
+#include "../../common/GlobalFunction/GlobalFunction.h"
+
+pcap_t *m_pcap_t;
+u_char m_MulticastDddress[6] = {0x01,0x80,0xc2,0x00,0x00,0x03};
+u_char m_ucDestMac[6] = {0x01,0x80,0xc2,0x00,0x00,0x03};
+GLOBAL_DATA m_global_data = {0};
+BOOL bThreadRunFlag = FALSE;
+BOOL m_connect_status = FALSE;
+
+void CloseAdapter()
+{
+	if(m_pcap_t != 0)
+	{
+		pcap_close(m_pcap_t);
+		m_pcap_t = NULL;
+	}
+}
+
+BOOL IsWin64Os()
+{
+	BOOL bwin64 = FALSE;
+
+	SYSTEM_INFO  si;
+
+	::GetNativeSystemInfo(&si);
+	if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||   
+		si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 )  
+	{  
+		bwin64 = TRUE;
+	} 
+	return bwin64;
+}
+
+void ReinstallWpcap()
+{
+	char curPath[MAX_PATH] = {0};
+	wstring wstrInstallFile = L"";
+	SHELLEXECUTEINFO ShExecInfo = {0};
+
+	GetCurrentPath(curPath);
+	wstrInstallFile = AnsiToWChar(curPath);
+	wstrInstallFile += L"hpintallAnduninstall";
+
+	if (IsWin64Os())
+	{
+		wstrInstallFile +=  L"64.exe";
+	}
+	else
+	{
+		wstrInstallFile +=  L"32.exe";
+	}
+
+	ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+	ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+	ShExecInfo.hwnd = NULL;
+	ShExecInfo.lpVerb = L"open";
+	ShExecInfo.lpFile = wstrInstallFile.c_str();
+	ShExecInfo.lpParameters = L"/InstallNpf";
+	ShExecInfo.lpDirectory = NULL;
+	ShExecInfo.nShow = SW_HIDE;
+	ShExecInfo.hInstApp = NULL;
+
+	ShellExecuteEx(&ShExecInfo);
+}
+
+bool OpenAdapter()
+{     
+	char errbuf[PCAP_ERRBUF_SIZE] = "";
+	//char pcap_filter[100];  
+	struct bpf_program pcap_fp; 
+	bpf_u_int32 netmask = 0; 
+
+	if(!(m_pcap_t = pcap_open_live(m_global_data.m_UserData.nic,
+									256,		
+									TRUE,			 
+									100,			
+									errbuf)))	
+	{ 
+		if (m_global_data.hWnd)
+		{
+			if(strstr(errbuf, "(20)") || strstr(errbuf, "(2)") || strstr(errbuf, "(1058)"))
+			{
+				wchar_t *pMsg = L"驱动设备异常,请稍后并重启小助手重新认证！";
+
+				ReinstallWpcap();
+				::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+			}
+			else
+			{
+				wchar_t *pMsg = L"网卡异常,请检查认证网卡并重启小助手再认证！";
+
+				::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+			}
+			::PostMessage(m_global_data.hWnd, WM_USER_DISCONNECTED_NOTIFY, NULL, NULL);
+		}
+
+#ifdef _DEBUG
+		OutputDebugStringA(errbuf);
+#endif
+		CloseAdapter();
+
+		return false;
+	}
+
+	//sprintf_s(pcap_filter, 
+	//	100,
+	//	"ether proto 0x888e",
+	//	m_global_data.m_UserData.mac[0],
+	//	m_global_data.m_UserData.mac[1],
+	//	m_global_data.m_UserData.mac[2],
+	//	m_global_data.m_UserData.mac[3],
+	//	m_global_data.m_UserData.mac[4],
+	//	m_global_data.m_UserData.mac[5]);
+
+	if (pcap_compile(m_pcap_t, &pcap_fp, "ether proto 0x888e", 0, netmask) == -1)
+		return false;
+
+	if (pcap_setfilter(m_pcap_t, &pcap_fp) == -1)
+		return false;
+
+	return true;
+}
+
+void InitBuf(u_char *pBuf)
+{
+	u_char prototype[3] = {0x88, 0x8e, 0x01};
+
+	if(m_global_data.m_UserData.multisend == 0x00)
+		memcpy(pBuf, m_ucDestMac, 6);
+
+	memcpy(pBuf+6, m_global_data.m_UserData.mac, 6);
+	memcpy(pBuf+12, prototype, 3); 
+}
+
+bool SendEapolStartPkt()
+{
+	u_char buf[100] = {	0 };
+	PLOGINFRM pbuf = (PLOGINFRM)buf;
+
+	InitBuf(buf);
+
+	if(m_global_data.m_UserData.morb == 'b')
+		memset(buf, 0xff, 6);
+
+	pbuf->PktType = EAPOL_PKT;
+
+	if(!::pcap_sendpacket(m_pcap_t, buf, 60))
+	{
+		if (m_global_data.hWnd)
+		{
+			wchar_t *pMsg = L"认证中...";
+
+			::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+		}
+		
+		return true;
+	}
+
+	return false;
+}
+
+bool SendUsername(const u_char Id)
+{
+	u_char buf[100] = { 0 };
+	PUSERNAMEFRM pbuf = (PUSERNAMEFRM)buf;
+
+	InitBuf(buf);
+	pbuf->Hdr.Len1 = htons(strlen(m_global_data.m_UserData.username) + 0x05/*0x0b*/);
+	pbuf->Hdr.Code = EAP_RESPONSE;
+	pbuf->Hdr.Id = Id;
+	pbuf->Hdr.Len2 = pbuf->Hdr.Len1;
+	pbuf->Hdr.EapType = EAP_IDENTIFY;
+	//pbuf->Unknown[0] = 0x15;
+	//pbuf->Unknown[1] = 0x04;
+
+	/*if(m_global_data.m_UserData.updateip == 0x01)
+	memcpy(pbuf->Ip, m_global_data.m_UserData.ip, 4);*/
+
+	memcpy(&pbuf->Username, &m_global_data.m_UserData.username, strlen(m_global_data.m_UserData.username));
+
+	if(!::pcap_sendpacket(m_pcap_t, buf, 60))
+	{
+		return true;
+	}
+
+	return false;
+}
+
+void SetMd5Buf(PPASSWORDFRM pBuf, const u_char ID, const u_char *chap)
+{
+	u_char ucTmpBuf[1 + 64 + 16];
+	MD5_CTX md5T;
+	u_char ucDigest[16];
+	int iPasswdLen = strlen(m_global_data.m_UserData.password);
+	u_char ucMd5Pwd[16];
+	char cMd5Pwd[64] = {0};
+	int iCMd5PwdLen = 0;
+
+	md5T.MD5Update((u_char*)m_global_data.m_UserData.password, iPasswdLen);
+	md5T.MD5Final(ucMd5Pwd);
+
+	sprintf_s(cMd5Pwd, 64, "%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X", 
+		ucMd5Pwd[0], ucMd5Pwd[1], ucMd5Pwd[2], ucMd5Pwd[3], 
+		ucMd5Pwd[4], ucMd5Pwd[5], ucMd5Pwd[6], ucMd5Pwd[7], 
+		ucMd5Pwd[8], ucMd5Pwd[9], ucMd5Pwd[10], ucMd5Pwd[11],
+		ucMd5Pwd[12], ucMd5Pwd[13], ucMd5Pwd[14], ucMd5Pwd[15]);
+
+	iCMd5PwdLen = strlen(cMd5Pwd);
+
+	ucTmpBuf[0] = ID;
+
+	memcpy(ucTmpBuf+0x01, /*m_global_data.m_UserData.password*/cMd5Pwd, /*iPasswdLen*/iCMd5PwdLen);
+	memcpy(ucTmpBuf+0x01+/*iPasswdLen*/iCMd5PwdLen, chap, 16);
+
+	md5T.MD5Update(ucTmpBuf, 17+/*iPasswdLen*/iCMd5PwdLen);
+	md5T.MD5Final(ucDigest);
+
+	memcpy(pBuf->Md5Pwd, ucDigest, 16);
+}
+
+bool SendPassword(const u_char Id, const u_char *Chap)
+{
+	u_char buf[100] = { 0 };
+	PPASSWORDFRM pbuf = (PPASSWORDFRM)buf;
+
+	InitBuf(buf);
+	pbuf->Hdr.Len1 = htons(/*strlen(m_global_data.m_UserData.username) +*/0x16);
+	pbuf->Hdr.Code = EAP_RESPONSE;
+	pbuf->Hdr.Id = Id;
+	pbuf->Hdr.Len2 = pbuf->Hdr.Len1;
+	pbuf->Hdr.EapType = EAP_MD5;
+	pbuf->Unknown[0] = 0x10;
+
+	SetMd5Buf(pbuf, Id, Chap);
+	//memcpy(pbuf->Username, m_global_data.m_UserData.username, strlen(m_global_data.m_UserData.username));
+
+	if(!::pcap_sendpacket(m_pcap_t, buf, 60))
+	{
+		if (m_global_data.hWnd)
+		{
+			wchar_t * pMsg = L"验证用户名 ...";
+
+			::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+
+			pMsg = L"验证密码 ...";
+
+			::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+
+		}
+		return true;
+	}
+
+	return false;
+}
+
+bool SendKeeponline(const u_char Id)
+{
+	u_char buf[100] = { 0 };
+	PKEEPONLINEFRM pbuf = (PKEEPONLINEFRM)buf;
+
+	InitBuf(buf);
+	pbuf->Hdr.Len1 = htons(strlen(m_global_data.m_UserData.username) + 0x0b);
+	pbuf->Hdr.Code = EAP_RESPONSE;
+	pbuf->Hdr.Id = Id;
+	pbuf->Hdr.Len2 = pbuf->Hdr.Len1;
+	pbuf->Hdr.EapType = EAP_KEEPONLINE;
+	pbuf->Unknown[0] = 0x00;
+	pbuf->Unknown[1] = 0x15;
+	pbuf->Unknown[2] = 0x04;
+	 
+	if(m_global_data.m_UserData.updateip == 0x01)
+		memcpy(pbuf->Ip, m_global_data.m_UserData.ip, 4);
+
+	memcpy(pbuf->Username, m_global_data.m_UserData.username, strlen(m_global_data.m_UserData.username));
+
+	return !::pcap_sendpacket(m_pcap_t, buf, 60);
+}
+
+void StartAuth()
+{
+	struct pcap_pkthdr *header =NULL;
+	const u_char *pkt_data = NULL;
+	int res = 0;
+	time_t dwTick, dwOldTick, ttMaxTick;
+
+	 dwOldTick = clock();
+	 dwTick = dwOldTick;
+	 ttMaxTick = dwOldTick;
+	 m_connect_status = FALSE;
+
+	while((res = pcap_next_ex(m_pcap_t, &header, &pkt_data)) >= 0)
+	{
+		if (bThreadRunFlag == FALSE)
+		{
+			CloseAdapter();
+			return;
+		}
+
+		if(res == 0)
+		{
+			dwTick = clock();
+
+			if(dwTick - ttMaxTick >= 9000)
+			{
+				if (!m_connect_status)
+				{
+					if (m_global_data.hWnd)
+					{
+						wchar_t *pMsg = L"认证失败...";
+
+						::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+						::PostMessage(m_global_data.hWnd, WM_USER_DISCONNECTED_NOTIFY, NULL, NULL);
+					}					
+					m_connect_status = FALSE;
+					CloseAdapter();
+					return;
+				}
+				continue;
+			}
+			else if(dwTick - dwOldTick >= 3000 )
+			{
+				if (!m_connect_status)
+				{
+					if (m_global_data.hWnd)
+					{
+						wchar_t *pMsg = L"认证中...";
+
+						::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+					}
+				}
+				dwOldTick = clock();
+			}	
+			continue;
+		}
+
+		dwOldTick = clock();
+		ttMaxTick = dwOldTick;
+
+		PPKTHDR pbuf = (PPKTHDR)pkt_data;
+
+		switch(pbuf->Code)
+		{
+			case EAP_REQUEST:
+				{
+					switch(pbuf->EapType)
+					{
+						case EAP_IDENTIFY:
+							{
+								if (memcmp(pbuf->DestMAC, m_MulticastDddress, 6) == 0 || memcmp(pbuf->DestMAC, m_global_data.m_UserData.mac, 6) == 0)
+								{
+									SendUsername(pbuf->Id);
+								}
+							}
+							break;
+
+						case EAP_KEEPONLINE:
+							{
+								if (memcmp(pbuf->DestMAC, m_MulticastDddress, 6) == 0 || memcmp(pbuf->DestMAC, m_global_data.m_UserData.mac, 6) == 0)
+								{
+									SendKeeponline(pbuf->Id);
+									dwOldTick = clock();
+								}	
+							}
+							break;
+
+						case EAP_MD5:
+							{
+								if(memcmp(pbuf->DestMAC, m_global_data.m_UserData.mac, 6) == 0)
+								{
+		#ifdef _DEBUG
+									if (m_global_data.hWnd)
+									{
+										wchar_t *pMsg = L"send md5 password...";
+
+										::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+									}								
+		#endif
+									SendPassword(pbuf->Id, ((PPASSWORDFRM)pkt_data)->Md5Pwd);
+									m_connect_status = FALSE;
+								}
+							}
+							break;
+
+						default:
+							break;
+					}
+				}
+				break;
+			case EAP_RESPONSE:
+				{
+					if(memcmp(pbuf->DestMAC, m_MulticastDddress, 6) == 0 || memcmp(pbuf->DestMAC, m_global_data.m_UserData.mac, 6) == 0)
+					{
+	#ifdef _DEBUG
+						if (m_global_data.hWnd)
+						{
+							wchar_t *pMsg = L"Response";
+
+							::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+						}
+	#endif
+					}			
+				}
+				break;
+			case EAP_SUCCESS:
+				{
+					if(memcmp(pbuf->DestMAC, m_global_data.m_UserData.mac, 6) == 0)
+					{
+						if (m_global_data.hWnd)
+						{
+							wchar_t *pMsg = L"认证成功..";
+
+							::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+						}
+						m_connect_status = TRUE;
+					}		
+				}
+				break;
+
+			case EAP_FAILURE:
+				{
+					if(memcmp(pbuf->DestMAC, m_MulticastDddress, 6) == 0 || memcmp(pbuf->DestMAC, m_global_data.m_UserData.mac, 6) == 0)
+					{
+						if (!m_connect_status)
+						{
+							if (m_global_data.hWnd)
+							{
+								wchar_t *pMsg = L"帐号或密码错误";
+
+								::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+								::PostMessage(m_global_data.hWnd, WM_USER_DISCONNECTED_NOTIFY, NULL, NULL);
+							}
+							bThreadRunFlag = FALSE;
+						}
+						else
+						{
+							if (m_global_data.hWnd)
+							{
+								wchar_t *pMsg = L"服务器通知断开网络..";
+
+								::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)pMsg);
+								::PostMessage(m_global_data.hWnd, WM_USER_DISCONNECTED_NOTIFY, NULL, NULL);
+							}
+						}
+					}
+				}
+				break;
+			case EAP_OTHER:
+				{
+
+				}
+				break;
+		}
+		continue;
+	}
+	CloseAdapter();
+}	
+
+void Connect()
+{
+	for(int j = 0; j < 6; j++)
+	{
+		m_ucDestMac[j] = m_MulticastDddress[j];
+	}
+
+	if(!OpenAdapter())
+	{
+		::PostMessage(m_global_data.hWnd, WM_USER_DISCONNECTED_NOTIFY, NULL, NULL);
+		return;
+	}
+
+	SendEapolStartPkt();
+	StartAuth();
+	CloseAdapter();
+}
+
+bool SendLogout()
+{
+	u_char buf[100] = {	0 };
+	PLOGOUTFRM pbuf = (PLOGOUTFRM)buf;
+
+	InitBuf(buf);
+	pbuf->PktType = LOGOFF_PKT;
+
+	if(!::pcap_sendpacket(m_pcap_t, buf, 60))
+	{
+		return true;
+	}
+
+	return false;
+}
+
+void DisConnect()
+{
+	for(int j = 0; j < 6; j++)
+	{
+		m_ucDestMac[j] = m_MulticastDddress[j];
+	}
+
+	if(!m_pcap_t)
+		OpenAdapter();
+
+	if(m_pcap_t)
+	{
+		if (m_global_data.hWnd)
+		{
+			if (m_connect_status)
+			{
+				::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)L"断开网络.");
+			}
+			else
+			{
+				::PostMessage(m_global_data.hWnd, WM_USER_DISPLAY_INFO_NOTIFY, NULL, (LPARAM)L"断开连接.");
+			}
+			Sleep(200);
+		}
+
+		SendLogout();
+		CloseAdapter();
+	}
+}

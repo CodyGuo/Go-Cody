@@ -1,0 +1,1411 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#include "stdafx.h"
+#include "CheckCustom.h"
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+#include "..\GlobalDate.h"
+#include "..\CustomCheck\CheckFile.h"
+#include "..\CustomCheck\CheckReg.h"
+#include "..\CustomCheck\CheckProcess.h"
+#include "..\CustomCheck\CheckPort.h"
+#include "..\CustomCheck\CheckService.h"
+#include "..\GlobalFunction.h"
+#include "..\GetLangValue.h"
+#include "Download.h"
+#include "SafeCheckFuntion.h"
+
+list<CHECKCUSTOMPOLICY> g_checkCustomPolicyList;
+
+/************************************************************ 
+ Description: 转换Ansi为int
+ input: pAnsiBuf[转换的BUF]
+ Return: 
+*************************************************************/
+int ConvertAnsiToInterger(IN const char* pAnsiBuf)
+{
+	int iRet = -1;
+
+	if (pAnsiBuf)
+	{
+		iRet = atoi(pAnsiBuf);
+	}
+	return iRet;	
+}
+
+void InitForItem(PFORITEM pForItem)
+{
+	pForItem->checkItemList.clear();
+	pForItem->repairItemList.clear();
+	memset(pForItem, 0, sizeof(pForItem));	
+}
+
+void InitForItemList(list<FORITEM>& forItemList)
+{
+	std::list<FORITEM>::iterator forItemIter;
+	for (forItemIter = forItemList.begin(); forItemIter != forItemList.end(); forItemIter++)
+	{
+		forItemIter->checkItemList.clear();
+		forItemIter->repairItemList.clear();
+	}
+	forItemList.clear();
+}
+
+void InitCustomPolicy(OUT PCHECKCUSTOMPOLICY pCheckCustomPolicy)
+{
+	std::list<FORITEM>::iterator forItemIter;
+
+	for (forItemIter = pCheckCustomPolicy->forItemList.begin(); forItemIter != pCheckCustomPolicy->forItemList.end(); forItemIter++)
+	{
+		forItemIter->checkItemList.clear(); 
+		forItemIter->repairItemList.clear();
+	}
+	pCheckCustomPolicy->forItemList.clear();
+	
+	memset(pCheckCustomPolicy, 0, sizeof(pCheckCustomPolicy));
+}
+
+void InitCustomPolicyList(IN list<CHECKCUSTOMPOLICY>& checkCustomPolicyList)
+{
+	std::list<CHECKCUSTOMPOLICY>::iterator iter;
+
+	for (iter = checkCustomPolicyList.begin(); iter != checkCustomPolicyList.end(); iter++)
+	{
+		InitForItemList(iter->forItemList);
+		memset(&iter->attriinfo, 0, sizeof(iter->attriinfo));
+	}
+	checkCustomPolicyList.clear();
+}
+
+int ClearAssociationTable(IN OpStgClass *pOsc, IN sqlite3 *pDb,IN const char* pUserId, IN const char* pUserType,IN const char* pTableName)
+{
+	int iRet = FALSE;
+	string strSql = "";
+
+	strSql = "DELETE FROM ";
+	strSql += pTableName;
+	strSql += " WHERE ";
+	strSql += pTableName;
+	strSql += ".ipolicyauthid IN (SELECT ipolicyauthid FROM ";
+	strSql += TSTG_CHECKCUSTOM_TABLE_NAME;
+	strSql += " WHERE (";
+	strSql += TSTG_CHECKCUSTOM_TABLE_NAME;
+	strSql += ".iuserid=";
+	strSql += pUserId;
+	strSql += " AND ";
+	strSql += TSTG_CHECKCUSTOM_TABLE_NAME;
+	strSql += ".usertype=";
+	strSql += pUserType;
+	strSql += "))";
+
+	WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, (char*)strSql.c_str());
+
+	iRet = pOsc->SqlExec(pDb, strSql.c_str());
+	if (iRet != 0)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "SqlExec 执行失败,数据库回滚");
+		iRet = pOsc->SqlExec(pDb, "ROLLBACK");
+		return HP_DB_OPFAIL;
+	}
+	return HP_SUCCESS;
+}
+
+int ClearCustomCheckTable(IN OpStgClass *pOsc, IN sqlite3 *pDb,IN const char* pUserId, IN const char* pUserType)
+{
+	int iRet = HP_SUCCESS;
+
+	try
+	{
+		string strSql = "";
+
+		strSql = "DELETE FROM ";
+		strSql += TSTG_CHECKCUSTOM_TABLE_NAME;
+		strSql += " WHERE iuserid=";
+		strSql += pUserId;
+		strSql += " AND usertype=";
+		strSql += pUserType;
+
+		ClearAssociationTable(pOsc, pDb, pUserId, pUserType, TSTG_CHECKCUSTOM_FORITEM_TABLE_NAME);
+		ClearAssociationTable(pOsc, pDb, pUserId, pUserType, TSTG_CHECKCUSTOM_CHECKITEM_TABLE_NAME);
+		ClearAssociationTable(pOsc, pDb, pUserId, pUserType, TSTG_CHECKCUSTOM_REPAIRITEM_TABLE_NAME);
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, (char*)strSql.c_str());
+
+		if (pOsc->SqlExec(pDb, strSql.c_str()) != 0)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "SqlExec 执行失败,数据库回滚");
+			pOsc->SqlExec(pDb, "ROLLBACK");
+			iRet = HP_DB_OPFAIL;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"ClearCustomCheckTable Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "ClearCustomCheckTable Exception");
+	}
+	return iRet;
+}
+
+int SaveCustomForItemData(IN char* pItemName, IN char* pItemValue, IN int iContSize, IN sqlite3 *pDb, IN OpStgClass *pOsc, OUT int* piItemCount, OUT PFORITEM pForItem)
+{
+	int iRet = FALSE;
+
+	try
+	{
+		if (strcmp(pItemName, "ipolicyauthid")==0)
+		{
+			pForItem->iPolicyId = ConvertAnsiToInterger(pItemValue);
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "scustomname")==0)
+		{
+			Convert(pItemValue, pForItem->szCustomName, MINI_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "scustomdesc")==0)
+		{
+			Convert(pItemValue, pForItem->szCustomDesc, MAX_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "snormalldesc")==0)
+		{
+			Convert(pItemValue, pForItem->szNormallDesc, MAX_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "sillegaldesc")==0)
+		{
+			Convert(pItemValue, pForItem->szIllegalDesc, MAX_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "iestimate")==0)
+		{
+			pForItem->iEstimate = ConvertAnsiToInterger(pItemValue);
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "itrigger")==0)
+		{
+			pForItem->iTrigger = ConvertAnsiToInterger(pItemValue);
+			(*piItemCount)++;
+		}
+
+		if ((*piItemCount) == iContSize)
+		{
+			char sql[HP_C_SQLDATA]={"0"};
+			char sqlReal[HP_C_SQLDATA]={"0"};
+
+			sprintf_s(sql,
+				HP_C_SQLDATA,
+				"INSERT INTO %s(ipolicyauthid, scustomname, scustomdesc, snormalldesc, sillegaldesc, iestimate, itrigger) VALUES(%d,\"%s\",\"%s\",\"%s\",\"%s\",%d,%d)",
+				TSTG_CHECKCUSTOM_FORITEM_TABLE_NAME,
+				pForItem->iPolicyId,
+				pForItem->szCustomName,
+				""/*pForItem->szCustomDesc*/, 
+				pForItem->szNormallDesc,
+				pForItem->szIllegalDesc,
+				pForItem->iEstimate,
+				pForItem->iTrigger);	
+
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, (char*)sql);
+			Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);	
+			iRet = pOsc->SqlExec(pDb, sqlReal);
+			if (iRet != 0)
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "SqlExec 执行失败,数据库回滚");
+				iRet = pOsc->SqlExec(pDb, "ROLLBACK");
+				return HP_DB_OPFAIL;
+			}
+			*piItemCount = 0;
+
+			iRet = TRUE;
+		}
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"SaveCustomForItemData Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "SaveCustomForItemData Exception");
+	} 
+	return iRet;
+}
+
+int SaveCustomCheckItemData(IN char* pItemName, 
+	IN char* pItemValue, 
+	IN int iContSize, 
+	IN sqlite3 *pDb, 
+	IN OpStgClass *pOsc, 
+	OUT PCHECKITEM pCheckItem, 
+	OUT int* piItemCount, 
+	OUT PFORITEM pForItem)
+{
+	int iRet = FALSE;
+
+	try
+	{
+		if (strcmp(pItemName, "icheckmethod")==0)
+		{
+			pCheckItem->iCheckMethod = ConvertAnsiToInterger(pItemValue);
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "icheckcon")==0)
+		{
+			pCheckItem->iCheckConditions = ConvertAnsiToInterger(pItemValue);
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "scheckinfo")==0)
+		{
+			Convert(pItemValue, pCheckItem->szCheckConditionsInfo, MAX_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "scheckdesc")==0)
+		{
+			Convert(pItemValue, pCheckItem->szCheckDesc, MINI_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "scheckname")==0)
+		{
+			Convert(pItemValue, pCheckItem->szCheckName, MAX_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "scheckvalue")==0)
+		{
+			Convert(pItemValue, pCheckItem->szCheckValue, MINI_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+
+		if ((*piItemCount) == iContSize)
+		{
+			char sql[HP_C_SQLDATA]={"0"};
+			char sqlReal[HP_C_SQLDATA]={"0"};
+
+			sprintf_s(sql,
+				HP_C_SQLDATA,
+				"INSERT INTO %s(ipolicyauthid,scustomname,icheckmethod,icheckcon,scheckinfo,scheckdesc,scheckname,scheckvalue)VALUES(%d,\"%s\",%d,%d,\"%s\",\"%s\",\"%s\",\"%s\")",
+				TSTG_CHECKCUSTOM_CHECKITEM_TABLE_NAME,
+				pForItem->iPolicyId,
+				pForItem->szCustomName,
+				pCheckItem->iCheckMethod, 
+				pCheckItem->iCheckConditions,
+				pCheckItem->szCheckConditionsInfo,
+				pCheckItem->szCheckDesc,
+				pCheckItem->szCheckName,
+				pCheckItem->szCheckValue);	
+
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, (char*)sql);
+			Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);	
+			iRet = pOsc->SqlExec(pDb, sqlReal);
+			if (iRet != 0)
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "SqlExec 执行失败,数据库回滚");
+				iRet = pOsc->SqlExec(pDb, "ROLLBACK");
+				return HP_DB_OPFAIL;
+			}
+			(*piItemCount) = 0;
+			memset(pCheckItem, 0, sizeof(CHECKITEM));
+			iRet = TRUE;
+		}
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"SaveCustomCheckItemData Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "SaveCustomCheckItemData Exception");
+	}
+	return iRet;
+}
+
+int SaveCustomRepairItemData(IN char* pItemName, 
+	IN char* pItemValue, 
+	IN int iContSize, 
+	IN sqlite3 *pDb,
+	IN OpStgClass *pOsc,
+	OUT PREPAIRITEM pRepairItem,
+	OUT int* piItemCount, 
+	OUT PFORITEM pForItem)
+{
+	int iRet = FALSE;
+
+	try
+	{		
+		if (strcmp(pItemName, "irepairmethod")==0)
+		{
+			pRepairItem->iRepairMethod = ConvertAnsiToInterger(pItemValue);
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "srepairinfo")==0)
+		{
+			Convert(pItemValue, pRepairItem->szRepairInfo, MAX_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "srepairparam")==0)
+		{
+			Convert(pItemValue, pRepairItem->szRepairParam, MINI_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "iparamtype")==0)
+		{
+			pRepairItem->iParamType = ConvertAnsiToInterger(pItemValue);
+			(*piItemCount)++;
+		}
+		else if (strcmp(pItemName, "srepairchange")==0)
+		{
+			Convert(pItemValue, pRepairItem->szRepairChange, MIDDLE_BUF_LEN, CP_UTF8, CP_ACP);					
+			(*piItemCount)++;
+		}
+
+		if ((*piItemCount) == iContSize)
+		{
+			char sql[HP_C_SQLDATA]={"0"};
+			char sqlReal[HP_C_SQLDATA] = {0};
+
+			sprintf_s(sql,
+				HP_C_SQLDATA,
+				"INSERT INTO %s(ipolicyauthid,scustomname,irepairmethod,srepairinfo,srepairparam,iparamtype,srepairchange)VALUES(%d,\"%s\",%d,\"%s\",\"%s\",%d,\"%s\")",
+				TSTG_CHECKCUSTOM_REPAIRITEM_TABLE_NAME,
+				pForItem->iPolicyId,
+				pForItem->szCustomName,
+				pRepairItem->iRepairMethod,
+				pRepairItem->szRepairInfo,
+				pRepairItem->szRepairParam,
+				pRepairItem->iParamType,
+				pRepairItem->szRepairChange);	
+
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, (char*)sql);
+			Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);	
+			iRet = pOsc->SqlExec(pDb, sqlReal);
+			if (iRet != 0)
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "SqlExec 执行失败,数据库回滚");
+				iRet = pOsc->SqlExec(pDb, "ROLLBACK");
+				return HP_DB_OPFAIL;
+			}
+			(*piItemCount) = 0;
+			memset(pRepairItem, 0, sizeof(REPAIRITEM));
+			iRet = TRUE;
+		}
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"SaveCustomRepairItemData Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "SaveCustomRepairItemData Exception");
+	}
+	return iRet;
+}
+
+/************************************************************
+Function Name: SaveCustomCheckPolicy
+Input and output:  
+          policyId: 自定义的策略id号
+          pDb: 数据库句柄
+          thirditemattri: thirditem中的xml数据
+          pOsc: OpStgClass类对象
+RetVal:成功返回HP_SUCCESS
+       失败返回HP_DB_OPFAIL
+*************************************************************/
+int SaveCustomCheckPolicy(IN int policyId, IN sqlite3 *pDb, IN XMLDATA* pXmlData, IN OpStgClass *pOsc)
+{
+    try
+    {
+		list<XMLFORITEM>::iterator  forItemIter;
+
+		FORITEM forItem;
+		int iItemCount = 0;
+		CHECKITEM checkItem;
+		REPAIRITEM repairItem; 
+
+		InitForItem(&forItem);
+		memset(&checkItem, 0, sizeof(CHECKITEM));
+		memset(&repairItem, 0, sizeof(REPAIRITEM));
+
+        forItem.iPolicyId = policyId;
+
+		 for (forItemIter = pXmlData->forItemAttriList.begin(); forItemIter != pXmlData->forItemAttriList.end(); forItemIter++)
+		 {
+			 list<XMLNAMEANDVALUECON>::iterator  forItemAttriIter;
+
+			 iItemCount = 0;
+			 for (forItemAttriIter = forItemIter->forItemAttriList.begin(); forItemAttriIter != forItemIter->forItemAttriList.end();)
+			 {
+				 SaveCustomForItemData((*forItemAttriIter).name, (*forItemAttriIter).value, (*forItemAttriIter).contsize, pDb, pOsc, &iItemCount, &forItem);
+				 forItemIter->forItemAttriList.erase(forItemAttriIter++);
+				 if (forItemIter->forItemAttriList.empty())
+				 {
+					 break;
+				 }
+			 }
+
+			 iItemCount = 0;
+			 for (forItemAttriIter = forItemIter->chekItemAttriList.begin(); forItemAttriIter != forItemIter->chekItemAttriList.end();)
+			 {
+				 SaveCustomCheckItemData((*forItemAttriIter).name, (*forItemAttriIter).value, (*forItemAttriIter).contsize, pDb, pOsc, &checkItem, &iItemCount, &forItem);
+				 forItemIter->chekItemAttriList.erase(forItemAttriIter++);
+				 if ( forItemIter->chekItemAttriList.empty()) 
+				 {
+					 break;
+				 }
+			 }
+
+			 iItemCount = 0;
+			 for (forItemAttriIter = forItemIter->repairItemAttriList.begin(); forItemAttriIter != forItemIter->repairItemAttriList.end();)
+			 {
+				 SaveCustomRepairItemData((*forItemAttriIter).name, (*forItemAttriIter).value, (*forItemAttriIter).contsize, pDb, pOsc, &repairItem, &iItemCount, &forItem);
+				 forItemIter->repairItemAttriList.erase(forItemAttriIter++);
+				 if ( forItemIter->repairItemAttriList.empty())
+				 {
+					 break;
+				 }
+			 }
+
+		 }
+
+        return HP_SUCCESS;
+    }
+    catch(...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL, L"SaveCustomCheckPolicy Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "SaveCustomCheckPolicy Exception");
+    } 
+
+    return HP_DB_OPFAIL;
+}
+
+int GetCheckItemTableData(OUT PFORITEM pForItem, IN int iPolicyId)
+{
+	int iRet = SQLITE_OK;
+	INT nRow = 0;
+	INT nCloumn = 0;
+	char **pszResult='\0';
+	CHAR *szErrMsg='\0';
+	string strSelectSql = "SELECT icheckmethod,icheckcon,scheckinfo,scheckdesc,scheckname,scheckvalue FROM ";
+	char szSql[MAX_BUF_LEN] = {0};
+
+	strSelectSql += (string)TSTG_CHECKCUSTOM_CHECKITEM_TABLE_NAME;
+	strSelectSql += " WHERE scustomname=\"";
+	strSelectSql += (string)pForItem->szCustomName;
+	strSelectSql += "\" AND ipolicyauthid=";
+	strSelectSql += std::to_string((_ULonglong)iPolicyId);
+
+	WriteDebugInfomation(LEVEL_DEBUG, MODULE_CHECKCUSTOM, LOGLOCATION, "查询自定义安检策略的SQL语句:", (char*)strSelectSql.c_str());
+	Convert(strSelectSql.c_str(), szSql, sizeof(szSql), CP_ACP, CP_UTF8);	
+	iRet = sqlite3_get_table(g_db, szSql, &pszResult, &nRow, &nCloumn, &szErrMsg);
+
+	if(SQLITE_OK != iRet)
+	{
+		sqlite3_free_table(pszResult);
+		iRet = sqlite3_close(g_db);
+		g_db = NULL;
+		return iRet;
+	}
+
+	if ((nRow > 0) && (nCloumn > 0))
+	{
+		for (int i=0; i < nRow; i++)
+		{
+			CHECKITEM checkItem;
+
+			memset(&checkItem, 0, sizeof(checkItem));
+			for (int j = 0; j < nCloumn; j++)
+			{
+				if (strcmp(pszResult[j], "icheckmethod")==0)
+				{
+					checkItem.iCheckMethod = ConvertAnsiToInterger(pszResult[(i+1)*nCloumn+j]);
+				}
+				else if (strcmp(pszResult[j], "icheckcon")==0)
+				{
+					checkItem.iCheckConditions = ConvertAnsiToInterger(pszResult[(i+1)*nCloumn+j]);
+				}
+				else if (strcmp(pszResult[j], "scheckinfo")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], checkItem.szCheckConditionsInfo, MAX_BUF_LEN, CP_UTF8, CP_ACP);					
+				}
+				else if (strcmp(pszResult[j], "scheckdesc")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], checkItem.szCheckDesc, MINI_BUF_LEN, CP_UTF8, CP_ACP);					
+				}
+				else if (strcmp(pszResult[j], "scheckname")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], checkItem.szCheckName, MAX_BUF_LEN, CP_UTF8, CP_ACP);	
+				}
+				else if (strcmp(pszResult[j], "scheckvalue")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], checkItem.szCheckValue, MINI_BUF_LEN, CP_UTF8, CP_ACP);		
+				}
+
+				if (j == (nCloumn -1))
+				{
+					pForItem->checkItemList.push_back(checkItem);
+				}
+			}
+		}
+	}   
+	sqlite3_free_table(pszResult);
+
+	return iRet;
+}
+
+int GetRepairItemTableData(OUT PFORITEM pForItem, IN int iPolicyId)
+{
+	int iRet = SQLITE_OK;
+	INT nRow = 0;
+	INT nCloumn = 0;
+	char **pszResult='\0';
+	CHAR *szErrMsg='\0';
+	string strSelectSql = "SELECT irepairmethod,srepairinfo,srepairparam,iparamtype,srepairchange FROM ";
+	char szSql[MAX_BUF_LEN] = {0};
+
+	strSelectSql += (string)TSTG_CHECKCUSTOM_REPAIRITEM_TABLE_NAME;
+	strSelectSql += " WHERE scustomname=\"";
+	strSelectSql += (string)pForItem->szCustomName;
+	strSelectSql += "\" AND ipolicyauthid=";
+	strSelectSql += std::to_string((_ULonglong)iPolicyId);
+
+	WriteDebugInfomation(LEVEL_DEBUG, MODULE_CHECKCUSTOM, LOGLOCATION, "查询自定义安检策略的SQL语句:", (char*)strSelectSql.c_str());
+	Convert(strSelectSql.c_str(), szSql, sizeof(szSql), CP_ACP, CP_UTF8);	
+
+	iRet = sqlite3_get_table(g_db, szSql, &pszResult, &nRow, &nCloumn, &szErrMsg);
+
+	if(SQLITE_OK != iRet)
+	{
+		sqlite3_free_table(pszResult);
+		iRet = sqlite3_close(g_db);
+		g_db = NULL;
+		return iRet;
+	}
+
+	if ((nRow > 0) && (nCloumn > 0))
+	{
+		for (int i=0; i < nRow; i++)
+		{
+			REPAIRITEM repairItem;
+
+			memset(&repairItem, 0, sizeof(repairItem));
+
+			for (int j = 0; j < nCloumn; j++)
+			{
+				if (strcmp(pszResult[j], "irepairmethod")==0)
+				{
+					repairItem.iRepairMethod = ConvertAnsiToInterger(pszResult[(i+1)*nCloumn+j]);
+				}
+				else if (strcmp(pszResult[j], "srepairinfo")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], repairItem.szRepairInfo, MAX_BUF_LEN, CP_UTF8, CP_ACP);
+				}
+				else if (strcmp(pszResult[j], "srepairparam")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], repairItem.szRepairParam, MINI_BUF_LEN, CP_UTF8, CP_ACP);					
+				}
+				else if (strcmp(pszResult[j], "iparamtype")==0)
+				{
+					repairItem.iParamType = ConvertAnsiToInterger(pszResult[(i+1)*nCloumn+j]);
+				}
+				else if (strcmp(pszResult[j], "srepairchange")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], repairItem.szRepairChange, MIDDLE_BUF_LEN, CP_UTF8, CP_ACP);					
+				}
+
+				if (j == (nCloumn -1))
+				{
+					pForItem->repairItemList.push_back(repairItem);
+				}
+			}
+		}
+	}   
+	sqlite3_free_table(pszResult);
+
+	return iRet;
+}
+
+int IsExistForItem(IN list<CHECKCUSTOMPOLICY> customPolicyList, IN FORITEM forItem)
+{
+	list<CHECKCUSTOMPOLICY>::iterator allowIter;
+	int iIsExist = FALSE;
+
+	for (allowIter = customPolicyList.begin(); allowIter != customPolicyList.end(); allowIter++)
+	{
+		list<FORITEM>::iterator allowForItemIter;
+
+		for (allowForItemIter = allowIter->forItemList.begin(); allowForItemIter != allowIter->forItemList.end(); allowForItemIter++)
+		{
+			int iCmp = 0;
+
+			iCmp = _strnicmp(allowForItemIter->szCustomName, 
+				forItem.szCustomName,  
+				max(strlen(allowForItemIter->szCustomName),
+				strlen(forItem.szCustomName)));
+
+			if ( iCmp == 0 )
+			{
+				iIsExist = TRUE;
+				break;
+			}
+		}
+
+		if (iIsExist)
+		{
+			break;
+		}
+	}
+
+	return iIsExist;
+}
+
+int GetForItemTableData(CHECKCUSTOMPOLICY& checkCustomPolicy, IN int iPolicyId, IN list<CHECKCUSTOMPOLICY> checkCustomPolicyList, IN list<CHECKCUSTOMPOLICY> refusePolicyList)
+{
+	int iRet = SQLITE_OK;
+	INT nRow = 0;
+	INT nCloumn = 0;
+	char **pszResult='\0';
+	CHAR *szErrMsg='\0';
+	string strSelectSql = "SELECT scustomname, scustomdesc, snormalldesc, sillegaldesc, iestimate, itrigger FROM ";
+
+	strSelectSql += (string)TSTG_CHECKCUSTOM_FORITEM_TABLE_NAME;
+	strSelectSql += " WHERE ipolicyauthid=";
+	strSelectSql += std::to_string((_ULonglong)iPolicyId);
+
+	WriteDebugInfomation(LEVEL_DEBUG, MODULE_CHECKCUSTOM, LOGLOCATION, "查询自定义安检策略的SQL语句:", (char*)strSelectSql.c_str());
+
+	iRet = sqlite3_get_table(g_db, strSelectSql.c_str(), &pszResult, &nRow, &nCloumn, &szErrMsg);
+
+	if(SQLITE_OK != iRet)
+	{
+		sqlite3_free_table(pszResult);
+		iRet = sqlite3_close(g_db);
+		g_db = NULL;
+		return iRet;
+	}
+
+	if ((nRow > 0) && (nCloumn > 0))
+	{
+		for (int i=0; i < nRow; i++)
+		{
+			FORITEM forItem;
+
+			InitForItem(&forItem);
+			forItem.iPolicyId = iPolicyId;
+
+			for (int j = 0; j < nCloumn; j++)
+			{
+				if (strcmp(pszResult[j], "ipolicyauthid")==0)
+				{
+					forItem.iPolicyId = ConvertAnsiToInterger(pszResult[(i+1)*nCloumn+j]);
+				}
+				if (strcmp(pszResult[j], "scustomname")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], forItem.szCustomName, MINI_BUF_LEN, CP_UTF8, CP_ACP);					
+				}
+				else if (strcmp(pszResult[j], "scustomdesc")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], forItem.szCustomDesc, MAX_BUF_LEN, CP_UTF8, CP_ACP);					
+				}
+				else if (strcmp(pszResult[j], "snormalldesc")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], forItem.szNormallDesc, MAX_BUF_LEN, CP_UTF8, CP_ACP);					
+				}
+				else if (strcmp(pszResult[j], "sillegaldesc")==0)
+				{
+					Convert(pszResult[(i+1)*nCloumn+j], forItem.szIllegalDesc, MAX_BUF_LEN, CP_UTF8, CP_ACP);					
+				}
+				else if (strcmp(pszResult[j], "iestimate")==0)
+				{
+					forItem.iEstimate = ConvertAnsiToInterger(pszResult[(i+1)*nCloumn+j]);
+				}
+				else if (strcmp(pszResult[j], "itrigger")==0)
+				{
+					forItem.iTrigger = ConvertAnsiToInterger(pszResult[(i+1)*nCloumn+j]);
+				}
+
+				if(j == (nCloumn -1))
+				{
+					int iIsExistFlag = FALSE;
+
+					GetCheckItemTableData(&forItem, iPolicyId);
+					GetRepairItemTableData(&forItem, iPolicyId);
+
+					switch(atoi(checkCustomPolicy.attriinfo.spolicyaction))
+					{
+						case ALLOW:
+							{
+								iIsExistFlag = IsExistForItem(checkCustomPolicyList, forItem);
+							}
+							break;
+						case REFUSE:
+							{
+								iIsExistFlag = IsExistForItem(refusePolicyList, forItem);
+							}
+							break;
+						default: 
+							break;
+					}
+					if (!iIsExistFlag)
+					{
+						checkCustomPolicy.forItemList.push_back(forItem);
+					}
+				}
+			}
+		}
+	}   
+	sqlite3_free_table(pszResult);
+
+	return iRet;
+}
+
+void CustomPolicyMerge(IN list<CHECKCUSTOMPOLICY>& checkCustomAllowPolicyList, IN list<CHECKCUSTOMPOLICY>& checkCustomRefusePolicyList)
+{
+	list<CHECKCUSTOMPOLICY>::iterator allowIter;
+
+	for (allowIter = checkCustomAllowPolicyList.begin(); allowIter != checkCustomAllowPolicyList.end(); allowIter++)
+	{
+		list<FORITEM>::iterator allowForItemIter;
+
+		for (allowForItemIter = allowIter->forItemList.begin(); allowForItemIter != allowIter->forItemList.end();)
+		{
+			list<CHECKCUSTOMPOLICY>::iterator refuseIter;
+			BOOL bEraseFlag = FALSE;
+
+			for (refuseIter = checkCustomRefusePolicyList.begin(); refuseIter != checkCustomRefusePolicyList.end(); refuseIter++)
+			{
+				list<FORITEM>::iterator refuseForItemIter;
+
+				for (refuseForItemIter = refuseIter->forItemList.begin(); refuseForItemIter != refuseIter->forItemList.end(); refuseForItemIter++)
+				{
+					int iCmp = 0;
+
+					iCmp = _strnicmp(allowForItemIter->szCustomName, 
+						refuseForItemIter->szCustomName,  
+						max(strlen(allowForItemIter->szCustomName),
+						strlen(refuseForItemIter->szCustomName)));
+
+					if ( iCmp == 0 && (atoi(allowIter->attriinfo.ipriority) > atoi(refuseIter->attriinfo.ipriority)))
+					{
+						allowIter->forItemList.erase(allowForItemIter++);
+						bEraseFlag = TRUE;
+						break;
+					}
+				}	
+				if (bEraseFlag)
+				{
+					break;
+				}
+			}
+
+			if (!bEraseFlag)
+			{
+				allowForItemIter++;
+			}
+		}
+	}
+}
+
+/************************************************************ 
+ Description: 从数据库中获取自定义检查策略
+ input: 
+ Return: 
+*************************************************************/
+int GetCustomCheckDataFromTables( IN wchar_t *pDirPath, 
+								  IN char *pUserId, 
+								  IN char* pUserType, 
+								  IN char *pCurrdata, 
+								  IN char *pMilliSecond, 
+								  IN char *pWeekday, 
+								  OUT list<CHECKCUSTOMPOLICY>& checkCustomPolicyList)
+{
+	int iResult = HP_DB_GETTABLEFAIL;
+
+	try
+	{
+		int ret = SQLITE_OK;
+
+		if (HP_openDB(pDirPath) == HP_DB_OPENFAIL)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "打开数据库失败");
+			return HP_DB_OPENFAIL;
+		}
+		else
+		{
+			char sql[HP_C_SQLDATA]={'0'}; 
+			char **pszResult='\0';
+			CHAR *szErrMsg='\0';
+			INT nRow = 0;
+			INT nCloumn = 0;
+			list<CHECKCUSTOMPOLICY> checkCustomRefusePolicyList;
+
+			InitCustomPolicyList(checkCustomPolicyList);
+
+			sprintf_s(sql,
+				HP_C_SQLDATA,
+				"SELECT ipolicyauthid,%s FROM  (SELECT * FROM %s a WHERE (a.iuserid=%d) AND (a.usertype = \'%s\')AND (a.dstartdate<=\'%s\') AND (a.denddate>=\'%s\') AND (%ld>a.sstarttime) AND \
+				(%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\") ORDER BY a.ipriority ASC) ORDER BY ipriority ASC ", 
+				HP_ATTRIBUTE_SQLNAME, TSTG_CHECKCUSTOM_TABLE_NAME, atoi(pUserId), pUserType, pCurrdata, pCurrdata, atol(pMilliSecond), atol(pMilliSecond), atoi(pWeekday));	
+
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_CHECKCUSTOM, LOGLOCATION, "查询自定义安检策略的SQL语句:", sql);
+			ret = sqlite3_get_table(g_db, sql, &pszResult, &nRow, &nCloumn, &szErrMsg);
+
+			if(SQLITE_OK != ret)
+			{
+				sqlite3_free_table(pszResult);
+				ret = sqlite3_close(g_db);
+				g_db = NULL;
+				return HP_DB_GETTABLEFAIL;
+			}
+
+			if ((nRow > 0) && (nCloumn > 0))
+			{		
+				for (int i=0; i < nRow; i++)
+				{
+					CHECKCUSTOMPOLICY checkCustomPolicy;
+					int iPolicyId = 0;
+
+					InitCustomPolicy(&checkCustomPolicy);
+
+					for (int j = 0; j < nCloumn; j++)
+					{
+						if(strcmp(pszResult[j], "spolicyaction") == 0)
+						{
+							Convert(pszResult[(i+1)*nCloumn+j], checkCustomPolicy.attriinfo.spolicyaction, sizeof(checkCustomPolicy.attriinfo.spolicyaction), CP_UTF8,CP_ACP);					
+						}
+						else if(strcmp(pszResult[j], "ipolicyauthid") == 0)
+						{
+							iPolicyId = ConvertAnsiToInterger(pszResult[(i+1)*nCloumn+j]);
+						}
+						else if(strcmp(pszResult[j], "ipriority") == 0)
+						{			
+							Convert(pszResult[(i+1)*nCloumn+j], checkCustomPolicy.attriinfo.ipriority, sizeof(checkCustomPolicy.attriinfo.ipriority), CP_UTF8,CP_ACP);					
+						}
+						else if(strcmp(pszResult[j], "spromptinfo") == 0)
+						{
+							Convert(pszResult[(i+1)*nCloumn+j], checkCustomPolicy.attriinfo.spromptinfo, sizeof(checkCustomPolicy.attriinfo.spromptinfo), CP_UTF8,CP_ACP);					
+						}
+						else  if(strcmp(pszResult[j], "warningcont") == 0)
+						{
+							Convert(pszResult[(i+1)*nCloumn+j], checkCustomPolicy.attriinfo.warningcont, sizeof(checkCustomPolicy.attriinfo.warningcont), CP_UTF8,CP_ACP);					
+						}	
+						else  if(strcmp(pszResult[j],"warninglevel") == 0)
+						{
+							Convert(pszResult[(i+1)*nCloumn+j], checkCustomPolicy.attriinfo.warninglevel, sizeof(checkCustomPolicy.attriinfo.warninglevel), CP_UTF8,CP_ACP);					
+						}	
+						else  if(strcmp(pszResult[j], "srcevent") == 0)
+						{
+							Convert(pszResult[(i+1)*nCloumn+j], checkCustomPolicy.attriinfo.srcevent, sizeof(checkCustomPolicy.attriinfo.srcevent), CP_UTF8,CP_ACP);					
+						}        
+
+						if (j == (nCloumn-1))
+						{
+							GetForItemTableData(checkCustomPolicy, iPolicyId, checkCustomPolicyList, checkCustomRefusePolicyList);
+
+							if (atoi(checkCustomPolicy.attriinfo.spolicyaction) == ALLOW)
+							{
+								checkCustomPolicyList.push_back(checkCustomPolicy);
+							}
+							else if (atoi(checkCustomPolicy.attriinfo.spolicyaction) == REFUSE)
+							{
+								checkCustomRefusePolicyList.push_back(checkCustomPolicy);
+							}
+						}
+					}
+				}
+				CustomPolicyMerge(checkCustomPolicyList, checkCustomRefusePolicyList);
+				iResult = HP_SUCCESS;
+			}
+			sqlite3_free_table(pszResult);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetPatchDataFromDB Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "GetPatchDataFromDB Exception");
+	}
+	return iResult;
+}
+
+std::string SpliceDetailItem(IN std::string& strErrorMsg)
+{
+	std::string strRetBuf = "<detailitem message=\"";
+
+	strRetBuf += strErrorMsg;
+	strRetBuf += "\"/>";
+
+	return strRetBuf;
+
+}
+
+std::string SpliceCustomErrorMsg(IN string strFailIndex, IN safecheckattr checkItem, IN std::string strFailDes, IN std::string strCustomName, IN std::string strDetailItem)
+{
+	std::string strRetBuf = "";
+
+	strRetBuf = "<subitem checkItemId=\"";
+	strRetBuf += strFailIndex;
+	strRetBuf += "\" checkItemAction=\"";
+	strRetBuf += checkItem.spolicyaction;
+	strRetBuf += "\" faildes=\"";
+	strRetBuf += strFailDes;
+	strRetBuf += "\" name=\"";
+	strRetBuf += strCustomName;
+	strRetBuf += "\" swarnname=\"";
+	strRetBuf += checkItem.warningcont;
+	strRetBuf += "\" iwarnlevel=\"";
+	strRetBuf += checkItem.warninglevel;
+	strRetBuf += "\" ilogrecord=\"";
+	strRetBuf += checkItem.srcevent;
+	strRetBuf += "\">"; 
+	strRetBuf += strDetailItem;
+	strRetBuf += "</subitem>";
+
+	return strRetBuf;
+}
+
+int HandleJudgmentRelation(IN int iFailFlag, IN int iTrigger)
+{
+	int iRet = FALSE;
+
+	if (iFailFlag)
+	{
+		if (iTrigger == CHECK_TRIGGER_IN_RULES)
+		{
+			iRet = TRUE;
+		}
+		if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			iRet = FALSE;
+		}
+	}
+	else if (iFailFlag == FALSE)
+	{
+		if (iTrigger == CHECK_TRIGGER_IN_RULES)
+		{
+			iRet = FALSE;
+		}
+		if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			iRet = TRUE;
+		}
+	}
+
+	return iRet;
+}
+
+int HandleCheckResult()
+{
+	int iRet = FALSE;
+	int iFailFlag = 0;
+	list<CHECKCUSTOMPOLICY>::iterator customIter;
+
+	for (customIter = g_checkCustomPolicyList.begin(); customIter != g_checkCustomPolicyList.end(); customIter++)
+	{
+		std::list<FORITEM>::iterator forItemIter;
+
+		for (forItemIter = customIter->forItemList.begin(); forItemIter != customIter->forItemList.end(); forItemIter++)
+		{
+			std::list<CHECKITEM>::iterator checkItemIter;
+
+			for (checkItemIter = forItemIter->checkItemList.begin(); checkItemIter != forItemIter->checkItemList.end(); checkItemIter++)
+			{
+				if (strlen(checkItemIter->szCheckRet) > 3)
+				{
+					iFailFlag++;
+				}
+			}
+
+			if (forItemIter->iEstimate == CHECK_AND_RELATIONSHIP)
+			{
+				if (iFailFlag == 0)
+				{
+					forItemIter->iIsFailed = HandleJudgmentRelation(FALSE, forItemIter->iTrigger);
+				}
+				else
+				{
+					forItemIter->iIsFailed = HandleJudgmentRelation(TRUE, forItemIter->iTrigger);
+				}
+			}
+			else if (forItemIter->iEstimate == CHECK_OR_RELATIONSHIP)
+			{
+				if (iFailFlag < (int)forItemIter->checkItemList.size())
+				{
+					forItemIter->iIsFailed = HandleJudgmentRelation(FALSE, forItemIter->iTrigger);
+				}
+				else 
+				{
+					forItemIter->iIsFailed = HandleJudgmentRelation(TRUE, forItemIter->iTrigger);
+				}
+			}	
+
+			if (forItemIter->iIsFailed == TRUE)
+			{
+				iRet = TRUE;
+			}
+			iFailFlag = 0;
+		}
+	}
+
+	return iRet;
+}
+
+int CheckCustomCheck(IN LANGUAGETYPE language)
+{
+	int iRet = FALSE;
+
+	try
+	{
+		std::list<CHECKCUSTOMPOLICY>::iterator customIter;
+
+		for (customIter = g_checkCustomPolicyList.begin(); customIter != g_checkCustomPolicyList.end(); customIter++)
+		{
+			std::list<FORITEM>::iterator forItemIter;
+
+			for (forItemIter = customIter->forItemList.begin(); forItemIter != customIter->forItemList.end(); forItemIter++)
+			{
+				std::list<CHECKITEM>::iterator checkItemIter;
+
+				for (checkItemIter = forItemIter->checkItemList.begin(); checkItemIter != forItemIter->checkItemList.end(); checkItemIter++)
+				{
+					string strCheckRet = "";
+					string szTrigrSucc = "";
+
+					switch(checkItemIter->iCheckMethod)
+					{
+						case FILE_EXIST_CHECK:
+							{
+								strCheckRet += CheckFileIsExist(checkItemIter->szCheckName, 
+																checkItemIter->iCheckConditions, 
+																language, 
+																forItemIter->iTrigger, 
+																szTrigrSucc);
+							}
+							break;
+						case FILE_SIZE_CHECK:
+							{
+								strCheckRet += CheckFileSize(checkItemIter->szCheckName, 
+															atoi(checkItemIter->szCheckConditionsInfo),
+															checkItemIter->iCheckConditions,
+															language,
+															forItemIter->iTrigger, 
+															szTrigrSucc);
+							}
+							break;
+						case FILE_MD5_CHECK:
+							{
+								strCheckRet += CheckFileMD5( checkItemIter->szCheckName, 
+															checkItemIter->szCheckConditionsInfo, 
+															language, 
+															forItemIter->iTrigger, 
+															szTrigrSucc);
+							}
+							break;
+						case FILE_VERSION_CHECK:
+							{
+								strCheckRet += CheckFileVersion(checkItemIter->szCheckName, 
+																checkItemIter->szCheckConditionsInfo, 
+																checkItemIter->iCheckConditions,
+																language,
+																forItemIter->iTrigger, 
+																szTrigrSucc);
+							}
+							break;
+
+						case REGITEM_EXIST__CHECK:
+							{
+								strCheckRet += CheckRegKeyIsExist(checkItemIter->szCheckName, 
+																checkItemIter->iCheckConditions, 
+																language, 
+																forItemIter->iTrigger, 
+																szTrigrSucc);
+							}
+							break;
+						case REGVALUE_EXIST_CHECK:
+							{
+								strCheckRet += CheckRegValueIsExist(checkItemIter->szCheckName, 
+																	checkItemIter->szCheckValue, 
+																	checkItemIter->iCheckConditions,
+																	language,
+																	forItemIter->iTrigger, 
+																	szTrigrSucc);
+							}
+							break;
+						case REGVALUE_EQUAL_CHECK:
+							{
+								strCheckRet += CheckRegValueEqual( checkItemIter->szCheckName, 
+																	checkItemIter->szCheckValue, 
+																	checkItemIter->szCheckConditionsInfo,
+																	checkItemIter->iCheckConditions,
+																	atoi(checkItemIter->szCheckDesc),
+																	language,
+																	forItemIter->iTrigger, 
+																	szTrigrSucc);
+							}
+							break;
+
+						case PROCESS_EXIST_CHECK:
+							{
+								strCheckRet += CheckProcIsExist(checkItemIter->szCheckName, 
+									checkItemIter->szCheckValue, 
+									checkItemIter->iCheckConditions, 
+									language,
+									forItemIter->iTrigger, 
+									szTrigrSucc);
+							}
+							break;
+						case PROCESS_INCLUDE_CHECK:
+							{
+								strCheckRet += CheckProcIsInclude(checkItemIter->szCheckName, 
+									checkItemIter->szCheckValue, 
+									language,
+									forItemIter->iTrigger, 
+									szTrigrSucc);
+							}
+							break;
+
+						case PORT_EXIST_CHECK:
+							{
+								strCheckRet += CheckPortIsExist(checkItemIter->szCheckName, 
+									checkItemIter->szCheckValue, 
+									checkItemIter->iCheckConditions, 
+									language,
+									forItemIter->iTrigger, 
+									szTrigrSucc);
+							}
+							break;
+
+						case SERVICES_EXIST_CHECK:
+							{
+								strCheckRet += CheckServiceIsExist(checkItemIter->szCheckName, checkItemIter->iCheckConditions, language, forItemIter->iTrigger, szTrigrSucc);
+							}
+							break;
+						case SERVICES_STATUS_CHECK:
+							{
+								strCheckRet += CheckServiceStatus(checkItemIter->szCheckName, checkItemIter->iCheckConditions, language, forItemIter->iTrigger, szTrigrSucc);
+							}
+							break;
+
+						case CUSTOM_PROCESS_RETURN_CHECK:
+							{
+								strCheckRet += CheckProcReturnValue(checkItemIter->szCheckConditionsInfo, checkItemIter->szCheckName, language, forItemIter->iTrigger, szTrigrSucc);
+							}
+							break;
+						case CUSTOM_PROCESS_OUTPUT_CHECK:
+							{
+								CDownload downloadfile(checkItemIter->szCheckConditionsInfo, strlen(checkItemIter->szCheckConditionsInfo));
+								char downLocalFilePath[MAX_PATH] = {0};
+
+								if (downloadfile.StartDownLoad(downLocalFilePath, sizeof(downLocalFilePath)))
+								{
+									strCheckRet = CheckProcOutput(	checkItemIter->szCheckConditionsInfo, 
+																	downLocalFilePath, 
+																	checkItemIter->szCheckName,
+																	checkItemIter->iCheckConditions, 
+																	language,
+																	forItemIter->iTrigger, 
+																	szTrigrSucc);
+								}
+							}
+							break;
+
+						default:
+							break;
+					}
+
+					if (strCheckRet.length() > 3)
+					{					
+						strCheckRet = SpliceDetailItem(strCheckRet);
+						memset(checkItemIter->szCheckRet, 0, sizeof(checkItemIter->szCheckRet));
+						strncpy_s(checkItemIter->szCheckRet, MAX_BUF_LEN*2-1, strCheckRet.c_str(), strCheckRet.length());
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "自定义检测失败信息：", (char*)checkItemIter->szCheckRet);
+					}
+					else if (szTrigrSucc.length() > 3)
+					{
+						szTrigrSucc = SpliceDetailItem(szTrigrSucc);
+						memset(checkItemIter->szTrigrSucc, 0, sizeof(checkItemIter->szTrigrSucc));
+						strncpy_s(checkItemIter->szTrigrSucc, MAX_BUF_LEN*2-1, szTrigrSucc.c_str(), szTrigrSucc.length());
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "自定义检测成功触发违规信息：", (char*)checkItemIter->szTrigrSucc);
+					}
+				}			
+			}
+		}
+		iRet = HandleCheckResult();
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"CheckCustomCheck Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "CheckCustomCheck Exception");
+	}
+
+	return iRet;
+}
+
+bool CustomCheckRetShowMsg(IN int iCheckState, OUT int* pFailNum, OUT std::string& strErrorMsg)
+{
+	bool ret = true;
+
+	strErrorMsg.clear();
+
+	try
+	{
+		if (iCheckState)
+		{
+			list<CHECKCUSTOMPOLICY>::iterator customIter; 
+
+			(*pFailNum)++;
+			ret = false;
+
+			int iFailIndex = 0;
+
+			for (customIter = g_checkCustomPolicyList.begin(); customIter != g_checkCustomPolicyList.end(); customIter++)
+			{
+				std::list<FORITEM>::iterator forItemIter;
+
+				for (forItemIter = customIter->forItemList.begin(); forItemIter != customIter->forItemList.end(); forItemIter++)
+				{
+					if (forItemIter->iIsFailed)
+					{
+						std::list<CHECKITEM>::iterator checkItemIter;
+						string strDetailItem = "";
+						string strFailIndex = std::to_string((_ULonglong)iFailIndex);
+						string strFailDes = "";
+
+						for (checkItemIter = forItemIter->checkItemList.begin(); checkItemIter != forItemIter->checkItemList.end(); checkItemIter++)
+						{
+							if (CHECK_TRIGGER_IN_RULES == forItemIter->iTrigger)
+							{
+								if (strlen(checkItemIter->szCheckRet) > 3)
+								{
+									strDetailItem += (string)checkItemIter->szCheckRet;
+								}
+							}
+							else if (CHECK_TRIGGER_VOILATION == forItemIter->iTrigger)
+							{
+								if (strlen(checkItemIter->szTrigrSucc) > 3)
+								{
+									strDetailItem += (string)checkItemIter->szTrigrSucc;
+								}
+							}
+						}
+
+						strFailDes += (string)forItemIter->szCustomName;
+						strFailDes += ":";
+						strFailDes += (string)forItemIter->szIllegalDesc;
+						
+						strErrorMsg += SpliceCustomErrorMsg(strFailIndex, customIter->attriinfo, strFailDes, forItemIter->szCustomName, strDetailItem);
+						iFailIndex++;
+					}
+				}	
+			}
+		
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_SYSTEMPATCH, LOGLOCATION, (char*)strErrorMsg.c_str());
+		}
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"CustomCheckRetShowMsg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "CustomCheckRetShowMsg Exception");
+	} 
+
+	return ret;
+}
+
+void OpenUrlFromBrower(IN char* pUrl)
+{
+	if (pUrl && strlen(pUrl) > 1)
+	{
+		CDownload downloadfile(NULL, 0);
+		string strHpRegProcPath = "";
+
+		strHpRegProcPath = g_nacdirpath;
+		strHpRegProcPath += "\\";
+		strHpRegProcPath += HP_REGISTEREXE_NAME; 
+		downloadfile.ExecProgram((char*)strHpRegProcPath.c_str(), pUrl, TRUE);
+	}
+}
+
+BOOL RepairCustomCheck(IN int iRepairIndex)
+{
+	BOOL bRet = FALSE;
+	list<CHECKCUSTOMPOLICY>::iterator customIter;
+	int iCount = 0;
+
+	for (customIter = g_checkCustomPolicyList.begin(); customIter != g_checkCustomPolicyList.end(); customIter++)
+	{
+		std::list<FORITEM>::iterator forItemIter;
+
+		for (forItemIter = customIter->forItemList.begin(); forItemIter != customIter->forItemList.end(); forItemIter++)
+		{
+			std::list<REPAIRITEM>::iterator repairItemIter;
+
+			if (forItemIter->iIsFailed == TRUE)
+			{
+				if (iRepairIndex == INFINITE || iRepairIndex == iCount)
+				{
+					for (repairItemIter = forItemIter->repairItemList.begin(); repairItemIter != forItemIter->repairItemList.end(); repairItemIter++)
+					{
+						switch(repairItemIter->iRepairMethod)
+						{
+						case SETUP_REPAIR_MODE:
+							{
+								if (iRepairIndex >= INFINITE)
+								{
+									CDownload downloadfile(repairItemIter->szRepairInfo, strlen(repairItemIter->szRepairInfo));
+									char downLocalFilePath[MAX_PATH] = {0};
+
+									if (downloadfile.StartDownLoad(downLocalFilePath, sizeof(downLocalFilePath)))
+									{
+										downloadfile.RunDownLoadFile(downLocalFilePath, repairItemIter->szRepairParam);
+									}
+									break;
+								}
+							}
+						case URL_REPAIR_MODE:
+							{
+								OpenUrlFromBrower(repairItemIter->szRepairInfo);
+							}
+							break;
+						case SERVICE_STATUS_REPAIR_MODE:
+							{
+								bRet = StartOrShutdownService(repairItemIter->szRepairInfo, atoi(repairItemIter->szRepairParam));
+							}
+							break;
+						case HANDLE_PROC_REPAIR_MODE:
+							{
+								TerminateTheProcess(repairItemIter->szRepairInfo, TRUE);
+							}
+							break;
+						case EXECU_LOCAL_FILE_REPAIR_MODE:
+							{
+								bRet = LaunchAppIntoDifferentSession(repairItemIter->szRepairInfo, NULL, 1000);
+							}
+							break;
+						case DEL_LOCAL_FILE_REPAIR_MODE:
+							{
+								bRet = DeleteFileRepair(repairItemIter->szRepairInfo);
+							}
+							break;
+						case SET_REG_REPAIR_MODE:
+							{
+								bRet = SetRegValueRepair(repairItemIter->szRepairInfo, repairItemIter->szRepairParam, repairItemIter->szRepairChange, repairItemIter->iParamType);
+							}
+							break;
+						default:
+							break; 
+						}
+					}
+				}
+				iCount++;		
+			}
+		}
+	}
+
+	return bRet;
+}

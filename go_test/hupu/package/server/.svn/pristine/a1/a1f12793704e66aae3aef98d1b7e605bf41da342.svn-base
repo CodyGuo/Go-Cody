@@ -1,0 +1,904 @@
+// DomainIdentydlg.cpp : implementation file
+//
+
+#include "stdafx.h"
+#include "DomainIdentydlg.h"
+#include "afxdialogex.h"
+
+#include "..\GlobalDate.h"
+
+#pragma  comment(lib,"Advapi32.lib")
+
+#include "..\DebugInfo.h"
+
+//域用户验证部分
+#include <Iads.h>
+#include <AdsHlp.h>
+#include <adserr.h>
+#pragma comment(lib,"activeds.lib")
+#pragma comment(lib,"adsiid.lib")
+#pragma comment(lib,"activeds.lib")
+
+#include "OperationSystem.h"
+
+#include "tlhelp32.h"
+#include <sddl.h>
+#pragma comment(lib,"Advapi32.lib")
+#include <Wtsapi32.h>
+#pragma comment(lib,"Wtsapi32.lib")
+
+#include <UserEnv.h>
+#pragma comment(lib,"UserEnv.lib")
+
+#include <lm.h>  
+#pragma comment (lib,"Netapi32.lib")   
+
+#include "SafeCheckFuntion.h"
+#include "..\ControlName.h"
+
+
+// CDomainIdentydlg dialog
+const TCHAR DOMAIN_IDENTIFY_CLOSEBTN[] = _T("DOMAIN_IDENTIFY_CLOSEBTN");
+const TCHAR DOMAIN_IDENTIFY_ACCOUNTNAME[] =_T("DOMAIN_IDENTIFY_ACCOUNTNAME");
+const TCHAR DOMAIN_IDENTIFY_PWDNAME[] = _T("DOMAIN_IDENTIFY_PWDNAME");
+const TCHAR DOMAIN_IDENTIFY_DOMAINECOMBO[] = _T("DOMAIN_IDENTIFY_DOMAINECOMBO");
+
+
+CDomainIdentydlg::CDomainIdentydlg()
+{
+	memset(m_langinipath,0,sizeof(m_langinipath));
+	m_bidentifyResult = DOMAINIDENTTIMEOUT;
+	m_timeouttime = DEFAULTTIMEOUT;
+	m_bexit = FALSE;
+
+	list<ADSERVERNAMEIP>::iterator  iter;
+	for (iter = m_domainservlist.begin( ); iter != m_domainservlist.end( );  )
+	{
+		m_domainservlist.erase(iter++);
+	}
+
+	m_identifyHandle = NULL;
+	m_timeoutHandle = NULL;
+	memset(m_identifyUserName,0,sizeof(m_identifyUserName));
+	memset(m_identifyDomainName,0,sizeof(m_identifyDomainName));
+
+	 pcombodomain = NULL;
+	paccountedit= NULL;
+     ppwdedit= NULL;
+	 pperrtip = NULL;
+	pidenbtn= NULL;
+	m_bDomadol = FALSE;
+	m_benablebtn = FALSE;
+	ZeroMemory(&m_guisetting,sizeof(GUISETTING));
+}
+
+LPCTSTR CDomainIdentydlg::GetWindowClassName() const
+{ 
+	return DomainIdentifyDlg; 
+}
+
+UINT CDomainIdentydlg::GetClassStyle() const
+{
+	return UI_CLASSSTYLE_DIALOG; 
+};
+
+void CDomainIdentydlg::OnFinalMessage(HWND /*hWnd*/) 
+{ 
+	m_pm.RemovePreMessageFilter(this);
+	delete this; 
+};
+
+void CDomainIdentydlg::Init(wchar_t *xmlpath,LANGUAGETYPE lang,BOOL bDomadol,unsigned long  timeoutValue,list<ADSERVERNAMEIP>&  domainserverlist) 
+{
+	if (xmlpath != NULL)
+	{
+		m_xmlpath=xmlpath;
+	}
+	memset(m_langinipath,0,sizeof(m_langinipath));
+	wchar_t  dirptahW[MAX_PATH] = {L"0"};
+	ConvertA2W(g_nacdirpath,dirptahW,sizeof(dirptahW));
+	wsprintf(m_langinipath,L"%s\\lang\\%s.ini",dirptahW,LANGUAGECONFIG[lang]);
+	m_bDomadol =bDomadol;
+	m_timeouttime = timeoutValue;
+	list<ADSERVERNAMEIP>::iterator  iter;
+	for (iter = m_domainservlist.begin( ); iter != m_domainservlist.end( );  )
+	{
+		m_domainservlist.erase(iter++);
+	}
+	m_domainservlist.assign(domainserverlist.begin(),domainserverlist.end());
+}
+
+void CDomainIdentydlg::Notify(TNotifyUI& msg)
+{
+	if( msg.sType == _T("click") ) {
+		if( msg.pSender->GetName() == DOMAIN_IDENTIFY_CLOSEBTN )
+		{
+			m_bidentifyResult = DOMAINIDENTCANCEL;
+			return; 
+		}	
+		else if (msg.pSender->GetName() == DOMAINIDENCONTROLSTR[DOMAIN_IDENTIFY_IDENTIFYACC])
+		{
+			identifyDomainUserLogon();
+			return;
+		}
+	}
+	else if (msg.sType == _T("itemselect"))
+	{
+	  
+	}
+	else if (msg.sType == _T("textchanged"))
+	{
+		if (pperrtip)
+			pperrtip->SetText(L"");
+
+		CStdString accountstr;
+		if (paccountedit)
+		{
+			accountstr = paccountedit->GetText();
+		}
+		if (accountstr.GetLength())
+		{
+			if (!m_benablebtn)
+			{
+				if (pidenbtn)
+				{
+					pidenbtn->SetEnabled(TRUE);
+					m_benablebtn = TRUE;
+				}
+			}
+		}
+		else
+		{
+			if (m_benablebtn)
+			{
+				if (pidenbtn)
+				{
+					pidenbtn->SetEnabled(FALSE);
+					m_benablebtn = FALSE;
+				}
+			}
+		}
+	}
+}
+
+LRESULT CDomainIdentydlg::OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	LONG styleValue = ::GetWindowLong(*this, GWL_STYLE);
+	styleValue &= ~WS_CAPTION;
+	::SetWindowLong(*this, GWL_STYLE, styleValue | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);
+
+	m_pm.Init(m_hWnd);
+	m_pm.AddPreMessageFilter(this);
+	CDialogBuilder builder;
+	CControlUI* pRoot = builder.Create(m_xmlpath.GetData(), (UINT)0,(UINT)0, &m_pm);
+	ASSERT(pRoot && "Failed to parse XML");
+	if (pRoot == NULL )
+	{
+		MessageBox(NULL,L"CDomainIdentydlgpRoot==NULL",L"error",0);
+		return 0;
+	}
+
+	if (GetGuiSizeAndFontSize(FALSE,&m_guisetting))
+	{
+		m_pm.SetInitSize(m_guisetting.xsize,m_guisetting.ysize);
+		m_pm.SetDefaultFont(L"微软雅黑",m_guisetting.fontsize,FALSE,FALSE,FALSE);
+	}
+	m_pm.AttachDialog(pRoot);
+	m_pm.AddNotifier(this);
+	RECT rcDlg;
+	::GetClientRect(*this, &rcDlg);
+	RECT rcParent;
+	HWND hWndParent = GetDesktopWindow();
+	SystemParametersInfo(SPI_GETWORKAREA, 0, (PVOID)&rcParent, 0);
+	POINT ptParentInScreen;
+	ptParentInScreen.x = rcParent.left;
+	ptParentInScreen.y = rcParent.top;
+	::ClientToScreen(hWndParent, (LPPOINT)&ptParentInScreen);
+	SetWindowPos(*this, NULL,  ptParentInScreen.x+((rcParent.right - rcParent.left)- (rcDlg.right - rcDlg.left))/2 , 
+		ptParentInScreen.y+((rcParent.bottom - rcParent.top)- (rcDlg.bottom - rcDlg.top))/2 , 0, 0,  
+		SWP_NOZORDER | SWP_NOSIZE);
+	InitControlText();
+
+	SetForegroundWindowInternal(m_hWnd);
+
+	if (m_timeouttime==0)
+	{
+		m_timeouttime =(numeric_limits<unsigned long>::max)();
+	}
+
+	UINT uiThreadId = 0;
+	m_timeoutHandle = (HANDLE)_beginthreadex(NULL, 
+		0,   
+		dlgTimeoutThread,  
+		this,   
+		CREATE_SUSPENDED,   
+		&uiThreadId);  
+	if (NULL!=m_timeoutHandle)
+	{
+		ResumeThread(m_timeoutHandle);
+	}
+	return 0;
+}
+
+LRESULT CDomainIdentydlg::OnNcActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	if( ::IsIconic(*this) ) bHandled = FALSE;
+	return (wParam == 0) ? TRUE : FALSE;
+}
+
+LRESULT CDomainIdentydlg::OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	return 0;
+}
+
+LRESULT CDomainIdentydlg::OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	return 0;
+}
+
+LRESULT CDomainIdentydlg::OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	POINT pt; pt.x = GET_X_LPARAM(lParam); pt.y = GET_Y_LPARAM(lParam);
+	::ScreenToClient(*this, &pt);
+
+	RECT rcClient;
+	::GetClientRect(*this, &rcClient);
+
+	RECT rcCaption = m_pm.GetCaptionRect();
+	if( pt.x >= rcClient.left + rcCaption.left && pt.x < rcClient.right - rcCaption.right \
+		&& pt.y >= rcCaption.top && pt.y < rcCaption.bottom ) {
+			CControlUI* pControl = static_cast<CControlUI*>(m_pm.FindControl(pt));
+			if( pControl && _tcscmp(pControl->GetClass(), _T("ButtonUI")) != 0 )
+				return HTCAPTION;
+	}
+
+	return HTCLIENT;
+}
+
+LRESULT CDomainIdentydlg::OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	SIZE szRoundCorner = m_pm.GetRoundCorner();
+	if( !::IsIconic(*this) && (szRoundCorner.cx != 0 || szRoundCorner.cy != 0) ) {
+		DuiLib::CRect rcWnd;
+		::GetWindowRect(*this, &rcWnd);
+		rcWnd.Offset(-rcWnd.left, -rcWnd.top);
+		rcWnd.right++; rcWnd.bottom++;
+		HRGN hRgn = ::CreateRoundRectRgn(rcWnd.left, rcWnd.top, rcWnd.right, rcWnd.bottom, szRoundCorner.cx, szRoundCorner.cy);
+		::SetWindowRgn(*this, hRgn, TRUE);
+		::DeleteObject(hRgn);
+	}
+
+	bHandled = FALSE;
+	return 0;
+}
+
+LRESULT CDomainIdentydlg::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	LRESULT lRes = 0;
+	BOOL bHandled = TRUE;
+	switch( uMsg ) {
+	case WM_CREATE:        lRes = OnCreate(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCACTIVATE:    lRes = OnNcActivate(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCCALCSIZE:    lRes = OnNcCalcSize(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCPAINT:       lRes = OnNcPaint(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCHITTEST:     lRes = OnNcHitTest(uMsg, wParam, lParam, bHandled); break;
+	case WM_SIZE:          lRes = OnSize(uMsg, wParam, lParam, bHandled); break;
+	case WM_LANGCHANGE:
+	case WM_DOMAINIDENTIFYTERMINATE:
+		{
+			lRes=0;
+			freedlgResource();
+			Close();
+		}
+		break;
+	case WM_DOAMINENDDIALOG:
+		{
+			lRes=0;
+			freedlgResource();
+			if (m_bDomadol)
+			{
+				PostQuitMessage(0);
+			}
+			else
+			{
+			   SendMainDlgMessage();
+				Close();
+			}
+		}
+		break;
+	
+	default:
+		bHandled = FALSE;
+	}
+	if( bHandled ) return lRes;
+	if( m_pm.MessageHandler(uMsg, wParam, lParam, lRes) ) return lRes;
+	return CWindowWnd::HandleMessage(uMsg, wParam, lParam);
+}
+
+LRESULT CDomainIdentydlg::MessageHandler(UINT uMsg, WPARAM wParam, LPARAM lParam, bool& bHandled)
+{
+	if( uMsg == WM_KEYDOWN ) {
+		if( wParam == VK_RETURN ) {
+			CEditUI* pEdit = static_cast<CEditUI*>(m_pm.FindControl(DOMAIN_IDENTIFY_ACCOUNTNAME));
+			if( pEdit->GetText().IsEmpty() ) 
+			{
+				pEdit->SetFocus();
+			}
+			else 
+			{
+				pEdit = static_cast<CEditUI*>(m_pm.FindControl(DOMAIN_IDENTIFY_PWDNAME));
+				if( pEdit->GetText().IsEmpty() )
+				{
+					pEdit->SetFocus();
+				}
+				else
+				{
+					identifyDomainUserLogon();
+				}
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
+void  CDomainIdentydlg::InitControlText()
+{
+	for (int i=0;i<DOMAIN_IDENTIFY_TOTAL;i++)
+	{
+		CControlUI  *contrui = m_pm.FindControl(DOMAINIDENCONTROLSTR[i]);
+		if (contrui)
+		{
+			if( i != DOMAIN_IDENTIFY_ERRORTIP )
+			{
+				wchar_t contruitext[MAX_PATH] = {L"0"};
+				GetPrivateProfileString(DomainIdentifyDlg,DOMAINIDENCONTROLSTR[i],
+					DOMAINIDENCONTROLSTR[i],
+					contruitext,sizeof(contruitext),m_langinipath);
+				contrui->SetText(contruitext);
+				if (m_guisetting.xsize != 0 )
+				{
+					contrui->SetAttribute(L"width",m_guisetting.lefttextwidth);
+				}
+			}
+			else
+			{
+				contrui->SetText(L"");
+			}
+		}
+	}
+
+	pcombodomain = static_cast<CComboUI*>(m_pm.FindControl(DOMAIN_IDENTIFY_DOMAINECOMBO));
+	if (pcombodomain)
+	{
+		int domaincount = m_domainservlist.size();
+		if ( domaincount >0 )
+		{
+			list<ADSERVERNAMEIP>::iterator  domainseriter;
+			for (domainseriter = m_domainservlist.begin();domainseriter != m_domainservlist.end();++domainseriter )
+			{
+				ADSERVERNAMEIP domainser = *domainseriter;
+				wchar_t ServerName[MAX_PATH] = {L"0"};
+				ConvertA2W(domainser.serverName.c_str(),ServerName,sizeof(ServerName));
+				CListLabelElementUI *pLabel = new CListLabelElementUI;        
+				pLabel->SetAttribute(_T("text"),ServerName);      
+				pcombodomain->Add(pLabel);           
+			}
+			pcombodomain->SelectItem(0);
+		}
+	}
+
+	pidenbtn = static_cast<CButtonUI*>(m_pm.FindControl(DOMAINIDENCONTROLSTR[DOMAIN_IDENTIFY_IDENTIFYACC]));
+	if (pidenbtn)
+	{
+		pidenbtn->SetEnabled(FALSE);
+		m_benablebtn = FALSE;
+	}
+	
+	paccountedit = static_cast<CEditUI*>(m_pm.FindControl(DOMAIN_IDENTIFY_ACCOUNTNAME));
+	if (paccountedit)
+	{
+		paccountedit->SetFocus();
+	}
+
+	ppwdedit = static_cast<CEditUI*>(m_pm.FindControl(DOMAIN_IDENTIFY_PWDNAME));
+
+	pperrtip = static_cast<CLabelUI*>(m_pm.FindControl(DOMAINIDENCONTROLSTR[DOMAIN_IDENTIFY_ERRORTIP]));
+	if (pperrtip)
+	{
+		pperrtip->SetText(L"");
+	}
+}
+
+BOOL CDomainIdentydlg::identifyDomainUser()
+{
+	CStdString accountstr;
+	CStdString pwdstr;
+	CStdString doaminstr;
+	if (paccountedit)
+	{
+		accountstr = paccountedit->GetText();
+	}
+	if (ppwdedit)
+	{
+		pwdstr = ppwdedit->GetText();
+	}
+	if (pcombodomain)
+	{
+		doaminstr = pcombodomain->GetText();
+	}
+	char servname[MAX_PATH] = {"0"};
+	ConvertW2A(doaminstr.GetData(),servname,sizeof(servname));
+
+	char username[MAX_PATH] = {"0"};
+	ConvertW2A(accountstr.GetData(),username,sizeof(username));
+
+	memset(m_identifyUserName,0,sizeof(m_identifyUserName));
+	sprintf_s(m_identifyUserName,sizeof(m_identifyUserName),"%s",username);
+
+	memset(m_identifyDomainName,0,sizeof(m_identifyDomainName));
+	sprintf_s(m_identifyDomainName,sizeof(m_identifyDomainName),"%s",servname);
+	//通过AD域名查找域的ip地址
+	wchar_t domainServIp[MAX_PATH] = {L"0"};
+
+	ADSERVERNAMEIP  servnameip;
+	list<ADSERVERNAMEIP>::iterator nameipiter;
+	for (nameipiter = m_domainservlist.begin();nameipiter !=m_domainservlist.end(); ++nameipiter)
+	{
+		ADSERVERNAMEIP  tmpdata = *nameipiter;
+		if ( tmpdata.serverName == servname )
+		{
+			ConvertA2W(tmpdata.serverIp.c_str(),domainServIp,sizeof(domainServIp));
+			break;
+		}
+	}
+
+	BOOL bWinXPOrBlow = FALSE;
+	DWORD MajorInfo = 0;
+	DWORD MinorInfo = 0;
+	DWORD BuildInfo = 0;
+
+	OperationSystem opsysteminfo;
+	BOOL bOsVersionInfoEx = opsysteminfo.GetNtVersion(MajorInfo,MinorInfo,BuildInfo);
+	if ( !bOsVersionInfoEx)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"获取操作系统失败");
+	}
+	else
+	{
+		if ( MajorInfo<=5 )
+		{
+			bWinXPOrBlow = TRUE;
+		}
+	}
+
+	if (bWinXPOrBlow)
+	{
+		char regexeprog[MAX_PATH] = {0};
+
+		ConvertW2A(HP_C_WEBBROWSER, regexeprog ,MAX_PATH);
+
+		//表示进程已经存在
+		if (IsProcessExec(regexeprog) == HP_SUCCESS)
+		{
+			TerminateProcessByName((wchar_t*)HP_C_WEBBROWSER);
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"TerminateProcessByName");
+		}
+
+		wchar_t dirpathW[MAX_PATH] = {L"0"};
+		MultiByteToWideChar(CP_ACP,0,g_nacdirpath,-1,dirpathW,sizeof(dirpathW));
+		wchar_t  exepath[MAX_PATH] = {L"0"};
+		wsprintf(exepath,L"%s\\hpregister.exe",dirpathW);
+
+		wchar_t  paramWstr[MAX_PATH] = {L"0"};
+		wsprintf(paramWstr,L" IDENTIFYDOMAINUSER:%s;%s;%s",accountstr.GetData(),pwdstr.GetData(),domainServIp);
+
+		IdentifyDomainUseCurrentUser(exepath,paramWstr,m_timeouttime);
+	}
+	else
+	{
+
+		HRESULT hr = S_OK;
+		// Interface Pointers.
+		IDirectorySearch *pDSSearch = NULL;
+		// Initialize COM.
+		CoInitialize(NULL);
+
+		wchar_t  szBuf[128] = {L"0"};
+		vector<wstring> domainipVec;
+		domainipVec = splitwstr((wstring)domainServIp,L",");
+		int domainipnum = domainipVec.size();
+		for( int i=0;i<domainipnum;i++ )
+		{
+			wchar_t szPath[MAX_PATH] = {L"0"};
+			wsprintf(szPath,L"LDAP://%s:389",domainipVec[i].c_str());
+			// Open a connection with server.
+			hr = ADsOpenObject(szPath,
+				accountstr.GetData(),
+				pwdstr.GetData(),
+				ADS_SECURE_AUTHENTICATION,
+				IID_IDirectorySearch,
+				(void **)&pDSSearch);
+			DWORD dwError = GetLastError();
+			if (SUCCEEDED(hr))
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"域用户登录成功");
+				m_bidentifyResult = DOMAINIDENTSUCCESS;
+				break;
+			}
+			else
+			{
+				m_bidentifyResult = DOMAINIDENTFAIL;
+				LPVOID lpMsgBuf;
+				FormatMessage (
+					FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
+					NULL,
+					hr,
+					MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+					(LPWSTR) &lpMsgBuf,
+					0, NULL );
+
+				wsprintf(szBuf,
+					L"%s",lpMsgBuf);
+				LocalFree(lpMsgBuf);
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"域用户登录失败");
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,szBuf);
+			}
+		}
+		if (pDSSearch != NULL)
+		{
+			pDSSearch->Release();
+			pDSSearch = NULL;
+		}
+		CoUninitialize();
+		if (m_bidentifyResult == DOMAINIDENTFAIL)
+		{
+			if (pperrtip)
+			{
+				pperrtip->SetText(szBuf);
+			}
+		}
+		if (pidenbtn)
+		{
+			pidenbtn->SetEnabled(TRUE);
+			m_benablebtn = TRUE;
+		}
+	}
+	return TRUE;
+}
+
+//验证是否是域用户登录
+BOOL CDomainIdentydlg::identifyDomainUserLogon()
+{
+	CStdString accountstr;
+	CStdString pwdstr;
+	CStdString doaminstr;
+	if (pidenbtn)
+	{
+		pidenbtn->SetEnabled(FALSE);
+	}
+	if (paccountedit)
+	{
+		accountstr = paccountedit->GetText();
+	}
+	if (ppwdedit)
+	{
+		pwdstr = ppwdedit->GetText();
+	}
+	if (pcombodomain)
+	{
+		doaminstr = pcombodomain->GetText();
+	}
+
+	if ((accountstr.GetLength() == 0 )||
+		((doaminstr.GetLength()) == 0))
+	{
+		if (pidenbtn)
+		{
+			pidenbtn->SetEnabled(FALSE);
+		}
+		m_benablebtn = FALSE;
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"域用户登录时输入参数为空");
+		return FALSE;
+	}
+
+	UINT uiThreadId = 0;
+	m_identifyHandle = (HANDLE)_beginthreadex(NULL, 
+		0,   
+		dlgIdentifyThread,  
+		this,   
+		CREATE_SUSPENDED,   
+		&uiThreadId);  
+	if (NULL!=m_identifyHandle)
+	{
+		ResumeThread(m_identifyHandle);
+	}
+	return TRUE;
+}
+
+//域用户验证超时时间处理
+UINT WINAPI CDomainIdentydlg::dlgTimeoutThread(LPVOID pParam)
+{
+	CDomainIdentydlg* pThis = reinterpret_cast<CDomainIdentydlg*>(pParam);
+	_ASSERTE(pThis != NULL);
+
+	try
+	{
+		BOOL bExecdlg = FALSE;
+		DWORD dwstarttime = GetTickCount();
+		while ((GetTickCount()-dwstarttime) <pThis->m_timeouttime )
+		{
+			if (pThis->m_bexit)
+			{
+				break;
+			}
+			if ( (pThis->m_bidentifyResult ==DOMAINIDENTSUCCESS) ||
+				(pThis->m_bidentifyResult ==DOMAINIDENTCANCEL))
+			{
+				bExecdlg = TRUE;
+				break;
+			}
+			/*if ( (pThis->m_bidentifyResult ==DOMAINIDENTSUCCESS) ||
+				(pThis->m_bidentifyResult ==DOMAINIDENTFAIL) ||
+				(pThis->m_bidentifyResult ==DOMAINIDENTCANCEL))
+			{
+				bExecdlg = TRUE;
+				break;
+			}*/
+			
+			Sleep(100);
+		}
+
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "对话框超时退出"); 
+			if(bExecdlg)
+			  pThis->PostMessage(WM_DOAMINENDDIALOG,FALSE,FALSE);
+			else
+				pThis->PostMessage(WM_DOMAINIDENTIFYTERMINATE,FALSE,FALSE);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"dlgTimeoutThread Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "dlgTimeoutThread Exception");
+	}
+	return 1L;
+}
+
+ 
+ //释放资源
+ void CDomainIdentydlg::freedlgResource()
+ {
+	 m_bexit = true;
+	 Sleep(150);
+	 if (NULL != m_timeoutHandle)
+	 {
+		 CloseHandle(m_timeoutHandle);
+		 m_timeoutHandle = NULL;
+	 }
+ }
+
+ UINT WINAPI CDomainIdentydlg::dlgIdentifyThread(LPVOID  pParam)
+ {
+	 CDomainIdentydlg* pThis = reinterpret_cast<CDomainIdentydlg*>(pParam);
+	 _ASSERTE(pThis != NULL);
+
+	 pThis->identifyDomainUser();
+	 return 0;
+ }
+
+BOOL CDomainIdentydlg::IdentifyDomainUseCurrentUser(wchar_t *exepath,wchar_t* paraminfo,int timeout)
+ {
+	 PROCESS_INFORMATION pi;
+	 STARTUPINFO si;
+	 BOOL bResult = FALSE;
+	 DWORD dwSessionId, winlogonPid;
+	 HANDLE /*hUserToken,*/hUserTokenDup,hPToken,hProcess;
+	 DWORD dwCreationFlags;
+
+	 // Log the client on to the local computer.
+	 PWTS_SESSION_INFO  pSessionInfo = 0;  
+	 DWORD dwCount = 0;   
+
+	 ::WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionInfo, &dwCount);  
+
+	 int session_id = 0;  
+
+	 for (DWORD i = 0; i < dwCount; ++i) 
+	 {        
+		 WTS_SESSION_INFO si = pSessionInfo[i];   
+		 if (WTSActive == si.State)    
+		 {          
+			 session_id = si.SessionId;    
+			 break;      
+		 }  
+	 }    ::WTSFreeMemory(pSessionInfo); 
+	 dwSessionId=session_id;
+
+	 PROCESSENTRY32 procEntry;
+
+	 HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	 if (hSnap == INVALID_HANDLE_VALUE)
+	 {
+		 WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CreateToolhelp32Snapshot Fail");
+		 return FALSE ;
+	 }
+
+	 procEntry.dwSize = sizeof(PROCESSENTRY32);
+
+	 if (!Process32First(hSnap, &procEntry))
+	 {
+		 CloseHandle(hSnap);
+		 hSnap=NULL;
+		 return FALSE ;
+	 }
+	 do
+	 {
+		 if (_wcsicmp(procEntry.szExeFile, L"explorer.exe") == 0)
+		 {
+			 WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"Find explorer.exe");
+			 DWORD winlogonSessId = 0;
+			 if (ProcessIdToSessionId(procEntry.th32ProcessID, &winlogonSessId) && winlogonSessId == dwSessionId)
+			 {
+				 winlogonPid = procEntry.th32ProcessID;
+				 WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"为explorerpid赋值");
+				 break;
+			 }
+		 }
+
+	 } while (Process32Next(hSnap, &procEntry));
+
+	 dwCreationFlags = NORMAL_PRIORITY_CLASS|CREATE_NEW_CONSOLE;
+	 ZeroMemory(&si, sizeof(STARTUPINFO));
+	 si.cb= sizeof(STARTUPINFO);
+	 si.lpDesktop = L"winsta0\\default";
+	 ZeroMemory(&pi, sizeof(pi));
+
+	 TOKEN_PRIVILEGES tp;
+	 LUID luid;
+
+	 hProcess = OpenProcess(MAXIMUM_ALLOWED, FALSE, winlogonPid);
+
+	 if(!::OpenProcessToken(hProcess,TOKEN_ADJUST_PRIVILEGES|TOKEN_QUERY
+		 |TOKEN_DUPLICATE|TOKEN_ASSIGN_PRIMARY|TOKEN_ADJUST_SESSIONID
+		 |TOKEN_READ|TOKEN_WRITE,&hPToken))
+	 {
+		 char ErrMsg[MAX_PATH]={0};
+
+		 sprintf(ErrMsg,"Process token open Error: %u\n",GetLastError()); 
+		 WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,ErrMsg);
+		 CloseHandle(hSnap);
+		 hSnap=NULL;
+		 return FALSE;
+	 }
+
+	 DuplicateTokenEx(hPToken,MAXIMUM_ALLOWED,NULL,SecurityIdentification,TokenPrimary,&hUserTokenDup);
+
+	 SetTokenInformation(hUserTokenDup,TokenSessionId,(void*)dwSessionId,sizeof(DWORD));
+
+	 LPVOID pEnv =NULL;
+
+	 if(CreateEnvironmentBlock(&pEnv,hUserTokenDup,TRUE))
+	 {
+		 dwCreationFlags|= CREATE_UNICODE_ENVIRONMENT;
+	 }
+	 else
+		 pEnv=NULL;
+
+	 bResult = CreateProcessAsUser(
+		 hUserTokenDup,           
+		 exepath,              
+		 paraminfo,            
+		 NULL,            
+		 NULL,             
+		 FALSE,             
+		 dwCreationFlags,  
+		 pEnv,           
+		 NULL,             
+		 &si,               
+		 &pi            
+		 );
+	 DWORD  dwres = GetLastError();
+	 char CreateProcmsg[MAX_PATH] = {"0"};
+	 sprintf_s(CreateProcmsg,sizeof(CreateProcmsg),"CreateProcessAsUser=%d",dwres);
+	 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, CreateProcmsg);
+
+	 if ( bResult )
+	 {
+		 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "进程已经启动");
+	 }
+	 else
+	 {
+		 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "进程启动失败");
+	 }
+	 DWORD tstarttime = GetTickCount();
+	DWORD dwprocessres =  WAIT_TIMEOUT;
+	 MSG msg;    
+	 while (GetTickCount() -tstarttime <= timeout )    
+	 {    
+		 dwprocessres = WaitForSingleObject(pi.hThread, 50);    
+		 switch(dwprocessres)    
+		 {    
+		 case WAIT_OBJECT_0:     
+			 break;  
+		 case WAIT_TIMEOUT :    
+			 PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE);    
+			 continue;    
+		 default:    
+			 break; 
+		 }    
+		 break;    
+	 }
+	 DWORD dwExitCode = 0;
+	 GetExitCodeProcess(pi.hProcess, &dwExitCode); 
+	 m_bidentifyResult = dwExitCode;
+	 
+	 CloseHandle(pi.hProcess);
+	 CloseHandle(pi.hThread);
+
+	 DestroyEnvironmentBlock(pEnv);
+
+	 //Perform All the Close Handles task
+	 CloseHandle(hProcess);
+	 hProcess=NULL;
+	 CloseHandle(hUserTokenDup);
+	 hUserTokenDup=NULL;
+	 CloseHandle(hPToken);
+	 hPToken=NULL;
+
+	 if (m_bidentifyResult == DOMAINIDENTFAIL)
+	 {
+		 if (pperrtip)
+		 {
+			 pperrtip->SetText(L"登录失败:用户名或者密码错误");
+		 }
+	 }
+	 if (pidenbtn)
+	 {
+		 pidenbtn->SetEnabled(TRUE);
+		 m_benablebtn = TRUE;
+	 }
+
+	 return TRUE;
+ }
+
+ void CDomainIdentydlg::SetForegroundWindowInternal(HWND hWnd)
+ {
+	 if(!::IsWindow(hWnd)) return;
+
+	 //relation time of SetForegroundWindow lock
+	 DWORD lockTimeOut = 0;
+	 HWND  hCurrWnd = ::GetForegroundWindow();
+	 DWORD dwThisTID = ::GetCurrentThreadId(),
+	dwCurrTID = ::GetWindowThreadProcessId(hCurrWnd,0);
+
+	 //we need to bypass some limitations from Microsoft :)
+	 if(dwThisTID != dwCurrTID)
+	 {
+		 ::AttachThreadInput(dwThisTID, dwCurrTID, TRUE);
+
+		 ::SystemParametersInfo(SPI_GETFOREGROUNDLOCKTIMEOUT,0,&lockTimeOut,0);
+		 ::SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT,0,0,SPIF_SENDWININICHANGE | SPIF_UPDATEINIFILE);
+
+		 ::AllowSetForegroundWindow(ASFW_ANY);
+	 }
+
+	 ::SetForegroundWindow(hWnd);
+
+	 if(dwThisTID != dwCurrTID)
+	 {
+		 ::SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT,0,(PVOID)lockTimeOut,SPIF_SENDWININICHANGE | SPIF_UPDATEINIFILE);
+		 ::AttachThreadInput(dwThisTID, dwCurrTID, FALSE);
+	 }
+ }
+
+ void CDomainIdentydlg::SendMainDlgMessage()
+ {
+	 int *identfyres = new int;
+	 *identfyres = m_bidentifyResult;
+
+	 char *identifyinfo = new char[MAX_PATH*2];
+	 memset(identifyinfo,0,MAX_PATH*2);
+	 sprintf_s(identifyinfo,MAX_PATH*2,"%s;%s",m_identifyUserName,m_identifyDomainName);
+	 ::SendMessage(AfxGetApp()->GetMainWnd()->m_hWnd,WM_DOAMINDELAYOFFLINE,(WPARAM)identifyinfo,(LPARAM)identfyres);
+ }

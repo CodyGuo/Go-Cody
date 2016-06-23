@@ -1,0 +1,226 @@
+#include "StdAfx.h"
+#include "MThreadedJobQ.h"
+
+CMThreadedJobQ::CMThreadedJobQ(void)
+{
+	m_MaxNoOfExecuter = 1;
+	m_pause = FALSE;
+	unsigned  int dwThreadID;
+	m_pObserverThread = (HANDLE)_beginthreadex(NULL,0,JobObserverThreadFunction,this,0,&dwThreadID);
+	m_pFreeEList =NULL;
+	m_NoOfExecuter =0;
+	m_pAllEList = NULL;
+	::InitializeCriticalSection(&m_cs);
+}
+
+
+CMThreadedJobQ::~CMThreadedJobQ(void)
+{
+		//The lines below are added later to solve the memory leak.
+	//The leaks are found and solved by "Guitool" having member no Member No. 7253 
+	THNODE* pTempNode;
+	while (m_pAllEList != NULL)
+	{	
+		pTempNode = m_pAllEList->pNext;
+		delete m_pAllEList->pExecuter;		
+		delete m_pAllEList;		
+		m_pAllEList = pTempNode;	
+	}	
+
+	while (m_pFreeEList != NULL) 
+	{	pTempNode = m_pFreeEList->pNext;		
+		delete m_pFreeEList;		
+		m_pFreeEList = pTempNode;	
+	}	
+
+	::_endthreadex((int)this->m_pObserverThread);
+	CloseHandle(m_pObserverThread);
+	::DeleteCriticalSection(&m_cs);
+}
+
+void CMThreadedJobQ::pause()
+{
+	this->m_pause = TRUE;
+}
+
+void CMThreadedJobQ::resume()
+{
+	this->m_pause = FALSE;
+	::ResumeThread(this->m_pObserverThread);
+}
+
+
+UINT CMThreadedJobQ::JobObserverThreadFunction(LPVOID pParam)
+{
+	CMThreadedJobQ *pMTJQ = (CMThreadedJobQ *)pParam;
+	CJobExecuter *pJExecuter;
+	TRACE0("Createing JobObserver Thread");
+	while(TRUE)
+	{
+		Sleep(100); //This line can be removed..
+		if(pMTJQ->m_pause != TRUE)
+		{
+			while(!pMTJQ->m_jobQList.empty() )
+			{
+				pJExecuter = pMTJQ->getJobExecuter();
+				if( pJExecuter!=NULL)
+				{		
+					::EnterCriticalSection(&pMTJQ->m_cs);
+					pJExecuter->execute(*(pMTJQ->m_jobQList.begin()));
+					pMTJQ->m_jobQList.pop_front();
+					::LeaveCriticalSection(&pMTJQ->m_cs);
+				}
+				else
+				{
+					break;
+				}
+				if(pMTJQ->m_pause == TRUE)
+					break;
+			}
+		}
+		else
+		{
+			while(!pMTJQ->m_jobQList.empty() )
+			{
+				pJExecuter = pMTJQ->getJobExecuter();
+				if( pJExecuter!=NULL)
+				{		
+					::EnterCriticalSection(&pMTJQ->m_cs);
+					pJExecuter->execute(*(pMTJQ->m_jobQList.begin()));
+					pMTJQ->m_jobQList.pop_front();
+					::LeaveCriticalSection(&pMTJQ->m_cs);
+				}
+				else
+				{
+					break;
+				}
+				if(pMTJQ->m_pause == FALSE)
+					break;
+			}
+		}
+		::SuspendThread(pMTJQ->m_pObserverThread);
+	}
+	return 0;
+}
+
+int CMThreadedJobQ::getNoOfExecuter()
+{
+	return this->m_NoOfExecuter;
+}
+
+
+int CMThreadedJobQ::getMaxNoOfExecuter()
+{
+	return this->m_MaxNoOfExecuter;
+}
+
+//将任务添加到同一优先级的列表中
+void CMThreadedJobQ::addJob(CJob *pJob)
+{
+	::EnterCriticalSection(&this->m_cs);
+   
+	this->m_jobQList.push_back(pJob);
+
+	::ResumeThread(this->m_pObserverThread);
+	::LeaveCriticalSection(&this->m_cs);
+}
+
+void CMThreadedJobQ::addFreeJobExecuter(CJobExecuter *pEx)
+{
+	::EnterCriticalSection(&m_cs);
+	THNODE* node = new THNODE;
+	node->pExecuter = pEx;
+	node->pNext = this->m_pFreeEList;
+	this->m_pFreeEList = node;
+	::LeaveCriticalSection(&m_cs);
+}
+
+CJobExecuter* CMThreadedJobQ::getJobExecuter()
+{
+	THNODE *pTemp;
+	CJobExecuter *pEx=NULL;
+	::EnterCriticalSection(&m_cs);
+	//Check if there is any free thread then return
+	if(this->m_pFreeEList != NULL)
+	{
+		pTemp = this->m_pFreeEList;
+		this->m_pFreeEList = this->m_pFreeEList->pNext;
+		pEx = pTemp->pExecuter;
+		delete pTemp ;
+		::LeaveCriticalSection(&m_cs);
+		return pEx;
+	}
+
+	if(this->m_NoOfExecuter < this->m_MaxNoOfExecuter)
+	{
+		//create a new thread and return the same
+		pEx =  new CJobExecuter(this);
+		this->addJobExecuter(pEx);
+		this->m_NoOfExecuter++;
+		::LeaveCriticalSection(&m_cs);
+		return pEx;
+	}
+	::LeaveCriticalSection(&m_cs);
+	return NULL;
+}
+
+void CMThreadedJobQ::addJobExecuter(CJobExecuter *pEx)
+{
+	::EnterCriticalSection(&m_cs);
+	THNODE* node = new THNODE;
+	node->pExecuter= pEx;
+	node->pNext = this->m_pAllEList;
+	this->m_pAllEList = node;
+	::LeaveCriticalSection(&m_cs);
+}
+
+void CMThreadedJobQ::setMaxNoOfExecuter(int value)
+{
+	::EnterCriticalSection(&this->m_cs);
+	if(value >1 && value <11)
+		this->m_MaxNoOfExecuter = value;
+	::ResumeThread(m_pObserverThread);
+	::LeaveCriticalSection(&this->m_cs);
+}
+
+void CMThreadedJobQ::deleteJobExecuter(CJobExecuter *pEx)
+{
+	THNODE* pNode,*pNodeP;
+	::EnterCriticalSection(&m_cs);
+	//Remove the node from the link list which contain the pEx  thread		
+	if(this->m_pAllEList != NULL)
+	{
+		pNode = this->m_pAllEList;
+		//if the first node contains the Executer  as pEx
+		if(pNode->pExecuter == pEx )	
+		{
+		  this->m_pAllEList = pNode->pNext;
+		  delete pNode;		  
+		}
+		else
+		{
+			//IF the first node does not contain the thread to be deleted then 
+			//search and delete the same
+			pNodeP =pNode;
+			pNode  = pNode->pNext ;			
+			while(pNode != NULL )
+			{
+				if(pNode->pExecuter== pEx ) break;
+				pNodeP = pNode;
+				pNode  = pNode->pNext ;			
+			}//end while
+			if(pNode!= NULL)
+			{
+				//remove the current node 
+				pNodeP->pNext = pNode->pNext;
+				delete pNode;
+			}
+
+		}//end else
+	}//End IF
+	this->m_NoOfExecuter--;
+	::LeaveCriticalSection(&m_cs);
+	pEx->stop();
+	Sleep(1);
+	delete pEx;
+}

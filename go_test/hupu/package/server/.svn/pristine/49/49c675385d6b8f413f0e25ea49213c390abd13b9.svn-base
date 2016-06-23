@@ -1,0 +1,3042 @@
+/*模块名称：OpStgClass.cpp
+   模块功能： 操作策略信息，解析策略XML，操作数据库;
+   作者：gcy
+   时间：2014-11-18
+*/
+#include "stdafx.h"
+#include "OpStgClass.h"
+#include "sqlite3.h"
+
+#include <string>
+#include <vector>
+#include "strconvert.h"
+
+#include "CheckJunkFiles.h"
+#include "CheckSystemTime.h"
+#include "CheckIEMain.h"
+#include "CheckNetShareResource.h"
+#include "CheckDiskSpace.h"
+#include "CheckPwdPolicy.h"
+#include "CheckIEExtensions.h"
+#include "CheckSystemPatchs.h"
+#include "CheckDeskWallPaper.h"
+#include "CheckCustom.h"
+#include "GlobalFunction.h"
+#include "SafeCheckItem\NetMon.h"
+
+ OpStgClass::OpStgClass(void)
+{
+	::CoInitialize(NULL);
+    emptylistdata();
+}
+
+OpStgClass::~OpStgClass(void)
+{
+	try
+	{
+		::CoUninitialize();
+		emptylistdata();
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::~OpStgClass Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::~OpStgClass Exception");
+	}
+}
+
+void OpStgClass::emptylistdata()
+{
+	try
+	{
+		list<XMLNAMEANDVALUE>::iterator  iter;
+
+		for (iter = imanattri.begin( ); iter != imanattri.end( );  )
+		{
+			imanattri.erase(iter++);
+		}
+
+		list<XMLDATA>::iterator  xmldataiter;
+		for (xmldataiter = xmldata.begin( ); xmldataiter != xmldata.end( );  )
+		{
+			xmldata.erase(xmldataiter++);
+		}
+		
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::emptylistdata Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::emptylistdata Exception");
+	}
+}
+
+ /*************************************************
+Function Name: SqlExec
+Description: 执行sql语句
+Input and output:  
+        db:数据库句柄
+        sql: 要执行的sql语句
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_DB_OPFAIL
+**************************************************/
+int OpStgClass::SqlExec(IN sqlite3 *db ,IN const char *sql)
+{
+	try
+	{
+		ASSERT(db != NULL);
+		if(db == NULL)
+			return HP_DB_OPFAIL;
+		char errorMsg[MAX_PATH]={"0"};
+		sqlite3_stmt *stmt;  
+
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, (char*)sql);
+        //EnterCriticalSection(&g_opdbcs);
+
+		int ret = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+		if ((ret != SQLITE_OK) ||(stmt == NULL)) 
+		{
+           // LeaveCriticalSection(&g_opdbcs);
+			sprintf_s(errorMsg, MAX_PATH, "Can't prepare database: %s\n", sqlite3_errmsg(db));
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, errorMsg);
+			sqlite3_finalize(stmt);  
+			return HP_DB_OPFAIL;
+		}
+
+		if (sqlite3_step(stmt) != SQLITE_DONE)  
+		{
+          //  LeaveCriticalSection(&g_opdbcs);
+			sprintf_s(errorMsg, MAX_PATH, "Can't operating database: %s\n", sqlite3_errmsg(db));
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, errorMsg);
+			return HP_DB_OPFAIL;
+		}  
+
+		sqlite3_finalize(stmt);  
+        //LeaveCriticalSection(&g_opdbcs);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SqlExec Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SqlExec Exception");
+	}
+	return HP_SUCCESS;
+}
+
+ /*************************************************
+Function Name: ClearStgData
+Description: 清除数据库中该用户的信息，包括策略属性及内容,
+                 用户策略类型和策略变更的Token值
+Input and output:  
+      db   :数据库句柄
+      userid:用户id号
+      usertype:用户类型
+      istgtype:策略类型
+      token:策略的Token值
+      mode:用户策略模式(机器模式还是用户模式)
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_DB_OPFAIL
+**************************************************/
+ int OpStgClass::ClearStgData(IN sqlite3 *db,IN char* userid, IN char* usertype, IN char* stgtype)
+{
+	try
+	{
+		int istgtype = atoi(stgtype);
+		if (istgtype == PROCESS)
+		{
+			CleartableItemAndContent(db,userid,usertype,(char*)HP_PROCESS_TABLE,(char*)HP_PROCESSCONT_TABLE);
+		}
+		else if (istgtype == PORT)
+		{
+			CleartableItemAndContent(db,userid,usertype,(char*)HP_PORT_TABLE,(char*)HP_PORTCONT_TABLE);
+		}
+		else if (istgtype == SERVICES)
+		{
+			CleartableItemAndContent(db,userid,usertype,(char*)HP_SERVICES_TABLE,(char*)HP_SERVICESCONT_TABLE);
+		}
+		else if (istgtype == SOFTWARE)
+		{
+			CleartableItemAndContent(db,userid,usertype,(char*)HP_SOFTWARE_TABLE,(char*)HP_SOFTWARECONT_TABLE);
+		}
+		else if (istgtype == SFDOMAIN)
+		{
+			CleartableItemAndContent(db,userid,usertype,(char*)HP_DOMAINUSER_TABLE,(char*)HP_DOMAINCONT_TABLE);
+		}
+		else if (istgtype == CHECKNETSHARE)
+		{
+			CleartableItemAndContent(db,userid,usertype,(char*)NET_SHARE_TABLE_NAME,(char*)NETSHARE_CONTENT_TABLE_NAME);
+		}
+		else if ( istgtype == OSVERSION )
+		{
+			CleartableItemAndContent(db,userid,usertype,const_cast<char*>(HP_OSVERSION_TABLE),const_cast<char*>(HP_OSVERSIONCONT_TABLE));
+		}
+		else if (istgtype == CHECKIEEXTENSIONS)
+		{
+			CleartableItemAndContent(db, userid, usertype, (char*)IE_EXTENSIONS_TABLE_NAME, (char*)IE_EXTENSIONS_CONTENT_TABLE_NAME);
+		}
+		else if (istgtype == WEAKPWD)
+		{
+			CleartableItemAndContent(db,userid,usertype,const_cast<char*>(HP_WEAKPWD_TABLE),const_cast<char*>(HP_WEAKPWDCONT_TABLE));
+		}
+		else if (istgtype == ANTIVIRUSCHECK )
+		{
+			CleartableItemAndContent(db,userid,usertype,const_cast<char*>(HP_ANTIVIRUS_TABLE),const_cast<char*>(HP_ANTIVIRUSCONT_TABLE));
+		}
+		else if (istgtype == CHECKSYSTEMPATCH)
+		{
+			CleartableItemAndContent(db,userid,usertype,(char*)SYSTEM_PATCHS_TABLE_NAME,(char*)SYSTEMPATCHS_CONTENT_TABLE_NAME);
+		}
+		else if (istgtype == CHECKCUSTOM)
+		{
+			ClearCustomCheckTable(this, db, userid, usertype);
+		}
+		else if( NETMON == istgtype)
+		{
+			CleartableItemAndContent(db,userid,usertype,const_cast<char*>(HP_NETMON_TABLE),const_cast<char*>(HP_NETMONCONT_TABLE));
+		}
+		else
+		{
+			if (istgtype >= FIREWALL && istgtype < LASTNUMBER)
+			{
+				CleartableItem(db, userid, usertype,(char*)g_safechecktable[istgtype]);
+			}
+		}
+		return HP_SUCCESS;
+
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::ClearStgData Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::ClearStgData Exception");
+	}
+
+	return HP_SUCCESS;
+}
+
+ /*************************************************
+Function Name: CleartableItemAndContent
+Description: 根据用户名和用户类型清除表中的属性和表中的内容
+Input and output:  
+      userid:用户id号
+      usertype:用户类型
+      db   :数据库句柄
+      itemtype: 属性表的表名称
+      itemcontent:内容表的表名称   
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_DB_OPFAIL
+**************************************************/
+ int OpStgClass::CleartableItemAndContent(IN sqlite3 *db,IN char* userid,IN char* usertype,IN char* itemtype,IN char* itemcontent)
+ {
+	 try
+	 {
+		 int ret = 0;
+		 char sql[MAX_PATH*2]={"0"};
+		 char sqlReal[MAX_PATH*2]={"0"};
+
+		 sprintf_s(sql,
+			 MAX_PATH*2,
+			 "DELETE FROM %s WHERE %s.ipolicyauthid IN"
+			 "(SELECT ipolicyauthid FROM %s WHERE (%s.iuserid='%s' AND %s.usertype='%s'))",
+			 itemcontent,
+			 itemcontent,
+			 itemtype,
+			 itemtype,
+			 userid,
+			 itemtype,
+			 usertype);	
+
+		 Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);	
+		 ret = SqlExec(db, sqlReal);
+		 if (ret!=0)
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "SqlExec 执行失败,数据库回滚");
+			 sprintf_s(sql,MAX_PATH*2,"ROLLBACK");	 
+			 Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+			 ret = SqlExec(db,sqlReal);
+			 return HP_DB_OPFAIL;
+		 }
+
+		 sprintf_s(sql,MAX_PATH*2,"DELETE FROM  %s WHERE  iuserid='%s' AND usertype='%s'", itemtype, userid, usertype);	
+		 Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+		 ret = SqlExec(db,sqlReal);
+
+		 if (ret!=0)
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "SqlExec 执行失败,数据库回滚");
+			 sprintf_s(sql, MAX_PATH*2, "ROLLBACK");	
+			 Convert(sql,sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+			 ret = SqlExec(db, sqlReal);
+			 return HP_DB_OPFAIL;
+		 }
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 ::MessageBox(NULL, L"OpStgClass::CleartableItemAndContent Exception", L"Msg", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::CleartableItemAndContent Exception");
+	 }
+     return HP_SUCCESS;
+ }
+
+/*************************************************
+Function Name: CleartableContent
+Description: 根据用户名和用户类型清除表中的属性
+Input and output:  
+      userid:用户id号
+      usertype:用户类型
+      db   :数据库句柄
+      itemtype:属性表的表名称
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_DB_OPFAIL
+**************************************************/
+ int OpStgClass::CleartableItem(IN sqlite3 *db,IN char* userid,IN char* usertype,IN char* itemtype)
+ {
+	 try
+	 {
+		 int ret = 0;
+		 char sql[MAX_PATH*2]={"0"};
+		char sqlReal[MAX_PATH*2]={"0"};
+
+		 sprintf_s(sql, MAX_PATH*2,"DELETE  FROM  %s WHERE iuserid='%s' AND usertype='%s'",itemtype, userid, usertype);	
+		 Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+
+		 ret = SqlExec(db, sqlReal);
+
+		 if (ret!=0)
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+			 sprintf_s(sql,MAX_PATH*2,"ROLLBACK");	
+			 //Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+			 ret = SqlExec(db, sql);	
+			 return HP_DB_OPFAIL;
+		 }
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 ::MessageBox(NULL, L"OpStgClass::CleartableItem Exception", L"Msg", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::CleartableItem Exception");
+	 }
+    
+     return HP_SUCCESS;
+ }
+
+ /*************************************************
+Function Name: DbSaveData
+Description: 将xml数据信息存储到数据库
+Input and output:  
+      db   :数据库句柄
+      userid:用户编号
+      usertype:用户类型
+      stgtype:策略类型
+      mode:策略模式
+RetVal:成功返回HP_SUCCESS
+       失败返回HP_DB_OPFAIL
+**************************************************/
+int OpStgClass::DbSaveData(IN sqlite3 *db, IN char* userid, IN char* usertype, IN  char* stgtype, IN char*  mode)
+  {
+	  try
+	  {
+		  int ret = 0;
+		  char sql[HP_C_SQLDATA]={"0"};
+		  char sqlReal[HP_C_SQLDATA]={"0"};
+
+		  sprintf_s(sql, 1024, "BEGIN TRANSACTION");	
+		  Convert(sql, sqlReal, sizeof(sqlReal),CP_ACP, CP_UTF8);
+		  ret = SqlExec(db, sqlReal);
+
+		  list<XMLNAMEANDVALUE> subitemattri;
+
+		  //thirditem中的内容
+		  list<XMLNAMEANDVALUE> thirditemattri;
+
+		  list<XMLDATA>::iterator  xmldataiter;
+
+		  //记录策略的id号
+		  int policyidnum = 0;
+
+		  m_cntIndex = 0;
+
+		  for (xmldataiter = xmldata.begin( ); xmldataiter != xmldata.end( );  )
+		  {
+			  XMLDATA   xmldatatmp = *xmldataiter;
+
+			  int subitemcnt = xmldatatmp.subitemattri.size();
+			  if (subitemcnt >0)
+			  {
+				  DbSaveItemData(&policyidnum,db,userid,usertype,stgtype,xmldatatmp.subitemattri);
+			  }
+			  int thirditemcnt = xmldatatmp.thirditemattri.size();
+			  if (thirditemcnt >0)
+			  {
+				  DbSaveContentData(policyidnum, db, userid, usertype, stgtype, xmldatatmp);
+			  }
+			  xmldata.erase(xmldataiter++);
+		  }
+
+		  sprintf_s(sql,HP_C_SQLDATA,"DELETE FROM tmodel");	
+		  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+		  ret = SqlExec(db,sqlReal);
+		  if (ret!=0)
+		  {
+			  WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+			  sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+			  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+			  ret = SqlExec(db,sqlReal);
+			  return HP_DB_OPFAIL;
+		  }
+
+		  sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tmodel(modelflag) VALUES('%s')",mode);	
+		  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+		  ret = SqlExec(db,sqlReal);
+		  if (ret!=0)
+		  {
+			  WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+			  sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+			  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+			  ret = SqlExec(db,sqlReal);
+			  return HP_DB_OPFAIL;
+		  }
+
+		  //修改策略变化数据
+		  switch (atoi(mode))
+		  {
+		  case 0 :
+			  sprintf_s(sql,HP_C_SQLDATA,"DELETE FROM tdevstgchange");	
+			  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+			  ret = SqlExec(db,sqlReal);
+			  if (ret!=0)
+			  {
+				  WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+				  sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+				  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+				  ret = SqlExec(db,sqlReal);
+				  return HP_DB_OPFAIL;
+			  }
+			  sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tdevstgchange(policytype) VALUES('%s')",stgtype);	
+			  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+			  ret = SqlExec(db,sqlReal);
+			  if (ret!=0)
+			  {
+				  WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "SqlExec 执行失败,数据库回滚");
+				  sprintf_s(sql, HP_C_SQLDATA,"ROLLBACK");	
+				  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+				  ret = SqlExec(db,sqlReal);
+				  return HP_DB_OPFAIL;
+			  }
+			  break;
+		  case 1:
+			  sprintf_s(sql,HP_C_SQLDATA,"DELETE FROM tuserstgchange WHERE (iuserid='%s')",userid);	
+			  Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);	
+			  ret = SqlExec(db,sqlReal);
+			  if (ret!=0)
+			  {
+				  WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+				  sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+				  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+				  ret = SqlExec(db,sqlReal);
+				  return HP_DB_OPFAIL;
+			  }
+			  sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tuserstgchange(iuserid,policytype) VALUES('%s','%s')", userid, usertype);	
+			  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+			  ret = SqlExec(db,sqlReal);
+			  if (ret!=0)
+			  {
+				  WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+				  sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+				  Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+				  ret = SqlExec(db,sqlReal);
+				  return HP_DB_OPFAIL;
+			  }
+			  break;
+		  default:
+			  break;
+		  }
+		  sprintf_s(sql, HP_C_SQLDATA, "COMMIT");	
+		  Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+		  ret = SqlExec(db, sqlReal);
+	  }
+	  catch (...)
+	  {
+#ifdef _DEBUG
+		  ::MessageBox(NULL, L"OpStgClass::DbSaveData Exception", L"Msg", 0);
+#endif
+		  WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::DbSaveData Exception");
+	  }
+      return HP_SUCCESS;
+  }
+
+  int OpStgClass::GetExistPolicyidValue(OUT int *policyid,IN sqlite3 *db,IN char* userid,IN char*  usertype,IN char* stgtype)
+  {
+	  try
+	  {
+		  UNREFERENCED_PARAMETER(userid);
+		  UNREFERENCED_PARAMETER(usertype);
+
+		  int stgtypeindex = atoi(stgtype);
+		  char itemtype[HP_C_USERCONTENTLEN] = {0};
+
+		  for (int i = PROCESS; i< LASTNUMBER; i++)
+		  {
+			  if (stgtypeindex == i)
+			  {
+				  memcpy_s(itemtype, HP_C_USERCONTENTLEN, g_safechecktable[i], strlen(g_safechecktable[i]));
+				  break;
+			  }
+		  }
+
+		  int ret = SQLITE_OK;
+		  char sql[HP_C_SQLDATA]={0}; 
+		  char sqlReal[HP_C_SQLDATA]={0};
+		  char **pszResult='\0';
+		  CHAR *szErrMsg='\0';
+		  INT nRow = 0;
+		  INT nCloumn = 0;
+
+		  sprintf_s(sql,HP_C_SQLDATA,"SELECT ipolicyauthid FROM %s ", itemtype);
+
+		  WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "查询策略id的SQL语句:", sql);
+		  Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+         
+ //         EnterCriticalSection(&g_opdbcs);
+		  if(SQLITE_OK!=(ret = sqlite3_get_table(db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+		  {
+    //           LeaveCriticalSection(&g_opdbcs);
+			  WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "查询策略id失败:", szErrMsg);
+			  sqlite3_free_table(pszResult);
+			
+			  return HP_DB_GETTABLEFAIL;
+		  }
+		  if ((nRow > 0) && (nCloumn > 0))
+		  {
+			  *policyid = atoi(pszResult[nRow*nCloumn+nCloumn-1]);
+		  }
+		  (*policyid)++;
+          sqlite3_free_table(pszResult);
+   //        LeaveCriticalSection(&g_opdbcs);
+	  }
+	  catch (...)
+	  {
+#ifdef _DEBUG
+		  ::MessageBox(NULL, L"OpStgClass::GetExistPolicyidValue Exception", L"Msg", 0);
+#endif
+		  WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::GetExistPolicyidValue Exception");
+	  }
+      return HP_SUCCESS;
+ }
+
+ /*************************************************
+Function Name: DbSaveItemData
+Description: 将XML中的Subitem中的项写入数据库
+Input and output:  
+     policyid:自定义的策略id号
+      db   :数据库句柄
+      userid:用户编号
+      usertype:用户类型
+      stgtype:策略类型
+     subitemattri:subitem中的xml数据
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_DB_OPFAIL
+**************************************************/
+ int OpStgClass::DbSaveItemData(OUT int *policyid,IN sqlite3 *db,IN char* userid,IN char*  usertype,IN char* stgtype,IN list<XMLNAMEANDVALUE> subitemattri)
+ {
+	 try
+	 {
+		serverconfig servconf;
+		memset(&servconf,0,sizeof(serverconfig));
+
+     int stgtypeindex = atoi(stgtype);
+     char itemtype[HP_C_USERCONTENTLEN] = {0};
+
+       for (int i = PROCESS; i< LASTNUMBER; i++)
+       {
+           if (stgtypeindex == i)
+           {
+               memcpy_s(itemtype, HP_C_USERCONTENTLEN, g_safechecktable[i], strlen(g_safechecktable[i]));
+			   break;
+           }
+       }
+
+     char externdata1[MAX_PATH] = {"0"};
+     char externdata2[MAX_PATH] = {"0"};
+     char externdata3[MAX_PATH] = {"0"};
+
+     JUNKDIRPOLICY junkDirPolicy = {0};
+
+     int timeError = 300;
+     char maiPageUrl[MAXL_URL_LEN] = {0};
+     DISKSPACEPOLICY diskSpacePolicy = {0};
+     PWDPOLICYPOLICY pwdPolicyPolicy = {0};
+	 WALLPAPERPOLICY wallPaperPolicy = {0};
+	  
+	 CNetMon netmon;
+
+     XMLWSUSCONFIGEXTERNDATA wsusconfigdata={0};
+     memset(&wsusconfigdata,0,sizeof(XMLWSUSCONFIGEXTERNDATA));
+
+     XMLANTIVIRUSEXTERNDATA antivirusdata = {0};
+     memset(&antivirusdata,0,sizeof(XMLANTIVIRUSEXTERNDATA));
+
+	 DOMAINEXTERNCONFIGDATA domainidentifyconf = {"0"};
+	 memset(&domainidentifyconf,0,sizeof(DOMAINEXTERNCONFIGDATA));
+
+     list<XMLNAMEANDVALUE>::iterator subitemiter;
+
+     memset(servconf.ipolicyauthid, 0, sizeof(servconf.ipolicyauthid));
+
+     //获取表中的policyid的值
+     if (GetExistPolicyidValue(policyid,db,userid,usertype,stgtype))
+     {
+         (*policyid)++;
+     }
+     
+     sprintf_s(servconf.ipolicyauthid, HP_SF_CONFIGLEN, "%d", *policyid);
+
+     for (subitemiter = subitemattri.begin( ); subitemiter != subitemattri.end( );  )
+     {
+         if (!GetCommonItemFromDB((*subitemiter).name, (*subitemiter).value, &servconf))
+         {
+             if ( PORT == stgtypeindex)
+             {
+                 if (strcmp((*subitemiter).name,"sexceptionprocess")==0)
+                 {
+                     memset(externdata1,0, sizeof(externdata1));
+                     Convert((*subitemiter).value, externdata1,sizeof(externdata1),CP_UTF8,CP_ACP);
+                 }
+             }
+             else  if (SCREENSAVER == stgtypeindex)
+             {
+                 if (strcmp((*subitemiter).name, "iscreentimeout")==0)
+                 {
+                     memset(externdata1, 0, sizeof(externdata1));
+                     Convert((*subitemiter).value, externdata1, sizeof(externdata1), CP_UTF8, CP_ACP);
+                 }
+                 else if (strcmp((*subitemiter).name, "srecoverusepwd")==0)
+                 {
+                     memset(externdata2, 0, sizeof(externdata2));
+                     Convert((*subitemiter).value, externdata2, sizeof(externdata2), CP_UTF8, CP_ACP);
+                 }
+             }
+             else if (stgtypeindex == CHECKJUNKFILES)
+             {
+                 SaveJunkFilePolicyToDB((*subitemiter).name, (*subitemiter).value, &junkDirPolicy);
+             }
+            
+             else if (COMPUTERNAME == stgtypeindex)
+             {
+                 if (strcmp((*subitemiter).name,"sregular")==0)
+                 {
+                     memset(externdata1,0,sizeof(externdata1));
+                     Convert((*subitemiter).value,externdata1,sizeof(externdata1),CP_UTF8,CP_ACP);
+                 }
+                 else if (strcmp((*subitemiter).name,"sregulardes")==0)
+                 {
+                     memset(externdata2,0,sizeof(externdata2));
+                     Convert((*subitemiter).value,externdata2,sizeof(externdata2),CP_UTF8,CP_ACP);
+                 }
+             }
+             else if (stgtypeindex == CHECKSYSTEMTIME)
+             {
+                  if (strcmp((*subitemiter).name, "stimeerror")==0)
+                  {
+                      timeError = atoi((*subitemiter).value);
+                  }
+             }
+             else if (stgtypeindex == CHECKMAINPAGE)
+             {
+                 if (strcmp((*subitemiter).name, "smainpage")==0)
+                 {
+                     memset(maiPageUrl,0,sizeof(maiPageUrl));
+                     Convert((*subitemiter).value, maiPageUrl, sizeof(maiPageUrl), CP_UTF8, CP_ACP);
+                 }
+             }
+             else if (stgtypeindex ==  CHECKDISKSPACE)
+             {
+                 InitDiskSpacePolicy((*subitemiter).name, (*subitemiter).value, &diskSpacePolicy);
+             }
+             else if (stgtypeindex == PWDPOLICY)
+             {
+                 InitCheckPwdPolicy((*subitemiter).name, (*subitemiter).value, &pwdPolicyPolicy.checkPwdPolicy);
+             }
+             else if (NETWORKSTATE == stgtypeindex )
+             {
+                 GetNetworkData((*subitemiter).name, (*subitemiter).value, externdata1,MAX_PATH,
+                     externdata2,MAX_PATH,externdata3,MAX_PATH);
+             }
+             else if (WEAKPWD == stgtypeindex)
+             {
+                 if (strcmp((*subitemiter).name, "inotcheckdisableweak")==0)
+                 {
+                     memset(externdata1,0,sizeof(externdata1));
+                     Convert((*subitemiter).value,externdata1,sizeof(externdata1),CP_UTF8,CP_ACP);
+                 }
+             } 
+             else if ( WSUSCONFIG == stgtypeindex )
+             {
+                 GetWSUSConfigData((*subitemiter).name, (*subitemiter).value,&wsusconfigdata);
+             }
+             else if ( SFDOMAIN == stgtypeindex )
+             {
+				 GetDomainData((*subitemiter).name, (*subitemiter).value,&domainidentifyconf,externdata1,sizeof(externdata1));
+             }
+			 else if ( stgtypeindex == CHECKWALLPAPER)
+			 {
+				 InitWallpaperPolicy((*subitemiter).name, (*subitemiter).value, &wallPaperPolicy);
+			 }
+			 else if( NETMON == stgtypeindex)
+			 {
+				 netmon.GetNetMonXmlConfig((*subitemiter).name, (*subitemiter).value);
+			 }
+             else
+             {
+                 WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"错误的安检策略类型");
+             }
+         }
+       
+         subitemattri.erase(subitemiter++);
+     }//for(subitemiter = subitemattri.begin( ); subitemiter != subitemattri.end( ); )
+
+     string tmpstr;
+
+     list<STARTENDTIME> LsStartEndTime;
+     list<STARTENDTIME>::iterator LsStartEndTimeIter;
+
+     STARTENDTIME startendtime;
+
+     memset(startendtime.SourTime,0,sizeof(startendtime.SourTime));
+     startendtime.iBegin =0;
+     startendtime.iEnd =0;
+
+     string stmpstr;
+     string pattern;
+     vector<std::string> vtTime,vtSecTime,vtthdTime;
+
+     stmpstr = servconf.stimeperiod;
+
+     if(stmpstr.size()==0)
+     {
+         startendtime.iBegin =0;
+         startendtime.iEnd = 24*3600;
+         LsStartEndTime.push_back(startendtime);
+     }
+     else
+     {
+         pattern = ",";
+         vtTime = split(stmpstr, pattern);
+
+         for (unsigned int i = 0; i < vtTime.size(); i++)
+         {
+             stmpstr = vtTime[i];
+             memcpy(startendtime.SourTime,stmpstr.c_str(),stmpstr.size()); 
+             pattern = "-";
+             vtSecTime = split(stmpstr, pattern);
+
+             for (unsigned int i=0; i< vtSecTime.size(); i++)
+             {
+                 stmpstr = vtSecTime[i];
+                 pattern = ":";
+                 vtthdTime = split(stmpstr, pattern);
+
+                 if (i==0)
+                 {
+                     startendtime.iBegin = atoi(vtthdTime[0].c_str())*60*60 + atoi(vtthdTime[1].c_str())*60;
+                 }
+                 else if (i==1)
+                 {
+                     startendtime.iEnd = atoi(vtthdTime[0].c_str())*60*60 + atoi(vtthdTime[1].c_str())*60;
+                 }				
+             }
+             LsStartEndTime.push_back(startendtime);
+         }
+     }
+
+     for (LsStartEndTimeIter = LsStartEndTime.begin( ); LsStartEndTimeIter != LsStartEndTime.end( );  )
+     {
+          int ret = 0;
+          char sql[HP_C_SQLDATA] = {"0"};
+          char sqlReal[HP_C_SQLDATA] = {"0"};
+
+          if ( SCREENSAVER == stgtypeindex )
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                  "\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype,HP_INSERTSCREEN_TABLEITEM,
+                  servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+                   servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,servconf.sweekday,
+                  servconf.spromptitle,servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent,userid,usertype,
+                  externdata1,externdata2);
+          }
+          else if ( PORT == stgtypeindex)
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                  "\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype,HP_INSERTPORT_TABLEITEM,
+                  servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+                  servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,servconf.sweekday,
+                  servconf.spromptitle,servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent,userid,usertype,externdata1);
+          }
+          else if ( CHECKJUNKFILES == stgtypeindex)
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                  "\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%c\",\"%c\",\"%d\",\"%d\")",itemtype, junkFileTableItem,
+                  servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+                  servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,servconf.sweekday,
+                  servconf.spromptitle,servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent, userid, usertype,junkDirPolicy.isCheckTempFile,
+                  junkDirPolicy.isCheckRecycle, junkDirPolicy.fileSize, junkDirPolicy.fileNum);
+          }
+          else if (COMPUTERNAME == stgtypeindex)
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                  "\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype,HP_INSERTCOMPUTERNAME_TABLEITEM,
+                  servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+                  servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,servconf.sweekday,
+                  servconf.spromptitle,servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent,userid,usertype,
+                  externdata1,externdata2);
+          }
+          else if (stgtypeindex == CHECKSYSTEMTIME)
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                  "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%d\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype,systemTimeTableItem,
+                  servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+                  servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,userid,LsStartEndTimeIter->SourTime,servconf.sweekday,
+                  servconf.spromptitle,servconf.spromptinfo,timeError, servconf.warningcont,servconf.warninglevel,servconf.srcevent,usertype);
+          }
+          else if ( stgtypeindex == CHECKMAINPAGE )
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                  "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype, mainPageTableItem,
+                  servconf.ipolicyauthid, servconf.spolicyname, servconf.dmodifytime, LsStartEndTimeIter->iBegin, LsStartEndTimeIter->iEnd, servconf.dstartdate,
+                  servconf.denddate, servconf.iintervaldays, servconf.spolicyaction, servconf.ipriority, servconf.istate, userid, LsStartEndTimeIter->SourTime, servconf.sweekday,
+                  servconf.spromptitle, servconf.spromptinfo, maiPageUrl, servconf.warningcont, servconf.warninglevel, servconf.srcevent, usertype);
+          }
+          else if ( stgtypeindex == NETWORKSTATE )
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                  "\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype,HP_INSERTMETWORK_TABLEITEM,
+                  servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+                  servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,servconf.sweekday,
+                  servconf.spromptitle,servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent,userid,usertype,
+                  externdata1,externdata2,externdata3);
+          }
+          else if ( WEAKPWD == stgtypeindex )
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s,bCheckForbitUser) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                  "\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype,HP_INSERT_TABLEITEM,
+                  servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+                  servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,servconf.sweekday,
+                  servconf.spromptitle,servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent,userid,usertype,
+                  externdata1);
+          }
+          else if ((stgtypeindex == WSUSCONFIG))
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s,updatetype,updateday,updatehour,serverurl,reboot,enblefreq,freqtime) VALUES \
+                       (\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\
+                        \"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype,HP_INSERT_TABLEITEM,servconf.ipolicyauthid,
+                       servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+                      servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,
+                      servconf.sweekday,servconf.spromptitle,servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent,userid,
+                      usertype,wsusconfigdata.updatetype,wsusconfigdata.updateday,wsusconfigdata.updatehour,wsusconfigdata.serverurl,wsusconfigdata.reboot,
+                      wsusconfigdata.enblefreq,wsusconfigdata.freqtime);
+          }
+		  else if (( SFDOMAIN == stgtypeindex))
+		  {
+			  sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s,showidenwindow,dlgtimeout,dlgtimeoutunit,"
+				  "idenperoid,idenperoidunit,advnotifytime,advnotifytimeunit,tipnum,tiptext,customfaildes) "
+				  "VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+				  "\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+				  "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",
+				  itemtype,HP_INSERT_TABLEITEM,servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,
+				  LsStartEndTimeIter->iEnd,servconf.dstartdate,servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,
+				  servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,servconf.sweekday,servconf.spromptitle,
+				  servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent,userid,usertype,domainidentifyconf.identifydlg,
+				  domainidentifyconf.dlgtimeouttime,domainidentifyconf.dlgtimeoutunit,domainidentifyconf.identifyperiod,
+				  domainidentifyconf.identifyperiodunit,domainidentifyconf.advnotifytime,domainidentifyconf.advnotifytimeunit,
+				  domainidentifyconf.offlinetipNum,domainidentifyconf.offlineTip,externdata1);
+		  }
+          else if (stgtypeindex == CHECKDISKSPACE)
+          {
+              sprintf_s(sql, HP_C_SQLDATA, "INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                  "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%d\", \"%d\", \"%d\", \"%s\",\"%s\",\"%s\",\"%s\")",itemtype, diskSpaceTableItem,
+                  servconf.ipolicyauthid, servconf.spolicyname, servconf.dmodifytime, LsStartEndTimeIter->iBegin, LsStartEndTimeIter->iEnd, servconf.dstartdate,
+                  servconf.denddate, servconf.iintervaldays, servconf.spolicyaction, servconf.ipriority, servconf.istate,userid, LsStartEndTimeIter->SourTime, 
+				  servconf.sweekday,servconf.spromptitle, servconf.spromptinfo, diskSpacePolicy.iConfigPercent, diskSpacePolicy.iCheckSystemDriver,
+				  diskSpacePolicy.iCheckOtherDriver,servconf.warningcont, servconf.warninglevel, servconf.srcevent, usertype);
+          }
+          else if (stgtypeindex == PWDPOLICY)
+          {
+                  sprintf_s(sql, HP_C_SQLDATA, "INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                          "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%d\", \"%d\", \"%d\", \"%s\",\"%s\",\"%s\",\"%s\")",itemtype, pwdPolicyTableItem,
+                          servconf.ipolicyauthid, servconf.spolicyname, servconf.dmodifytime, LsStartEndTimeIter->iBegin, LsStartEndTimeIter->iEnd, servconf.dstartdate,
+                          servconf.denddate, servconf.iintervaldays, servconf.spolicyaction, servconf.ipriority, servconf.istate,userid, LsStartEndTimeIter->SourTime, servconf.sweekday,
+                          servconf.spromptitle, servconf.spromptinfo, pwdPolicyPolicy.checkPwdPolicy.iPwdComplexity, pwdPolicyPolicy.checkPwdPolicy.iPwdMinLen, pwdPolicyPolicy.checkPwdPolicy.iPwdMaxAge,
+                          servconf.warningcont, servconf.warninglevel, servconf.srcevent, usertype);
+          }  
+          else if ( stgtypeindex == ANTIVIRUSCHECK )
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s,gninstallrepairflag,gninstallpath,gninstallparam,gninstallhandrep,gsoftversionflag,\
+                      gsoftversionpath,gsoftversionparam,gsoftversionhandrep,glibversionflag,glibversionpath,glibversionparam,glibversionhandlerep) \
+                      VALUES (\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\
+                      \"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype,HP_INSERT_TABLEITEM,servconf.ipolicyauthid,
+                      servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+                      servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,
+                      servconf.sweekday,servconf.spromptitle,servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent,userid,
+                       usertype,antivirusdata.gninstrepairflag,antivirusdata.gninstpath,antivirusdata.gninstparam,antivirusdata.gninsthandrep,antivirusdata.gsoftverflag,
+                       antivirusdata.gsoftverpath,antivirusdata.gsoftverparam,antivirusdata.gsoftverhandrep,antivirusdata.glibverflag,antivirusdata.glibverpath,
+                       antivirusdata.glibverparam,antivirusdata.glibverhandlerep);
+          }
+		  else if (stgtypeindex == CHECKWALLPAPER)
+		  {
+			  string strWallPaperUrl = WCharToAnsi(wallPaperPolicy.cstrWallPaperUrl.GetBuffer());
+
+			  sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+				  "\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype,wallpaperTableItem,
+				  servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+				  servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,userid,LsStartEndTimeIter->SourTime,
+				  servconf.sweekday, servconf.spromptitle,servconf.spromptinfo, strWallPaperUrl.c_str(), wallPaperPolicy.dwStyle, 
+				  servconf.warningcont,servconf.warninglevel,servconf.srcevent,usertype);
+		  }
+		  else if( NETMON == stgtypeindex )
+		  {
+			  sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s,direction,speed,speedunit,total,totalunit,totalcycle) "
+				  "VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+				  "\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",
+				  itemtype,HP_INSERT_TABLEITEM,servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,
+				  LsStartEndTimeIter->iEnd,servconf.dstartdate,servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,
+				  servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,servconf.sweekday,servconf.spromptitle,
+				  servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent,userid,usertype,netmon.m_xmlexterninfo.direction,
+				  netmon.m_xmlexterninfo.speed,netmon.m_xmlexterninfo.speedunit,netmon.m_xmlexterninfo.total,netmon.m_xmlexterninfo.totalunit,
+				  netmon.m_xmlexterninfo.totalcycle);
+		  }
+          else 
+          {
+              sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO %s(%s) VALUES(\"%s\",\"%s\",\"%s\",\"%d\",\"%d\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+                  "\"%s\",\"%s\",\"%s\",\"%s\",\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",itemtype,HP_INSERT_TABLEITEM,
+                  servconf.ipolicyauthid,servconf.spolicyname,servconf.dmodifytime,LsStartEndTimeIter->iBegin,LsStartEndTimeIter->iEnd,servconf.dstartdate,
+                  servconf.denddate,servconf.iintervaldays,servconf.spolicyaction,servconf.ipriority,servconf.istate,LsStartEndTimeIter->SourTime,servconf.sweekday,
+                  servconf.spromptitle,servconf.spromptinfo,servconf.warningcont,servconf.warninglevel,servconf.srcevent,userid,usertype);
+          }
+                          
+         Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+         ret = SqlExec(db, sqlReal);
+
+         if (ret != 0)
+         {
+			 WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "SqlExec 执行失败");
+             return HP_DB_OPFAIL;
+         }
+         LsStartEndTime.erase(LsStartEndTimeIter++);
+     }
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 ::MessageBox(NULL, L"OpStgClass::DbSaveItemData Exception", L"Msg", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::DbSaveItemData Exception");
+	 }
+     return HP_SUCCESS;
+ }
+
+ /*************************************************
+Function Name: DbSaveContentData
+Description: 将XML中的Thirditem中的项写入数据库
+Input and output:  
+       policyid:自定义的策略id号
+      db   :数据库句柄
+      userid:用户编号
+      usertype:用户类型
+      stgtype:策略类型
+      thirditemattri:thirditem中的xml数据
+      contentcnt:内容的个数
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_DB_OPFAIL
+**************************************************/
+ int OpStgClass::DbSaveContentData(IN int policyid, IN sqlite3 *db, IN char* userid, IN char*  usertype, IN char* stgtype, IN XMLDATA xmlData)
+{
+	try
+	{
+		int ret = 0;
+		switch (atoi(stgtype))
+		{
+		case PROCESS:
+			ret = SaveProcesssql(policyid, db, xmlData.thirditemattri);
+			break;
+		case PORT:
+			ret = SavePortsql(policyid, db, xmlData.thirditemattri);
+			break;
+		case SERVICES:
+			ret = SaveServicesql(policyid, db, xmlData.thirditemattri);
+			break;
+		case SOFTWARE:
+			ret = SaveSoftwaresql(policyid, db, xmlData.thirditemattri);
+			break;
+		case CHECKNETSHARE:
+			{
+				ret = SaveNetShareExceptDir(policyid, db, xmlData.thirditemattri);
+				break;
+			}
+		case CHECKIEEXTENSIONS:
+			{
+				ret = SaveIEExtensionsContentTable(policyid, db, xmlData.thirditemattri, this);
+				break;
+			}
+		case OSVERSION:
+			{
+				ret = SaveOsCheckCntTodb(policyid, db, xmlData.thirditemattri);
+			}
+			break;
+		case WEAKPWD:
+			{
+				ret =SaveWeakPWDCntTodb(policyid, db, xmlData.thirditemattri);
+			}
+			break;
+		case SFDOMAIN:
+			{
+				ret = SaveDomainCntTodb(policyid, db, xmlData.thirditemattri);
+			}
+			break;
+		case ANTIVIRUSCHECK:
+			{
+				ret = SaveAntivirusCntTodb(policyid, db, userid, usertype, xmlData.thirditemattri);
+			}
+			break;
+		case CHECKSYSTEMPATCH:
+			{
+				ret = SaveSystemPatchPolicy(policyid, db, xmlData.thirditemattri);
+			}
+			break;
+		case CHECKCUSTOM:
+			{
+				ret = SaveCustomCheckPolicy(policyid, db, &xmlData, this);
+			}
+			break;
+		case NETMON:
+			{
+				CNetMon netmon;
+				ret = netmon.SaveNetMonCntTodb(policyid, db, xmlData.thirditemattri);
+			}
+			break;
+		default:
+			break;
+		}
+		return ret;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::DbSaveContentData Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::DbSaveContentData Exception");
+	}
+	return 0;
+}
+
+/*************************************************
+Function Name: SaveProcesssql
+Description: 拼接进程内容的sql语句
+Input and output:  
+       policyid:自定义的策略id号
+       db   :数据库句柄
+      thirditemattri:thirditem中的xml数据
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_XML_GETPROCESSSQLFAIL
+**************************************************/
+int OpStgClass::SaveProcesssql(IN int policyid,IN sqlite3 *db,IN list<XMLNAMEANDVALUECON> thirditemattri )
+{
+	try
+	{
+		list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+
+		XMLSTGPROCESSCONTENT proccont;
+		memset(&proccont,0,sizeof(XMLSTGPROCESSCONTENT));
+
+		int itemcnt = 0;
+
+		int ret = 0;
+		char sql[HP_C_SQLDATA]={"0"};
+		char sqlReal[HP_C_SQLDATA]={"0"};
+
+		memset(proccont.icheckprocessid,0,sizeof(proccont.icheckprocessid));
+		sprintf_s(proccont.icheckprocessid,HP_SF_CONFIGLEN,"%d",policyid);
+		memset(proccont.ipolicyauthid,0,sizeof(proccont.ipolicyauthid));
+		sprintf_s(proccont.ipolicyauthid,HP_SF_CONFIGLEN,"%d",policyid);
+
+		for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+		{
+			if (strcmp((*thirditemiter).name,"icheckprocessid")==0)
+			{
+				memset(proccont.icheckprocessid,0,sizeof(proccont.icheckprocessid));
+				Convert((*thirditemiter).value,proccont.icheckprocessid,sizeof(proccont.icheckprocessid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"ipolicyauthid")==0)
+			{
+				memset(proccont.ipolicyauthid,0,sizeof(proccont.ipolicyauthid));
+				Convert((*thirditemiter).value,proccont.ipolicyauthid,sizeof(proccont.ipolicyauthid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"sprocessname")==0)
+			{
+				memset(proccont.sprocessname,0,sizeof(proccont.sprocessname));
+				Convert((*thirditemiter).value,proccont.sprocessname,sizeof(proccont.sprocessname),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"sprocessdescribable")==0)
+			{
+				memset(proccont.sprocessdescribable,0,sizeof(proccont.sprocessdescribable));
+				Convert((*thirditemiter).value,proccont.sprocessdescribable,sizeof(proccont.sprocessdescribable),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"srepairmethod")==0)
+			{
+				memset(proccont.srepairmethod,0,sizeof(proccont.srepairmethod));
+				Convert((*thirditemiter).value,proccont.srepairmethod,sizeof(proccont.srepairmethod),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"srepairpath")==0)
+			{
+				memset(proccont.srepairpath,0,sizeof(proccont.srepairpath));
+				Convert((*thirditemiter).value,proccont.srepairpath,sizeof(proccont.srepairpath),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"srepairparam")==0)
+			{
+				memset(proccont.srepairparam,0,sizeof(proccont.srepairparam));
+				Convert((*thirditemiter).value,proccont.srepairparam,sizeof(proccont.srepairparam),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"dmodifytime")==0)
+			{
+				memset(proccont.dmodifytime,0,sizeof(proccont.dmodifytime));
+				Convert((*thirditemiter).value,proccont.dmodifytime,sizeof(proccont.dmodifytime),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"smustorforbid")==0)
+			{
+				memset(proccont.smustorforbid,0,sizeof(proccont.smustorforbid));
+				Convert((*thirditemiter).value,proccont.smustorforbid,sizeof(proccont.smustorforbid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"istate")==0)
+			{
+				memset(proccont.istate,0,sizeof(proccont.istate));
+				Convert((*thirditemiter).value,proccont.istate,sizeof(proccont.istate),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+
+			if (itemcnt == (*thirditemiter).contsize )
+			{
+				sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tstgprocesscontent(icheckprocessid,ipolicyauthid,sprocessname,sprocessdescribable,"
+					"srepairmethod,srepairpath,srepairparam,dmodifytime,smustorforbid,istate) VALUES(\"%s\",\"%s\",\"%s\",\"%s\",\"%s\","
+					"\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",proccont.icheckprocessid,proccont.ipolicyauthid,proccont.sprocessname,
+					proccont.sprocessdescribable,proccont.srepairmethod,proccont.srepairpath,proccont.srepairparam,proccont.dmodifytime,
+					proccont.smustorforbid,proccont.istate);
+
+				Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+				ret = SqlExec(db,sqlReal);
+				if (ret != 0)
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "SqlExec 执行失败,数据库回滚");
+					sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+					Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+					ret = SqlExec(db,sqlReal);
+					return HP_DB_OPFAIL;
+				}
+				itemcnt = 0;
+			}
+			thirditemattri.erase(thirditemiter++);
+		}// for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SaveProcesssql Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SaveProcesssql Exception");
+	}
+
+    return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: SavePortsql
+Description: 拼接端口内容的sql语句
+Input and output:  
+        policyid:自定义的策略id号
+         db   :数据库句柄
+      thirditemattri:thirditem中的xml数据
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_XML_GETPORTSQLFAIL
+**************************************************/
+int OpStgClass::SavePortsql(IN int policyid, IN sqlite3 *db, IN list<XMLNAMEANDVALUECON> thirditemattri)
+{
+	try
+	{
+		list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+
+		XMLSTGPORTCONTENT portcont;
+		memset(&portcont,0,sizeof(XMLSTGPORTCONTENT));
+
+		int itemcnt = 0;
+
+		memset(portcont.icheckportid, 0, sizeof(portcont.icheckportid));
+		sprintf_s(portcont.icheckportid, HP_C_USERCONTENTLEN,"%d",policyid);
+		memset(portcont.ipolicyauthid, 0, sizeof(portcont.ipolicyauthid));
+		sprintf_s(portcont.ipolicyauthid, HP_C_USERCONTENTLEN,"%d",policyid);
+
+		int ret = 0;
+		char sql[HP_C_SQLDATA]={"0"};
+		char sqlReal[HP_C_SQLDATA]={"0"};
+
+		for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+		{
+			if (strcmp((*thirditemiter).name,"icheckportid")==0)
+			{
+				memset(portcont.icheckportid,0,sizeof(portcont.icheckportid));
+				Convert((*thirditemiter).value, portcont.icheckportid,sizeof(portcont.icheckportid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"ipolicyauthid")==0)
+			{
+				memset(portcont.ipolicyauthid,0,sizeof(portcont.ipolicyauthid));
+				Convert((*thirditemiter).value,portcont.ipolicyauthid,sizeof(portcont.ipolicyauthid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"iport")==0)
+			{
+				memset(portcont.iport,0,sizeof(portcont.iport));
+				Convert((*thirditemiter).value,portcont.iport,sizeof(portcont.iport),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"sporttype")==0)
+			{
+				memset(portcont.sporttype,0,sizeof(portcont.sporttype));
+				Convert((*thirditemiter).value,portcont.sporttype,sizeof(portcont.sporttype),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"sportremark")==0)
+			{
+				memset(portcont.sportremark,0,sizeof(portcont.sportremark));
+				Convert((*thirditemiter).value,portcont.sportremark,sizeof(portcont.sportremark),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"sifselfdefined")==0)
+			{
+				memset(portcont.sifselfdefined,0,sizeof(portcont.sifselfdefined));
+				Convert((*thirditemiter).value,portcont.sifselfdefined,sizeof(portcont.sifselfdefined),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"dmodifytime")==0)
+			{
+				memset(portcont.dmodifytime,0,sizeof(portcont.dmodifytime));
+				Convert((*thirditemiter).value,portcont.dmodifytime,sizeof(portcont.dmodifytime),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}											
+			else if (strcmp((*thirditemiter).name,"istate")==0)
+			{
+				memset(portcont.istate,0,sizeof(portcont.istate));
+				Convert((*thirditemiter).value,portcont.istate,sizeof(portcont.istate),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name,"sexceptionprocess")==0)
+			{
+				memset(portcont.excepproc,0,sizeof(portcont.excepproc));
+				Convert((*thirditemiter).value,portcont.excepproc,sizeof(portcont.excepproc),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+
+			if (itemcnt == (*thirditemiter).contsize)
+			{
+				sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tstgportcontent(icheckportid,ipolicyauthid,iport,sporttype,sportremark,sifselfdefined,dmodifytime,istate,exceptproc)"
+					"VALUES(\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",portcont.icheckportid,portcont.ipolicyauthid,portcont.iport,portcont.sporttype,
+					portcont.sportremark,portcont.sifselfdefined,portcont.dmodifytime,portcont.istate,portcont.excepproc);
+
+				Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+				ret = SqlExec(db,sqlReal);
+				if (ret!=0)
+				{
+					WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+					sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+					Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+					ret = SqlExec(db,sqlReal);
+					return HP_DB_OPFAIL;
+				}
+				itemcnt = 0;
+			}
+			thirditemattri.erase(thirditemiter++);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SavePortsql Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SavePortsql Exception");
+	}    
+    return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: SaveServicesql
+Description: 拼接服务内容的sql语句
+Input and output:  
+         policyid:自定义的策略id号
+          db   :数据库句柄
+      thirditemattri:thirditem中的xml数据
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_XML_GETSERVICESQLFAIL
+**************************************************/
+int OpStgClass::SaveServicesql(IN int policyid,IN sqlite3 *db,IN list<XMLNAMEANDVALUECON> thirditemattri)
+{
+	try
+	{
+		list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+
+		char  policyauthid[HP_C_USERCONTENTLEN] = {"1"};
+		char  servicename[MAX_PATH] = {0};
+		char  displayname[MAX_PATH] = {0};
+
+		int itemcnt = 0;
+
+		memset(policyauthid, 0, sizeof(policyauthid));
+		sprintf_s(policyauthid, HP_C_USERCONTENTLEN, "%d", policyid);
+
+		int ret = 0;
+		char sql[HP_C_SQLDATA]={"0"};
+		char sqlReal[HP_C_SQLDATA]={"0"};
+
+		for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+		{
+			if (strcmp((*thirditemiter).name, "ipolicyauthid")==0)
+			{
+				memset(policyauthid,0,sizeof(policyauthid));
+				Convert((*thirditemiter).value,policyauthid,sizeof(policyauthid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "servicename")==0)
+			{
+				memset(servicename,0,sizeof(servicename));
+				Convert((*thirditemiter).value,servicename,sizeof(servicename),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "serviceremark")==0)
+			{
+				memset(displayname,0,sizeof(displayname));
+				Convert((*thirditemiter).value,displayname,sizeof(displayname),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+
+			if (itemcnt == (*thirditemiter).contsize)
+			{
+				sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tstgservicecontent(ipolicyauthid,servername,displayname,istate) VALUES(%s,\"%s\",\"%s\",1)",
+					policyauthid,servicename,displayname);	
+
+				Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+				ret = SqlExec(db,sqlReal);
+				if (ret!=0)
+				{
+					WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+					sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+					Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+					ret = SqlExec(db,sqlReal);
+					return HP_DB_OPFAIL;
+				}
+				itemcnt = 0;
+			}
+			thirditemattri.erase(thirditemiter++);
+		}// for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SaveServicesql Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SaveServicesql Exception");
+	}    
+    return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: SaveSoftwaresql
+Description: 拼接软件的sql语句
+Input and output:  
+          policyid:自定义的策略id号
+          db   :数据库句柄
+      thirditemattri:thirditem中的xml数据
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_XML_GETSOFTWARESQLFAIL
+**************************************************/
+int OpStgClass::SaveSoftwaresql(IN int policyid, IN sqlite3 *db, IN list<XMLNAMEANDVALUECON> thirditemattri)
+{
+	try
+	{
+		char checkid[HP_C_USERCONTENTLEN] = {0};
+		char softpolicyid[HP_C_USERCONTENTLEN] = {0};
+		char softname[MAX_PATH] = {0};
+		char descrip[MAX_PATH] = {0};
+		char sfrepairmethod[HP_C_USERCONTENTLEN] = {0};
+		char sfrepairpath[MAX_PATH] = {0};
+		char sfrepairparam[HP_C_USERCONTENTLEN] = {0};
+		char  istate[HP_C_USERCONTENTLEN] = {0};
+		char modifytime[HP_C_USERCONTENTLEN] = {0};
+
+		int itemcnt = 0;
+
+		memset(checkid,0,sizeof(checkid));
+		sprintf_s(checkid, HP_C_USERCONTENTLEN, "%d", policyid);
+		memset(softpolicyid, 0, sizeof(HP_C_USERCONTENTLEN));
+		sprintf_s(softpolicyid, HP_C_USERCONTENTLEN, "%d", policyid);
+
+		int ret = 0;
+		char sql[HP_C_SQLDATA]={"0"};
+		char sqlReal[HP_C_SQLDATA]={"0"};
+
+		list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+		for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+		{
+			if(strcmp((*thirditemiter).name,"icheckinstallsoftwareid")==0)
+			{
+				memset(checkid,0,sizeof(checkid));
+				Convert((*thirditemiter).value,checkid,sizeof(checkid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if(strcmp((*thirditemiter).name,"ipolicyauthid")==0)
+			{
+				memset(softpolicyid,0,sizeof(softpolicyid));
+				Convert((*thirditemiter).value,softpolicyid,sizeof(softpolicyid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if(strcmp((*thirditemiter).name,"softname")==0)
+			{
+				memset(softname,0,sizeof(softname));
+				Convert((*thirditemiter).value,softname,sizeof(softname),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if(strcmp((*thirditemiter).name, "softnamedescrible")==0)
+			{
+				memset(descrip,0,sizeof(descrip));
+				Convert((*thirditemiter).value,descrip,sizeof(descrip),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if(strcmp((*thirditemiter).name, "srepairmethod")==0)
+			{
+				memset(sfrepairmethod,0,sizeof(sfrepairmethod));
+				Convert((*thirditemiter).value,sfrepairmethod,sizeof(sfrepairmethod),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if(strcmp((*thirditemiter).name, "srepairpath")==0)
+			{
+				memset(sfrepairpath,0,sizeof(sfrepairpath));
+				Convert((*thirditemiter).value,sfrepairpath,sizeof(sfrepairpath),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if(strcmp((*thirditemiter).name, "srepairparam")==0)
+			{
+				memset(sfrepairparam,0,sizeof(sfrepairparam));
+				Convert((*thirditemiter).value,sfrepairparam,sizeof(sfrepairparam),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if(strcmp((*thirditemiter).name, "istate")==0)
+			{
+				memset(istate,0,sizeof(istate));
+				Convert((*thirditemiter).value,istate,sizeof(istate),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if(strcmp((*thirditemiter).name, "dmodifytime")==0)
+			{
+				memset(modifytime,0,sizeof(modifytime));
+				Convert((*thirditemiter).value,modifytime,sizeof(modifytime),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+
+			if (itemcnt == (*thirditemiter).contsize)
+			{
+				sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tstgsoftwarecontent(icheckinstallid,ipolicyauthid,softname,describable,"
+					"srepairmethod,srepairpath,istate,dmodifytime,srepairparam) VALUES(%s,\"%s\",\"%s\",\"%s\","
+					"\"%s\",\"%s\",\"1\",\"%s\",\"%s\")",checkid,softpolicyid,softname,descrip,sfrepairmethod,sfrepairpath,
+					modifytime,sfrepairparam);
+
+				Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+				ret = SqlExec(db,sqlReal);
+				if (ret!=0)
+				{
+					WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+					sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+					Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+					ret = SqlExec(db,sqlReal);
+					return HP_DB_OPFAIL;
+				}
+
+				itemcnt = 0;
+			}
+			thirditemattri.erase(thirditemiter++);
+
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SaveSoftwaresql Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SaveSoftwaresql Exception");
+	}    
+	return HP_SUCCESS;
+  }
+
+/************************************************************
+Function Name: SaveNetShareExceptDir
+Description: 拼接共享资源检查的sql语句
+Input and output:  
+          policyId:自定义的策略id号
+          pDb   :数据库句柄
+      thirditemattri:thirditem中的xml数据
+RetVal:成功返回HP_SUCCESS
+       失败返回HP_DB_OPFAIL
+*************************************************************/
+int OpStgClass::SaveNetShareExceptDir(IN int policyId, IN sqlite3 *pDb, IN list<XMLNAMEANDVALUECON> thirditemattri)
+{
+	try
+	{
+		list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+		char policyauthid[HP_C_USERCONTENTLEN] = {"1"};
+		char exceptShareDir[MAX_PATH] = {0};
+		int ret = 0;
+		char sql[HP_C_SQLDATA]={"0"};
+		char sqlReal[HP_C_SQLDATA]={"0"};
+		int itemcnt = 0;
+
+		memset(policyauthid,0,sizeof(policyauthid));
+		sprintf_s(policyauthid, HP_C_USERCONTENTLEN, "%d", policyId);
+
+		for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+		{
+			if (strcmp((*thirditemiter).name, "ipolicyauthid")==0)
+			{
+				memset(policyauthid, 0, sizeof(policyauthid));
+				Convert((*thirditemiter).value, policyauthid, sizeof(policyauthid), CP_UTF8, CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sexceptsharedir")==0)
+			{
+				memset(exceptShareDir, 0, sizeof(exceptShareDir));
+				Convert((*thirditemiter).value, exceptShareDir, sizeof(exceptShareDir), CP_UTF8, CP_ACP);
+				itemcnt++;
+			}
+
+			if (itemcnt == (*thirditemiter).contsize)
+			{
+				sprintf_s(  sql,
+					HP_C_SQLDATA,
+					"INSERT INTO %s(ipolicyauthid, sexceptsharedir) VALUES(%s,\"%s\")",
+					NETSHARE_CONTENT_TABLE_NAME,
+					policyauthid,
+					exceptShareDir);	
+
+				Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);	
+				ret = SqlExec(pDb, sqlReal);
+				if (ret != 0)
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+					sprintf_s(sql, HP_C_SQLDATA, "ROLLBACK");	
+					Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+					ret = SqlExec(pDb, sqlReal);
+					return HP_DB_OPFAIL;
+				}
+				itemcnt = 0;
+			}
+			thirditemattri.erase(thirditemiter++);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SaveNetShareExceptDir Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SaveNetShareExceptDir Exception");
+	}       
+    return HP_SUCCESS;
+}
+
+/************************************************************
+Function Name: SaveOsCheckCntTodb
+Description: 将操作系统检查的内容存入数据库
+Input and output:  
+          policyId:自定义的策略id号
+          pDb   :数据库句柄
+      thirditemattri:thirditem中的xml数据
+RetVal:成功返回HP_SUCCESS
+       失败返回HP_DB_OPFAIL
+*************************************************************/
+int OpStgClass::SaveOsCheckCntTodb(IN int policyid,IN sqlite3 *db,IN list<XMLNAMEANDVALUECON> thirditemattri)
+{
+	try
+	{
+		list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+
+		char  policyauthid[HP_C_USERCONTENTLEN] = {"1"};
+		char  osversion[MAX_PATH] = {0};
+		char  osspversion[MAX_PATH] = {0};
+
+		int itemcnt = 0;
+
+		memset(policyauthid, 0, sizeof(policyauthid));
+		sprintf_s(policyauthid, HP_C_USERCONTENTLEN, "%d", policyid);
+
+		int ret = 0;
+		char sql[HP_C_SQLDATA]={"0"};
+		char sqlReal[HP_C_SQLDATA]={"0"};
+
+		for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+		{
+			if (strcmp((*thirditemiter).name, "policyauthid")==0)
+			{
+				memset(policyauthid,0,sizeof(policyauthid));
+				Convert((*thirditemiter).value,policyauthid,sizeof(policyauthid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sosname")==0)
+			{
+				memset(osversion,0,sizeof(osversion));
+				Convert((*thirditemiter).value,osversion,sizeof(osversion),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sosversion")==0)
+			{
+				memset(osspversion,0,sizeof(osspversion));
+				Convert((*thirditemiter).value,osspversion,sizeof(osspversion),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"不存在该字段");
+			}
+			if (itemcnt == (*thirditemiter).contsize)
+			{
+				sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tstgoscheckcontent(ipolicyauthid,sostype,sosspversion,istate) VALUES(%s,\"%s\",\"%s\",1)",
+					policyauthid,osversion,osspversion);	
+
+				Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+				ret = SqlExec(db,sqlReal);
+				if (ret!=0)
+				{
+					WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+					sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+					Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+					ret = SqlExec(db,sqlReal);
+					return HP_DB_OPFAIL;
+				}
+				itemcnt = 0;
+			}
+			thirditemattri.erase(thirditemiter++);
+		}// for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SaveOsCheckCntTodb Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SaveOsCheckCntTodb Exception");
+	}    
+	return HP_SUCCESS;
+
+}
+
+/************************************************************
+Function Name: SaveWeakPWDCntTodb
+Description: 将弱口令的内容存入数据库
+Input and output:  
+          policyId:自定义的策略id号
+          pDb   :数据库句柄
+      thirditemattri:thirditem中的xml数据
+RetVal:成功返回HP_SUCCESS
+       失败返回HP_DB_OPFAIL
+*************************************************************/
+int OpStgClass::SaveWeakPWDCntTodb(IN int policyid,IN sqlite3 *db,IN list<XMLNAMEANDVALUECON> thirditemattri)
+{
+	try
+	{
+		list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+
+		char  policyauthid[HP_C_USERCONTENTLEN] = {"1"};
+		char  exceptionuser[MAX_PATH] = {0};
+		char  weakpwddirectory[MAX_PATH] = {0};
+
+		int itemcnt = 0;
+		memset(policyauthid, 0, sizeof(policyauthid));
+		sprintf_s(policyauthid, HP_C_USERCONTENTLEN, "%d", policyid);
+		int ret = 0;
+		char sql[HP_C_SQLDATA]={"0"};
+		char sqlReal[HP_C_SQLDATA]={"0"};
+
+		char **pszResult='\0';
+		CHAR *szErrMsg='\0';
+		INT nRow = 0;
+		INT nCloumn = 0;
+
+		for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+		{
+			memset(exceptionuser,0,sizeof(exceptionuser));
+			memset(weakpwddirectory,0,sizeof(weakpwddirectory));
+			if (strcmp((*thirditemiter).name, "policyauthid")==0)
+			{
+				memset(policyauthid,0,sizeof(policyauthid));
+				Convert((*thirditemiter).value,policyauthid,sizeof(policyauthid),CP_UTF8,CP_ACP);
+				itemcnt = 1;
+			}
+			else if (strcmp((*thirditemiter).name, "sexceptaccount")==0)
+			{
+				Convert((*thirditemiter).value,exceptionuser,sizeof(exceptionuser),CP_UTF8,CP_ACP);
+				itemcnt = 2;
+			}
+			else if (strcmp((*thirditemiter).name, "sweakpwurl")==0)
+			{
+				Convert((*thirditemiter).value,weakpwddirectory,sizeof(weakpwddirectory),CP_UTF8,CP_ACP);     
+				itemcnt = 3;
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"不存在该字段");
+			}
+			memset(sql,0,sizeof(sql));
+			if ( itemcnt == 2 )
+			{
+				sprintf_s(sql,HP_C_SQLDATA,"SELECT  weakpwddirectory FROM tstgweakpwdcontent WHERE tstgweakpwdcontent.ipolicyauthid =\"%s\" AND"
+					" tstgweakpwdcontent.exceptionuser ISNULL ;",policyauthid);	 	
+			}
+			if ( itemcnt == 3 )
+			{
+				sprintf_s(sql,HP_C_SQLDATA,"SELECT  exceptionuser FROM tstgweakpwdcontent WHERE tstgweakpwdcontent.ipolicyauthid =\"%s\" AND"
+					" tstgweakpwdcontent.weakpwddirectory  ISNULL ;",policyauthid);	
+			}
+
+			Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+    //        EnterCriticalSection(&g_opdbcs);
+			if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+			{
+   //             LeaveCriticalSection(&g_opdbcs);
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+                sqlite3_free_table(pszResult);
+                sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+                Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+                ret = SqlExec(db,sqlReal);
+                return HP_DB_OPFAIL;
+			}
+			char existuser[HP_C_USERCONTENTLEN] = {0};
+			char existweakpwddirc[MAX_PATH] = {0};
+
+			if ((nRow>0) && (nCloumn>0))
+			{
+				//取第一个空值
+				for (int j=0; j < nCloumn; j++)
+				{
+					if(strcmp(pszResult[j], "exceptionuser")==0)
+					{			
+						memset(existuser,0,sizeof(existuser));
+						Convert(pszResult[nCloumn+j],existuser,sizeof(existuser),CP_UTF8,CP_ACP);					
+					}                
+					if ( strcmp(pszResult[j], "weakpwddirectory")==0 )
+					{
+						memset(existweakpwddirc,0,sizeof(existweakpwddirc));
+						Convert(pszResult[nCloumn+j],existweakpwddirc,sizeof(existweakpwddirc),CP_UTF8,CP_ACP);			
+					}
+				}//for (int j=0; j < nCloumn; j++)
+
+
+				if ( itemcnt == 2 )
+				{
+					memset(sql,0,sizeof(sql));
+					sprintf_s(sql,sizeof(sql),"UPDATA tstgweakpwdcontent SET exceptionuser=\'%s\' WHERE ipolicyauthid=\'%s\'  AND weakpwddirectory = '%s'",
+						exceptionuser,policyauthid,existweakpwddirc);	
+				}
+				if ( itemcnt == 3 )
+				{
+					memset(sql,0,sizeof(sql));
+					sprintf_s(sql,sizeof(sql),"UPDATA tstgweakpwdcontent SET weakpwddirectory=\'%s\' WHERE ipolicyauthid=\'%s\'  AND exceptionuser = '%s'",
+						weakpwddirectory,policyauthid,existuser);	
+				}
+			}
+			else//////插入该条数据
+			{
+				memset(sql,0,sizeof(sql));
+				sprintf_s(sql,sizeof(sql),"INSERT INTO  tstgweakpwdcontent(ipolicyauthid,exceptionuser,weakpwddirectory,istate) VALUES('%s','%s','%s',1)",
+					policyauthid,exceptionuser,weakpwddirectory);	
+			}
+            sqlite3_free_table(pszResult);
+ //           LeaveCriticalSection(&g_opdbcs);
+			Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+   //          EnterCriticalSection(&g_opdbcs);
+			if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+			{
+     //           LeaveCriticalSection(&g_opdbcs);
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+                sqlite3_free_table(pszResult);
+                sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+                Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+                ret = SqlExec(db,sqlReal);
+                return HP_DB_OPFAIL;
+			}
+            sqlite3_free_table(pszResult);
+     //       LeaveCriticalSection(&g_opdbcs);
+			itemcnt = 0;
+
+			thirditemattri.erase(thirditemiter++);
+		}// for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SaveWeakPWDCntTodb Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SaveWeakPWDCntTodb Exception");
+	}
+	return HP_SUCCESS;
+
+}
+
+/************************************************************
+Function Name: SaveDomainCntTodb
+Description: 将操域用户检查的内容存入数据库
+Input and output:  
+          policyId:自定义的策略id号
+          pDb   :数据库句柄
+      thirditemattri:thirditem中的xml数据
+RetVal:成功返回HP_SUCCESS
+       失败返回HP_DB_OPFAIL
+*************************************************************/
+int OpStgClass::SaveDomainCntTodb(IN int policyid,IN sqlite3 *db,IN list<XMLNAMEANDVALUECON> thirditemattri)
+{
+	try
+	{
+		list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+
+		char  policyauthid[HP_C_USERCONTENTLEN] = {"1"};
+		char  domainname[MAX_PATH] = {0};
+		char domainip[MAX_PATH] = {"0"};
+		char  repairpath[MAX_PATH] = {"0"};
+		char  repairparam[MAX_PATH] = {"0"};
+		char whiteuserlist[MAX_PATH] = {"0"};
+		char blackuserlist[MAX_PATH] = {"0"};
+		char domainserv[MAX_PATH] = {"0"};
+		char secserviplist[MAX_PATH] = {"0"};
+		int itemcnt = 0;
+
+		memset(policyauthid, 0, sizeof(policyauthid));
+		sprintf_s(policyauthid, HP_C_USERCONTENTLEN, "%d", policyid);
+
+		int ret = 0;
+		char sql[HP_C_SQLDATA]={"0"};
+		char sqlReal[HP_C_SQLDATA]={"0"};
+
+		for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+		{
+			if (strcmp((*thirditemiter).name, "policyauthid")==0)
+			{
+				memset(policyauthid,0,sizeof(policyauthid));
+				Convert((*thirditemiter).value,policyauthid,sizeof(policyauthid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sdomainname")==0)
+			{
+				memset(domainname,0,sizeof(domainname));
+				Convert((*thirditemiter).value,domainname,sizeof(domainname),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sprogrampath")==0)
+			{
+				memset(repairpath,0,sizeof(repairpath));
+				Convert((*thirditemiter).value,repairpath,sizeof(repairpath),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sprogramparam")==0)
+			{
+				memset(repairparam,0,sizeof(repairparam));
+				Convert((*thirditemiter).value,repairparam,sizeof(repairparam),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "ssuperauthuser")==0)
+			{
+				memset(whiteuserlist,0,sizeof(whiteuserlist));
+				Convert((*thirditemiter).value,whiteuserlist,sizeof(whiteuserlist),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sblacklistauthuser")==0)
+			{
+				memset(blackuserlist,0,sizeof(blackuserlist));
+				Convert((*thirditemiter).value,blackuserlist,sizeof(blackuserlist),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sdomainip")==0)
+			{
+				Convert((*thirditemiter).value,domainip,sizeof(domainip),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sservername")==0)
+			{
+				Convert((*thirditemiter).value,domainserv,sizeof(domainserv),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sdomainipspare")==0)
+			{
+				Convert((*thirditemiter).value,secserviplist,sizeof(secserviplist),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"不存在该字段");
+			}
+			if (itemcnt == (*thirditemiter).contsize)
+			{
+				sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tstgdomaincontent(ipolicyauthid,ipolicycontid,domainname,domainserv,domainip,repairpath,\
+							repairparam,whitelistuser,blacklistuser,secserviplist) VALUES(%s,%d,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",
+							policyauthid,m_cntIndex,domainname,domainserv,domainip,repairpath,repairparam,whiteuserlist,blackuserlist,secserviplist);	
+				m_cntIndex++;
+				Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+				ret = SqlExec(db,sqlReal);
+				if (ret!=0)
+				{
+					WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+					sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+					Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+					ret = SqlExec(db,sqlReal);
+					return HP_DB_OPFAIL;
+				}
+				itemcnt = 0;
+			}
+			thirditemattri.erase(thirditemiter++);
+		}// for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SaveDomainCntTodb Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SaveDomainCntTodb Exception");
+	}
+    return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: SaveXMLStgToDB
+Description: 将xml中的数据解析后存入数据库
+Input and output:  
+      xmlBuffer:要解析的xml源
+	  dirpath: 程序文件夹路径
+	  stgtype:策略类型,取值为SafeCheckItemIndex
+	  token:策略更新的token值,由服务器端设置
+	  userid:用户编号
+	  usertype:用户类型
+RetVal:解析成功返回HP_SUCCESS
+          解析失败返回HP_XML_LOADXMLFAILED
+          操作数据库失败返回HP_DB_OPENFAIL
+**************************************************/
+int OpStgClass::SaveXMLStgToDB(IN char *xmlBuffer, IN wchar_t *dirpath, OUT string& strStgType, OUT string& strUserId, OUT string& strUserType,OUT string& strStgSize)
+{
+	try
+	{
+		string strMode = "";
+		int retval = HP_XML_LOADXMLFAILED;
+
+		retval = parsexmldata(xmlBuffer);
+
+		if (HP_SUCCESS == retval)
+		{
+			list<XMLNAMEANDVALUE>::iterator iter;
+			BOOL bCustomCheck = FALSE;
+
+			for (iter = imanattri.begin( ); iter != imanattri.end( );  )
+			{
+				if (_stricmp((*iter).name, "iuserid") == 0)
+				{
+					strUserId = (*iter).value;
+				}
+				else if (_stricmp((*iter).name, "usertype") == 0)
+				{
+					strUserType = (*iter).value;
+				}
+				else if (_stricmp((*iter).name, "mode") == 0)
+				{
+					strMode = (*iter).value;
+				}
+				else if (_stricmp((*iter).name, "policytype") == 0)
+				{
+					strStgType = (*iter).value;
+				}
+				imanattri.erase(iter++);
+			}
+
+			int dbret = HP_openDB(dirpath);
+
+			if (dbret == HP_DB_OPENFAIL)
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "打开数据库失败");
+				return dbret;
+			}
+
+			if (strStgType.length() > 0 && atoi(strStgType.c_str()) == CHECKCUSTOM)
+			{
+				bCustomCheck = TRUE;
+				EnterCriticalSection(&m_customCheckCs);
+			}
+
+			//清除数据库中的内容
+			ClearStgData(g_db, (char*)strUserId.c_str(), (char*)strUserType.c_str(), (char*)strStgType.c_str());
+
+			int totalsize = xmldata.size();
+			if (totalsize == 0)
+			{
+				strStgSize = "0";
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_OPDB,LOGLOCATION,"没有安检项");
+			}
+			else
+			{
+				strStgSize = "1";
+				retval = DbSaveData(g_db, (char*)strUserId.c_str(), (char*)strUserType.c_str(), (char*)strStgType.c_str(), (char*)strMode.c_str());
+				if (retval == HP_SUCCESS)
+				{
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_OPDB, LOGLOCATION, "保存数据成功");
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "保存数据失败");
+				}
+
+				if (bCustomCheck)
+				{
+					LeaveCriticalSection(&m_customCheckCs);
+				}
+				
+                return retval;//只要解析了数据就判断成功，防止页面的进度条卡住
+			}
+
+			if (bCustomCheck)
+			{
+				LeaveCriticalSection(&m_customCheckCs);
+			}
+			return retval;
+		}
+		else
+			return retval;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SaveXMLStgToDB Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SaveXMLStgToDB Exception");
+	}
+	return TRUE;
+}
+
+int OpStgClass::CountAttriNum(TiXmlAttribute *pAttriCount)
+{
+	int iAttriCount = 0;
+
+	while (pAttriCount)
+	{
+		iAttriCount++;
+		pAttriCount = pAttriCount->Next();
+	}
+
+	return iAttriCount;
+}
+
+void OpStgClass::ParseForItemElement(TiXmlElement *pForItemElement, XMLDATA* pXmlDataUnit)
+{
+	try
+	{
+		while (pForItemElement)
+		{
+			int iCount = 0;
+			XMLFORITEM xmlForItem;
+			TiXmlAttribute *pForItemXmlAttri = NULL;
+			TiXmlElement *pForItemSubElement = NULL;
+
+			pForItemXmlAttri = pForItemElement->FirstAttribute();
+			pForItemSubElement = pForItemElement->FirstChildElement();
+
+			xmlForItem.forItemAttriList.clear();
+			xmlForItem.chekItemAttriList.clear();
+			xmlForItem.repairItemAttriList.clear();
+
+			iCount = CountAttriNum(pForItemElement->FirstAttribute());
+
+			while (pForItemXmlAttri)
+			{
+				XMLNAMEANDVALUECON forItemAttri;
+
+				memset(&forItemAttri, 0, sizeof(XMLNAMEANDVALUECON));
+				forItemAttri.contsize = iCount;
+				memcpy(forItemAttri.name, (char*)pForItemXmlAttri->Name(), strlen((char*)pForItemXmlAttri->Name()));
+				memcpy(forItemAttri.value, (char*)pForItemXmlAttri->Value(), strlen((char*)pForItemXmlAttri->Value()));
+
+				pXmlDataUnit->thirditemattri.push_back(forItemAttri);
+				xmlForItem.forItemAttriList.push_back(forItemAttri);
+				pForItemXmlAttri = pForItemXmlAttri->Next();
+			}
+
+			while (pForItemSubElement)
+			{
+				TiXmlAttribute *pForItemSubXmlAttri = pForItemSubElement->FirstAttribute();
+				BOOL bIsRepairItem = FALSE;
+
+				if (pForItemSubElement->Value())
+				{
+					bIsRepairItem = !strcmp(pForItemSubElement->Value(), "repairitem");
+				}
+
+				iCount = CountAttriNum(pForItemSubElement->FirstAttribute());
+
+				while (pForItemSubXmlAttri)
+				{
+					XMLNAMEANDVALUECON subforItemAttri;
+
+					memset(&subforItemAttri, 0, sizeof(XMLNAMEANDVALUE));
+					subforItemAttri.contsize = iCount;
+					memcpy(subforItemAttri.name, (char*)pForItemSubXmlAttri->Name(), strlen((char*)pForItemSubXmlAttri->Name()));
+					memcpy(subforItemAttri.value, (char*)pForItemSubXmlAttri->Value(), strlen((char*)pForItemSubXmlAttri->Value()));
+
+					if(bIsRepairItem)
+					{
+						xmlForItem.repairItemAttriList.push_back(subforItemAttri);
+					}
+					else
+					{
+						xmlForItem.chekItemAttriList.push_back(subforItemAttri);
+					}
+
+					pForItemSubXmlAttri = pForItemSubXmlAttri->Next();
+				}
+
+				pForItemSubElement = pForItemSubElement->NextSiblingElement();
+			}
+
+			pXmlDataUnit->forItemAttriList.push_back(xmlForItem);
+
+			pForItemElement = pForItemElement->NextSiblingElement();
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::ParseForItemElement Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::ParseForItemElement Exception");
+	}
+}
+
+/*************************************************
+Function Name: parsexmldata
+Description: 解析安检XML数据,并将xml数据的name和value
+                  存储在list链表中
+Input and output:  
+      xmlBuffer   :要解析的xml源
+RetVal:解析成功返回HP_SUCCESS
+          解析失败返回HP_XML_LOADXMLFAILED
+**************************************************/
+int  OpStgClass::parsexmldata(IN char *xmlBuffer)
+{
+	try
+	{
+//#if defined( WIN32 ) && defined( TUNE )
+//		_CrtMemCheckpoint( &startMemState );
+//#endif
+		TiXmlDocument* myDocument = new TiXmlDocument();
+		if (myDocument==NULL)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "new TiXmlDocument Fail");
+			return HP_XML_LOADXMLFAILED;
+		}
+
+		myDocument->Parse(xmlBuffer);
+		if (myDocument->Error())
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "new TiXmlDocument Fail");
+			delete myDocument;
+			return HP_XML_LOADXMLFAILED;
+		}
+		TiXmlElement *rootElement = myDocument->RootElement();//<nac>
+		if (rootElement==NULL)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION,"RootElement Fail");
+			delete myDocument;
+			return HP_XML_LOADXMLFAILED;
+		}
+		TiXmlElement *imanElement = rootElement->FirstChildElement();//<iman>
+		if (imanElement==NULL)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION,"FirstChildElement Fail");
+			delete myDocument;
+			return HP_XML_LOADXMLFAILED;
+		}
+
+		while(imanElement)
+		{
+			TiXmlAttribute *attributeofiman = imanElement->FirstAttribute();
+			BOOL bIsCustomCheck = FALSE;
+
+			while (attributeofiman)
+			{
+				XMLNAMEANDVALUE imandata;
+
+				memset(&imandata,0,sizeof(XMLNAMEANDVALUE));
+				memcpy(imandata.name,(char*)attributeofiman->Name(),strlen((char*)attributeofiman->Name()));
+				memcpy(imandata.value,(char*)attributeofiman->Value(),strlen((char*)attributeofiman->Value()));
+
+				if (strcmp(imandata.name, "policytype") == 0 && 
+					atoi(imandata.value) == CHECKCUSTOM)
+				{
+					bIsCustomCheck = TRUE;
+				}
+				imanattri.push_back(imandata);
+
+				attributeofiman = attributeofiman->Next();
+			}//while (attributeofiman)
+
+			TiXmlElement *subitemElement = imanElement->FirstChildElement();//<subitem>
+			if (subitemElement == NULL)
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "没有subitem数据");
+			}
+			else
+			{
+				while(subitemElement)
+				{
+					XMLDATA xmldataunit;
+
+					TiXmlAttribute *attributeOfSubitem = subitemElement->FirstAttribute();
+					while (attributeOfSubitem)
+					{
+						XMLNAMEANDVALUE subitemdata;
+
+						memset(&subitemdata,0,sizeof(XMLNAMEANDVALUE));
+						memcpy(subitemdata.name,(char*)attributeOfSubitem->Name(), strlen((char*)attributeOfSubitem->Name()));
+						memcpy(subitemdata.value,(char*)attributeOfSubitem->Value(), strlen((char*)attributeOfSubitem->Value()));
+
+						xmldataunit.subitemattri.push_back(subitemdata);
+
+						attributeOfSubitem = attributeOfSubitem->Next();
+					}//while (attributeOfSubitem)
+
+					TiXmlElement *ThirdElement = NULL;
+
+					ThirdElement = subitemElement->FirstChildElement();
+					if (ThirdElement == NULL)
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "没有thirditem数据");
+					}
+
+					if (bIsCustomCheck)
+					{
+						if (ThirdElement)
+						{
+							ParseForItemElement(ThirdElement, &xmldataunit);
+						}
+					}
+					else
+					{
+						while (ThirdElement)
+						{
+							//内容项的大小
+							int contentsize = 0;
+
+							contentsize = CountAttriNum(ThirdElement->FirstAttribute());
+
+							TiXmlAttribute *attributeofThirditem = ThirdElement->FirstAttribute();
+							while (attributeofThirditem)
+							{
+								XMLNAMEANDVALUECON thirditemdata;
+
+								memset(&thirditemdata,0,sizeof(XMLNAMEANDVALUE));
+								thirditemdata.contsize = contentsize;
+								memcpy(thirditemdata.name, (char*)attributeofThirditem->Name(), strlen((char*)attributeofThirditem->Name()));
+								memcpy(thirditemdata.value, (char*)attributeofThirditem->Value(), strlen((char*)attributeofThirditem->Value()));
+
+								xmldataunit.thirditemattri.push_back(thirditemdata);
+
+								attributeofThirditem = attributeofThirditem->Next();
+							}//while (attributeofThirditem)
+
+							ThirdElement = ThirdElement->NextSiblingElement();
+						}//while (ThirdElement)
+					}		
+
+					xmldata.push_back(xmldataunit);
+
+					xmldataunit.subitemattri.clear();
+					xmldataunit.thirditemattri.clear();
+
+					list<XMLFORITEM>::iterator  forItemiter;
+
+					for (forItemiter = xmldataunit.forItemAttriList.begin(); forItemiter != xmldataunit.forItemAttriList.end(); forItemiter++)
+					{
+						forItemiter->forItemAttriList.clear();
+						forItemiter->chekItemAttriList.clear();
+						forItemiter->repairItemAttriList.clear();
+					}
+					xmldataunit.forItemAttriList.clear();
+
+					subitemElement = subitemElement->NextSiblingElement();
+				}//while(subitemElement)
+			}
+			imanElement = imanElement->NextSiblingElement();
+		}//while(imanElement)
+
+		delete myDocument;
+
+		return HP_SUCCESS;
+
+//#if defined( WIN32 ) && defined( TUNE )
+//		_CrtMemCheckpoint( &endMemState );
+//
+//		_CrtMemState diffMemState;
+//		_CrtMemDifference( &diffMemState, &startMemState, &endMemState );
+//		_CrtMemDumpStatistics( &diffMemState );
+//#endif
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::parsexmldata Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::parsexmldata Exception");
+	}
+	return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: 
+Input:
+**************************************************/
+void OpStgClass::InitItemBuf(IN char* pDesBuf, IN char* pSrcBuf, IN size_t desBufLen)
+{
+	try
+	{
+		memset(pDesBuf, 0, desBufLen);
+		Convert(pSrcBuf, pDesBuf, desBufLen,CP_UTF8, CP_ACP);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::InitItemBuf Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::InitItemBuf Exception");
+	}
+}
+
+/*************************************************
+Function Name: 
+Input:
+**************************************************/
+bool OpStgClass::GetCommonItemFromDB(IN char* pName, IN char* pValue, IN serverconfig* pServerConfig)
+{
+	try
+	{
+		bool ret = false;
+
+		if (strcmp(pName, "ipolicyauthid")==0)
+		{
+			InitItemBuf(pServerConfig->ipolicyauthid, pValue, sizeof(pServerConfig->ipolicyauthid));
+			ret = true;
+		}
+		else if (strcmp(pName, "spolicyname")==0)
+		{
+			if( pValue != NULL )
+			{
+				InitItemBuf(pServerConfig->spolicyname, pValue, sizeof(pServerConfig->spolicyname));
+			}
+			ret = true;
+		}
+		else if (strcmp(pName, "dmodifytime")==0)
+		{
+			InitItemBuf(pServerConfig->dmodifytime, pValue, sizeof(pServerConfig->dmodifytime));
+			ret = true;
+		}
+		else if (strcmp(pName, "dstartdate")==0)
+		{
+			int len = strlen("2014-03-13 ");
+
+			memset(pServerConfig->dstartdate, 0, sizeof(pServerConfig->dstartdate));
+			memcpy(pServerConfig->dstartdate, pValue, len);
+			strcat_s(pServerConfig->dstartdate, "00:00:00");
+			ret = true;
+		}
+		else if (strcmp(pName, "denddate")==0)
+		{
+			int len = strlen("2014-03-13 ");
+
+			memset(pServerConfig->denddate, 0, sizeof(pServerConfig->denddate));
+			memcpy(pServerConfig->denddate, pValue, len);
+			strcat_s(pServerConfig->denddate,"00:00:00");
+			ret = true;
+		}
+		else if (strcmp(pName, "iintervaldays")==0)
+		{
+			InitItemBuf(pServerConfig->iintervaldays, pValue, sizeof(pServerConfig->iintervaldays));
+			ret = true;
+		}
+		else if (strcmp(pName, "spolicyaction")==0)
+		{
+			InitItemBuf(pServerConfig->spolicyaction, pValue, sizeof(pServerConfig->spolicyaction));
+			ret = true;
+		}
+		else if (strcmp(pName, "ipriority")==0)
+		{
+			InitItemBuf(pServerConfig->ipriority, pValue, sizeof(pServerConfig->ipriority));
+			ret = true;
+		}
+		else if (strcmp(pName, "istate")==0)
+		{
+			InitItemBuf(pServerConfig->istate, pValue, sizeof(pServerConfig->istate));
+			ret = true;
+		}
+		else if (strcmp(pName, "stimeperiod")==0)
+		{
+			InitItemBuf(pServerConfig->stimeperiod, pValue, sizeof(pServerConfig->stimeperiod));
+			ret = true;
+		}
+		else if (strcmp(pName, "sweekday")==0)
+		{
+			InitItemBuf(pServerConfig->sweekday, pValue, sizeof(pServerConfig->sweekday));
+			ret = true;
+		}
+		else if (strcmp(pName, "spromptitle")==0)
+		{
+			InitItemBuf(pServerConfig->spromptitle, pValue, sizeof(pServerConfig->spromptitle));
+			ret = true;
+		}
+		else if (strcmp(pName, "spromptinfo")==0)
+		{
+			InitItemBuf(pServerConfig->spromptinfo, pValue, sizeof(pServerConfig->spromptinfo));
+			ret = true;
+		}
+		else if (strcmp(pName, "iwarnlevel")==0)
+		{
+			InitItemBuf(pServerConfig->warninglevel, pValue, sizeof(pServerConfig->warninglevel));
+			ret = true;
+		}
+		else if (strcmp(pName, "swarnname")==0)
+		{
+			InitItemBuf(pServerConfig->warningcont, pValue, sizeof(pServerConfig->warningcont));
+			ret = true;
+		}
+		else if (strcmp(pName, "ilogrecord")==0)
+		{
+			InitItemBuf(pServerConfig->srcevent, pValue, sizeof(pServerConfig->srcevent));
+			ret = true;
+		}
+		return ret;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::GetCommonItemFromDB Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::GetCommonItemFromDB Exception");
+	}
+	return false;
+}
+
+void OpStgClass::GetNetworkData(IN char* xmlname,IN char* xmlvalue,OUT char* connectinmode,IN int cntinmodelen,
+    OUT char* dbconnectnk,IN int dbcntnklen,OUT char* externnetwk,IN int externnklen)
+{
+	try
+	{
+		ASSERT(xmlname);
+		ASSERT(xmlvalue);
+
+		if (strcmp(xmlname,"idialupcon")==0)
+		{
+			memset(connectinmode,0,cntinmodelen);
+			Convert(xmlvalue,connectinmode,cntinmodelen,CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"idoublecardaction")==0)
+		{
+			memset(dbconnectnk,0,dbcntnklen);
+			Convert(xmlvalue,dbconnectnk,dbcntnklen,CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"sexceptioncard")==0)
+		{
+			memset(externnetwk,0,externnklen);
+			Convert(xmlvalue,externnetwk,dbcntnklen,CP_UTF8,CP_ACP);
+		}
+		else 
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"网络连接中没有该数据");
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::GetNetworkData Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::GetNetworkData Exception");
+	}
+}
+
+void OpStgClass::GetDomainData(IN char* xmlname,IN char* xmlvalue,OUT DOMAINEXTERNCONFIGDATA* domainIdenConf,char* errtip,int errtiplen)
+{
+	try
+	{
+		ASSERT(xmlname);
+		ASSERT(xmlvalue);
+
+		sprintf_s(domainIdenConf->dlgtimeoutunit,sizeof(domainIdenConf->dlgtimeoutunit),"%d",IDENMINUTE);
+
+		if (strcmp(xmlname,"iwindowconfig")==0)
+		{
+			memset(domainIdenConf->identifydlg,0,sizeof(domainIdenConf->identifydlg));
+			Convert(xmlvalue,domainIdenConf->identifydlg,sizeof(domainIdenConf->identifydlg),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"stimeoutperiod")==0)
+		{
+			memset(domainIdenConf->dlgtimeouttime,0,sizeof(domainIdenConf->dlgtimeouttime));
+			Convert(xmlvalue,domainIdenConf->dlgtimeouttime,sizeof(domainIdenConf->dlgtimeouttime),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"stimeoutunit")==0)
+		{
+			memset(domainIdenConf->dlgtimeoutunit,0,sizeof(domainIdenConf->dlgtimeoutunit));
+			Convert(xmlvalue,domainIdenConf->dlgtimeoutunit,sizeof(domainIdenConf->dlgtimeoutunit),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"idenperiod")==0)
+		{
+			memset(domainIdenConf->identifyperiod,0,sizeof(domainIdenConf->identifyperiod));
+			Convert(xmlvalue,domainIdenConf->identifyperiod,sizeof(domainIdenConf->identifyperiod),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"idenperiodunit")==0)
+		{
+			memset(domainIdenConf->identifyperiodunit,0,sizeof(domainIdenConf->identifyperiodunit));
+			Convert(xmlvalue,domainIdenConf->identifyperiodunit,sizeof(domainIdenConf->identifyperiodunit),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"ioffonlinetime")==0)
+		{
+			memset(domainIdenConf->advnotifytime,0,sizeof(domainIdenConf->advnotifytime));
+			Convert(xmlvalue,domainIdenConf->advnotifytime,sizeof(domainIdenConf->advnotifytime),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"ioffonlineunit")==0)
+		{
+			memset(domainIdenConf->advnotifytimeunit,0,sizeof(domainIdenConf->advnotifytimeunit));
+			Convert(xmlvalue,domainIdenConf->advnotifytimeunit,sizeof(domainIdenConf->advnotifytimeunit),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"sremindinfo")==0)
+		{
+			memset(domainIdenConf->offlineTip,0,sizeof(domainIdenConf->offlineTip));
+			Convert(xmlvalue,domainIdenConf->offlineTip,sizeof(domainIdenConf->offlineTip),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"iremindnum")==0)
+		{
+			memset(domainIdenConf->offlinetipNum,0,sizeof(domainIdenConf->offlinetipNum));
+			Convert(xmlvalue,domainIdenConf->offlinetipNum,sizeof(domainIdenConf->offlinetipNum),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"scheckerrorinfo")==0)
+		{
+			memset(errtip,0,errtiplen);
+			Convert(xmlvalue,errtip,errtiplen,CP_UTF8,CP_ACP);
+		}
+		else 
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"域用户检查中没有该数据");
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetDomainData Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetDomainData Exception");
+	}
+}
+
+
+void OpStgClass::GetWSUSConfigData(IN char* xmlname,IN char* xmlvalue,OUT XMLWSUSCONFIGEXTERNDATA* wsusconfigdata)
+{
+	try
+	{
+		ASSERT(xmlname);
+		ASSERT(xmlvalue);
+
+		if (strcmp(xmlname,"iautoupdate")==0)
+		{
+			memset(wsusconfigdata->updatetype,0,sizeof(wsusconfigdata->updatetype));
+			Convert(xmlvalue,wsusconfigdata->updatetype,sizeof(wsusconfigdata->updatetype),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"iupdatedate")==0)
+		{
+			memset(wsusconfigdata->updateday,0,sizeof(wsusconfigdata->updateday));
+			Convert(xmlvalue,wsusconfigdata->updateday,sizeof(wsusconfigdata->updateday),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"supdatetime")==0)
+		{
+			memset(wsusconfigdata->updatehour,0,sizeof(wsusconfigdata->updatehour));
+			Convert(xmlvalue,wsusconfigdata->updatehour,sizeof(wsusconfigdata->updatehour),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"wsusurl")==0)
+		{
+			memset(wsusconfigdata->serverurl,0,sizeof(wsusconfigdata->serverurl));
+			Convert(xmlvalue,wsusconfigdata->serverurl,sizeof(wsusconfigdata->serverurl),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"iautorestart")==0)
+		{
+			memset(wsusconfigdata->reboot,0,sizeof(wsusconfigdata->reboot));
+			Convert(xmlvalue,wsusconfigdata->reboot,sizeof(wsusconfigdata->reboot),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"iupdatecycle")==0)
+		{
+			memset(wsusconfigdata->enblefreq,0,sizeof(wsusconfigdata->enblefreq));
+			Convert(xmlvalue,wsusconfigdata->enblefreq,sizeof(wsusconfigdata->enblefreq),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"iupdatecyclevalue")==0)
+		{
+			memset(wsusconfigdata->freqtime,0,sizeof(wsusconfigdata->freqtime));
+			Convert(xmlvalue,wsusconfigdata->freqtime,sizeof(wsusconfigdata->freqtime),CP_UTF8,CP_ACP);
+		}
+		else 
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"WSUS中没有该数据");
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::GetWSUSConfigData Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::GetWSUSConfigData Exception");
+	}
+}
+
+int OpStgClass::SaveAntivirusCntTodb(IN int policyid,IN sqlite3 *db,IN char* userid,IN char*  usertype,IN list<XMLNAMEANDVALUECON> thirditemattri)
+{
+	try
+	{
+		list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+
+		char  policyauthid[HP_C_USERCONTENTLEN] = {"1"};
+
+		char santname[HP_C_USERCONTENTLEN] = {0};
+		char softverindetify[HP_C_USERCONTENTLEN] = {0};
+		char softverdes[HP_C_USERCONTENTLEN] = {0};
+		char libverchoose[HP_C_USERCONTENTLEN] = {0};
+		char libverindetify[HP_C_USERCONTENTLEN] = {0};
+		char libverdes[HP_C_USERCONTENTLEN] = {0};
+		char runant[HP_C_USERCONTENTLEN] = {0};
+
+		char  softverflag[HP_C_USERCONTENTLEN] = {0};
+		char softverpath[MAX_PATH]= {0};
+		char softverparam[HP_C_USERCONTENTLEN]= {0};
+		char softverhandrep[MAX_PATH]= {0};
+
+		char libverflag[HP_C_USERCONTENTLEN]= {0};
+		char libverpath[MAX_PATH]= {0};
+		char libverparam[HP_C_USERCONTENTLEN]= {0};
+		char libverhandlerep[MAX_PATH]= {0};
+
+		XMLANTIVIRUSEXTERNDATA antivirusdata;
+
+		memset(&antivirusdata,0,sizeof(XMLANTIVIRUSEXTERNDATA));
+
+		int itemcnt = 0;
+
+		//判断是全局的修复路径配置还是局部的杀毒软件配置，TRUE表示为局部的杀毒软件配置
+		bool IsAntivirusCntConfig = TRUE;
+
+		memset(policyauthid, 0, sizeof(policyauthid));
+		sprintf_s(policyauthid, HP_C_USERCONTENTLEN, "%d", policyid);
+
+		int ret = 0;
+		char sql[HP_C_SQLDATA]={"0"};
+		char sqlReal[HP_C_SQLDATA]={"0"};
+
+		for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+		{
+			if (strcmp((*thirditemiter).name, "policyauthid")==0)
+			{
+				memset(policyauthid,0,sizeof(policyauthid));
+				Convert((*thirditemiter).value,policyauthid,sizeof(policyauthid),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "santname")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(santname,0,sizeof(santname));
+				Convert((*thirditemiter).value,santname,sizeof(santname),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "iantidentity")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(softverindetify,0,sizeof(softverindetify));
+				Convert((*thirditemiter).value,softverindetify,sizeof(softverindetify),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "santversion")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(softverdes,0,sizeof(softverdes));
+				Convert((*thirditemiter).value,softverdes,sizeof(softverdes),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "irustimeflag")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(libverchoose,0,sizeof(libverchoose));
+				Convert((*thirditemiter).value,libverchoose,sizeof(libverchoose),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "irusidentity")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(libverindetify,0,sizeof(libverindetify));
+				Convert((*thirditemiter).value,libverindetify,sizeof(libverindetify),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "srustime")==0)
+			{
+				memset(libverdes,0,sizeof(libverdes));
+				Convert((*thirditemiter).value,libverdes,sizeof(libverdes),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "irunidentity")==0)
+			{
+				memset(runant,0,sizeof(runant));
+				Convert((*thirditemiter).value,runant,sizeof(runant),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "iantivirusflag")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(softverflag,0,sizeof(softverflag));
+				Convert((*thirditemiter).value,softverflag,sizeof(softverflag),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "santiviruspath")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(softverpath,0,sizeof(softverpath));
+				Convert((*thirditemiter).value,softverpath,sizeof(softverpath),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "santivirusparam")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(softverparam,0,sizeof(softverparam));
+				Convert((*thirditemiter).value,softverparam,sizeof(softverparam),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "santivirusurl")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(softverhandrep,0,sizeof(softverhandrep));
+				Convert((*thirditemiter).value,softverhandrep,sizeof(softverhandrep),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "irusflag")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(libverflag,0,sizeof(libverflag));
+				Convert((*thirditemiter).value,libverflag,sizeof(libverflag),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sruspath")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(libverpath,0,sizeof(libverpath));
+				Convert((*thirditemiter).value,libverpath,sizeof(libverpath),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "srusparam")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(libverparam,0,sizeof(libverparam));
+				Convert((*thirditemiter).value,libverparam,sizeof(libverparam),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "srusurl")==0)
+			{
+				IsAntivirusCntConfig = TRUE;
+				memset(libverhandlerep,0,sizeof(libverhandlerep));
+				Convert((*thirditemiter).value,libverhandlerep,sizeof(libverhandlerep),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+
+			else if (strcmp((*thirditemiter).name, "inotrusflagp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.gninstrepairflag,0,sizeof(antivirusdata.gninstrepairflag));
+				Convert((*thirditemiter).value,antivirusdata.gninstrepairflag,sizeof(antivirusdata.gninstrepairflag),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "snotruspathp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.gninstpath,0,sizeof(antivirusdata.gninstpath));
+				Convert((*thirditemiter).value,antivirusdata.gninstpath,sizeof(antivirusdata.gninstpath),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "snotrusparamp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.gninstparam,0,sizeof(antivirusdata.gninstparam));
+				Convert((*thirditemiter).value,antivirusdata.gninstparam,sizeof(antivirusdata.gninstparam),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "snotrusurlp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.gninsthandrep,0,sizeof(antivirusdata.gninsthandrep));
+				Convert((*thirditemiter).value,antivirusdata.gninsthandrep,sizeof(antivirusdata.gninsthandrep),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "iantivirusflagp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.gsoftverflag,0,sizeof(antivirusdata.gsoftverflag));
+				Convert((*thirditemiter).value,antivirusdata.gsoftverflag,sizeof(antivirusdata.gsoftverflag),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "santiviruspathp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.gsoftverpath,0,sizeof(antivirusdata.gsoftverpath));
+				Convert((*thirditemiter).value,antivirusdata.gsoftverpath,sizeof(antivirusdata.gsoftverpath),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "santivirusparamp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.gsoftverparam,0,sizeof(antivirusdata.gsoftverparam));
+				Convert((*thirditemiter).value,antivirusdata.gsoftverparam,sizeof(antivirusdata.gsoftverparam),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "santivirusurlp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.gsoftverhandrep,0,sizeof(antivirusdata.gsoftverhandrep));
+				Convert((*thirditemiter).value,antivirusdata.gsoftverhandrep,sizeof(antivirusdata.gsoftverhandrep),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "irusflagp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.glibverflag,0,sizeof(antivirusdata.glibverflag));
+				Convert((*thirditemiter).value,antivirusdata.glibverflag,sizeof(antivirusdata.glibverflag),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sruspathp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.glibverpath,0,sizeof(antivirusdata.glibverpath));
+				Convert((*thirditemiter).value,antivirusdata.glibverpath,sizeof(antivirusdata.glibverpath),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "srusparamp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.glibverparam,0,sizeof(antivirusdata.glibverparam));
+				Convert((*thirditemiter).value,antivirusdata.glibverparam,sizeof(antivirusdata.glibverparam),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "srusurlp")==0)
+			{
+				IsAntivirusCntConfig = FALSE;
+				memset(antivirusdata.glibverhandlerep,0,sizeof(antivirusdata.glibverhandlerep));
+				Convert((*thirditemiter).value,antivirusdata.glibverhandlerep,sizeof(antivirusdata.glibverhandlerep),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"不存在该字段");
+			}
+			if (itemcnt == (*thirditemiter).contsize)
+			{
+				if (IsAntivirusCntConfig)
+				{
+					sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tstgantiviruscontent(ipolicyauthid,santname,softverindetify,softverdes,libverchoose,libverindetify,\
+											   libverdes,runant,softverflag,softverpath,softverparam,softverhandrep,libverflag,libverpath,libverparam,libverhandlerep) \
+											   VALUES(%s,\'%s\',\'%s\',\'%s\',\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")",policyauthid,
+											   santname,softverindetify,softverdes,libverchoose,libverindetify,libverdes,runant,softverflag,softverpath,softverparam,softverhandrep,
+											   libverflag,libverpath,libverparam,libverhandlerep);	
+				}
+				else
+				{
+					sprintf_s(sql,HP_C_SQLDATA,"UPDATE tstgantivirus SET gninstallrepairflag =\"%s\", gninstallpath = \'%s\',gninstallparam = \'%s\',gninstallhandrep = \"%s\",\
+											   gsoftversionflag = \"%s\",gsoftversionpath = \'%s\',gsoftversionparam = \'%s\',gsoftversionhandrep = \"%s\",glibversionflag = \"%s\",\
+											   glibversionpath = \'%s\',glibversionparam = \"%s\",glibversionhandlerep = \"%s\" WHERE ipolicyauthid= \"%s\" AND  iuserid = \"%s\" AND\
+											   usertype= \"%s\"",antivirusdata.gninstrepairflag,antivirusdata.gninstpath,antivirusdata.gninstparam,antivirusdata.gninsthandrep,antivirusdata.gsoftverflag,
+											   antivirusdata.gsoftverpath,antivirusdata.gsoftverparam,antivirusdata.gsoftverhandrep,antivirusdata.glibverflag,antivirusdata.glibverpath,
+											   antivirusdata.glibverparam,antivirusdata.glibverhandlerep,policyauthid,userid,usertype);
+				}
+
+				Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+				ret = SqlExec(db,sqlReal);
+				if (ret!=0)
+				{
+					WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"杀毒软件 SqlExec 执行失败,数据库回滚");
+					sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+					Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+					ret = SqlExec(db,sqlReal);
+					return HP_DB_OPFAIL;
+				}
+				itemcnt = 0;
+			}
+			thirditemattri.erase(thirditemiter++);
+		}// for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SaveAntivirusCntTodb Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SaveAntivirusCntTodb Exception");
+	}
+
+    return HP_SUCCESS;
+}
+
+/************************************************************
+Function Name: SaveNetShareExceptDir
+Description: 拼接系统补丁检查的sql语句
+Input and output:  
+          policyId:自定义的策略id号
+          pDb   :数据库句柄
+      thirditemattri:thirditem中的xml数据
+RetVal:成功返回HP_SUCCESS
+       失败返回HP_DB_OPFAIL
+*************************************************************/
+int OpStgClass::SaveSystemPatchPolicy(IN int policyId, IN sqlite3 *pDb, IN list<XMLNAMEANDVALUECON> thirditemattri)
+{
+	try
+	{
+		 list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+    char policyauthid[HP_C_USERCONTENTLEN] = {"1"};
+    char spatchtitle[MAX_PATH] = {0};
+	int ipatchtype = 0;
+	char dreleasetime[SYSTEMTIMELEN] = {0};
+	char skbnumber[MAXKBIDLEN] = {0};
+	char ssystemversion[MAXFIELDLEN] = {0};
+	char downloadurl[MAXFIELDLEN] = {0};
+
+    int ret = 0;
+    char sql[HP_C_SQLDATA]={"0"};
+    char sqlReal[HP_C_SQLDATA]={"0"};
+    int itemcnt = 0;
+
+    memset(policyauthid,0,sizeof(policyauthid));
+    sprintf_s(policyauthid, HP_C_USERCONTENTLEN, "%d", policyId);
+
+    for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+    {
+        if (strcmp((*thirditemiter).name, "ipolicyauthid")==0)
+        {
+            memset(policyauthid, 0, sizeof(policyauthid));
+            Convert((*thirditemiter).value, policyauthid, sizeof(policyauthid), CP_UTF8, CP_ACP);
+            itemcnt++;
+        }
+		else if (strcmp((*thirditemiter).name, "skbnumber")==0)
+		{
+			memset(skbnumber, 0, sizeof(skbnumber));
+			Convert((*thirditemiter).value, skbnumber, sizeof(spatchtitle), CP_UTF8, CP_ACP);
+			itemcnt++;
+		}
+		else if (strcmp((*thirditemiter).name, "ipatchtype")==0)
+		{
+			ipatchtype = atoi((*thirditemiter).value);
+			itemcnt++;
+		}
+        else if (strcmp((*thirditemiter).name, "spatchtitle")==0)
+        {
+            memset(spatchtitle, 0, sizeof(spatchtitle));
+            Convert((*thirditemiter).value, spatchtitle, sizeof(spatchtitle), CP_UTF8, CP_ACP);
+            itemcnt++;
+        }
+		
+		else if (strcmp((*thirditemiter).name, "dreleasetime")==0)
+		{
+			memset(dreleasetime, 0, sizeof(dreleasetime));
+			Convert((*thirditemiter).value, dreleasetime, sizeof(dreleasetime), CP_UTF8, CP_ACP);
+			itemcnt++;
+		}
+		else if (strcmp((*thirditemiter).name, "downloadurl")==0)
+		{
+			memset(downloadurl, 0, sizeof(downloadurl));
+			Convert((*thirditemiter).value, downloadurl, sizeof(downloadurl), CP_UTF8, CP_ACP);
+			itemcnt++;
+		}
+		else if (strcmp((*thirditemiter).name, "ssystemversion")==0)
+		{
+			memset(ssystemversion, 0, sizeof(ssystemversion));
+			Convert((*thirditemiter).value, ssystemversion, sizeof(ssystemversion), CP_UTF8, CP_ACP);
+			itemcnt++;
+		}
+
+        if (itemcnt == (*thirditemiter).contsize)
+        {
+            sprintf_s(  sql,
+                        HP_C_SQLDATA,
+                        "INSERT INTO %s(ipolicyauthid,skbnumber,ipatchtype,spatchtitle,dreleasetime,sdownloadurl,ssystemversion)VALUES(%s,\"%s\",%d,\"%s\",\"%s\",\"%s\",\"%s\")",
+                        SYSTEMPATCHS_CONTENT_TABLE_NAME,
+                        policyauthid,
+						skbnumber,
+						ipatchtype,
+                        spatchtitle,
+						dreleasetime,
+						downloadurl,
+						ssystemversion);	
+
+            Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);	
+            ret = SqlExec(pDb, sqlReal);
+            if (ret != 0)
+            {
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "SqlExec 执行失败");
+				continue;
+            }
+            itemcnt = 0;
+        }
+        thirditemattri.erase(thirditemiter++);
+    }
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"OpStgClass::SaveSystemPatchPolicy Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "OpStgClass::SaveSystemPatchPolicy Exception");
+	}
+    return HP_SUCCESS;
+}
+
+//向数据库表中插入日志数据
+int OpStgClass::SaveLogInDb(wchar_t* installpath,char* sql,int sqllen)
+{
+    if (HP_openDB(installpath) == HP_DB_OPENFAIL)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"打开数据库失败");
+        return HP_DB_OPENFAIL;
+    }
+    else
+    {
+        char *data = new char[sqllen+1];
+        memset(data,0,sqllen+1);
+        sprintf_s(data,sqllen+1,"%s",sql);
+        data[sqllen]='\0';
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "数据库中记录日志:", data);
+        delete[] data;
+        char sqlReal[HP_C_SQLDATA]={0};
+        Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+        int ret = SqlExec(g_db,sqlReal);
+        if (ret != ERROR_SUCCESS )
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "数据库中记录日志失败");
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "数据库中记录日志成功");
+        }
+        return ret;
+    }
+}

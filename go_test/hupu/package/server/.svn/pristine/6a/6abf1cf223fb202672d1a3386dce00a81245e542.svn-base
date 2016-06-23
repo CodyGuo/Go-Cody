@@ -1,0 +1,91 @@
+#include "StdAfx.h"
+#include "JobExecuter.h"
+
+#define STOP_WORKING -1
+#define KEEP_WORKING  0
+
+
+CJobExecuter::CJobExecuter(CMThreadedJobQ *pJobQ)
+{
+	unsigned int dwThreadID;
+	this->m_pJobQ= pJobQ;
+	this->m_pExecuterThread=(HANDLE)_beginthreadex(NULL,0,ThreadFunction,this,0,&dwThreadID);
+	this->m_pJob2Do = NULL;
+	this->m_flag = KEEP_WORKING;
+}
+
+
+CJobExecuter::~CJobExecuter(void)
+{
+	//The lines below are added later to solve the memory leak.
+	//The leaks are found and solved by "Guitool" having member no Member No. 7253 
+	if(this->m_pExecuterThread!= NULL )	
+	{
+		::_endthreadex((int)this->m_pExecuterThread);
+		CloseHandle(m_pExecuterThread);
+	}
+	//End of code suggested by "Guitool".
+}
+
+UINT  CJobExecuter::ThreadFunction(LPVOID pParam)
+{
+	CJobExecuter *pExecuter = (CJobExecuter *)pParam;
+	pExecuter->m_flag = 1;
+	::Sleep(1);
+	while(pExecuter->m_flag !=STOP_WORKING )
+	{
+		if(pExecuter->m_pJob2Do!=  NULL)
+		{
+			pExecuter->m_pJob2Do->execute();
+			pExecuter->m_pJob2Do->m_Completed = TRUE;	
+			if(pExecuter->m_pJob2Do->AutoDelete())
+				delete pExecuter->m_pJob2Do;
+			pExecuter->m_pJob2Do = NULL;
+		}
+		//If the JobQ is NULL then break
+		if(pExecuter->m_pJobQ == NULL)
+			break;
+		
+		//If the number of threads are more than the limit then end this executer
+		::EnterCriticalSection(&pExecuter->m_pJobQ->m_cs);
+		if(pExecuter->m_pJobQ->getNoOfExecuter() > pExecuter->m_pJobQ->getMaxNoOfExecuter())
+		{
+			pExecuter->stop();	
+			::LeaveCriticalSection(&pExecuter->m_pJobQ->m_cs);
+		}
+		else
+		{
+			//Add the Executer to the Executerpool of Job Q
+			pExecuter->m_pJobQ->addFreeJobExecuter(pExecuter);
+			::LeaveCriticalSection(&pExecuter->m_pJobQ->m_cs);
+			::ResumeThread(pExecuter->m_pJobQ->m_pObserverThread);
+			::SuspendThread(pExecuter->m_pExecuterThread);
+		}				
+	}
+	// Now If the Delete the thread from the FreeExecuterList of JobQ.
+	if(pExecuter->m_pJobQ != NULL)
+	{
+		pExecuter->m_pJobQ->deleteJobExecuter(pExecuter);
+	}
+	else
+	{
+		delete pExecuter;
+	}
+
+	return 0;
+}
+
+int CJobExecuter::execute(CJob* pJob)
+{
+	this->m_pJob2Do = pJob;
+	//Now the thread should be resumed to process the Job
+	::Sleep(0);
+	::ResumeThread(this->m_pExecuterThread);
+	return true;
+}
+
+void CJobExecuter::stop()
+{
+	this->m_flag = STOP_WORKING;
+	::ResumeThread(this->m_pExecuterThread);
+}

@@ -1,0 +1,148 @@
+#include "StdAfx.h"
+#include <Windows.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <share.h>
+#include "WriteDebugInfo.h"
+
+int ConvertW2A( const wchar_t* strIn, char* strOut, int StrOutLen)
+{
+    int Len = WideCharToMultiByte(CP_ACP,0,strIn,-1,NULL,0,NULL,NULL);
+    if(StrOutLen<Len)
+        return -1;
+    WideCharToMultiByte(CP_ACP,0,strIn,-1,strOut,Len,NULL,NULL);
+    strOut[Len]='\0';
+    return 0;
+}
+
+ bool  isShouldWriteLog(LEVEL_TYPE level,wchar_t*  dirpath)
+{
+    try
+    {
+        wchar_t inipath[MAX_PATH] = {L"0"};
+        wsprintf(inipath,L"%sdata\\VersAndLog_config.ini",dirpath);
+        wchar_t levelconf[50] = {L"0"};
+        int  uninstallindex = 0;
+        GetPrivateProfileString(L"Param", L"LOG_LEVEL", L"LEVEL_NONE", levelconf, 50, inipath);
+        uninstallindex=GetPrivateProfileInt(L"Param", L"Uninstall",0, inipath);
+
+        int ilevelconf = 0;
+        int imoduleconf = 0;
+
+        if ( 1== uninstallindex)
+        {
+            return false;
+        }
+        if ( _wcsnicmp(levelconf,L"LEVEL_DEBUG",50) == 0 )
+        {
+           return true;
+        }
+        else
+        {
+           return false;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        ::MessageBox(NULL, L"isShouldWriteLog Exception", L"Msg", 0);
+#endif
+    }
+
+    return false;
+}
+
+ void  WriteDebugInfomation(LEVEL_TYPE level,const char* loglocation, char *WriteString,wchar_t *dirpath)
+{
+    try
+    {
+        if (!isShouldWriteLog(level,dirpath))
+        {
+            return;
+        }
+
+        wchar_t  logfile[MAX_PATH]={L"0"};
+        wsprintf(logfile, L"%sdata\\HpUninstall.log", dirpath);
+
+        FILE *pfile =NULL;
+        SYSTEMTIME st;
+        char time[255]={"0"};
+
+        pfile= _wfsopen(logfile,L"a+",_SH_DENYNO);
+
+        if (pfile== NULL)
+        {
+            return;
+        }
+
+        GetLocalTime(&st);
+
+        sprintf_s(  time, 
+            255, 
+            "%d-%02d-%02d %02d:%02d:%02d:%s\r\n",
+            st.wYear,
+            st.wMonth,
+            st.wDay,
+            st.wHour,
+            st.wMinute,
+            st.wSecond,
+            loglocation);
+
+        fwrite(time, 1, strlen(time), pfile);
+        fwrite(WriteString, 1, strlen(WriteString), pfile);
+        fwrite("\r\n", 1, 2, pfile);
+        fflush(pfile);
+        fclose(pfile);
+
+        HANDLE hfile = CreateFile(logfile,
+            GENERIC_READ|GENERIC_WRITE,
+            FILE_SHARE_READ|FILE_SHARE_WRITE,
+            NULL,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            NULL);
+
+        if (hfile == INVALID_HANDLE_VALUE  )
+        {
+            return;
+        }
+        DWORD dwsize=GetFileSize(hfile,NULL);
+
+        if(dwsize==INVALID_FILE_SIZE)
+        {
+            CloseHandle(hfile);
+            hfile=NULL;
+            return;
+        }
+
+        DWORD dwsizeLow = GetFileSize(hfile, NULL);
+
+        CloseHandle(hfile);
+        hfile=NULL;
+
+        if(dwsizeLow>1024*1000)
+        {
+			char dstname[MAX_PATH]={0};
+			sprintf_s(  dstname, 
+				MAX_PATH, 
+				"%sdata\\HelpLog-%d%02d%02d-%02d%02d%HpUninstall.log", 
+				dirpath, 
+				st.wYear, 
+				st.wMonth, 
+				st.wDay, 
+				st.wHour, 
+				st.wMinute, 
+				st.wSecond);
+			char srcfilename[MAX_PATH] = {"0"};
+			ConvertW2A(logfile,srcfilename,sizeof(srcfilename));
+			rename(srcfilename, dstname);
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"WriteDebugInfomationchar Exception",L"Msg",0);
+#endif
+    }
+}

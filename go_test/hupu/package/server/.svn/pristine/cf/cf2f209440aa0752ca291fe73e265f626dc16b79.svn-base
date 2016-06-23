@@ -1,0 +1,850 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include <Windows.h>
+
+#include "CheckFile.h"
+#include "..\GlobalFunction.h"
+#include "CommData.h"
+#include "..\GetLangValue.h"
+#include <string>
+using namespace std;
+
+#pragma comment(lib, "Version.lib")
+
+string CheckFileIsExist(IN const char* szCheckFilePath, IN int iCheckCondition, IN LANGUAGETYPE language, IN int iTrigger, OUT string& strTrigrSucc)
+{
+	string strRet = "";
+	FILE* pFile = NULL;
+	PVOID OldValue = NULL;
+	BOOL bRedirectionFlag = FALSE;
+	HMODULE hModule = LoadLibraryW(L"kernel32.dll");
+	vector<string> vectStr;
+	string strExistFailedInfo = "";
+	string strNotExistFailedInfo = "";
+
+	if (hModule == NULL)
+	{
+		return strRet;
+	}
+
+	vectStr.push_back((string)szCheckFilePath);
+
+	strExistFailedInfo = PackageLangInfo(	language, 
+											CUSTOM_CHECK_APPNAME, 
+											pSfCustomKeyStr[SF_FILE_EXIST],
+											pSfCustomKeyStr[SF_FILE_EXIST],
+											MAX_BUF_LEN,
+											2,
+											vectStr);
+
+	strNotExistFailedInfo = PackageLangInfo(	language, 
+												CUSTOM_CHECK_APPNAME, 
+												pSfCustomKeyStr[SF_FILE_NOT_EXIST],
+												pSfCustomKeyStr[SF_FILE_NOT_EXIST],
+												MAX_BUF_LEN,
+												2,
+												vectStr);
+
+	pFnWow64DisableWow64FsRedirection pWow64DisableWow64FsRedirection;
+	pWow64DisableWow64FsRedirection = (pFnWow64DisableWow64FsRedirection)GetProcAddress(hModule, "Wow64DisableWow64FsRedirection");
+
+	pFnWow64RevertWow64FsRedirection pWow64RevertWow64FsRedirection;
+	pWow64RevertWow64FsRedirection = (pFnWow64RevertWow64FsRedirection)GetProcAddress(hModule, "Wow64RevertWow64FsRedirection");
+
+	if (pWow64DisableWow64FsRedirection != NULL)
+	{
+		bRedirectionFlag = pWow64DisableWow64FsRedirection(&OldValue);
+	}
+
+	if (fopen_s(&pFile, szCheckFilePath, "r") == 0)
+	{
+		if (pFile)
+		{
+			fclose(pFile); 
+			pFile = NULL;
+		}
+
+		if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+		{
+			strRet = strExistFailedInfo;
+		}
+		else if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			strTrigrSucc = strExistFailedInfo;
+		}
+	}
+	else
+	{
+		DWORD dwDirFlag = FALSE;
+		DWORD dwFileAttri = 0;
+
+		dwFileAttri =  GetFileAttributesA(szCheckFilePath);
+		dwDirFlag = dwFileAttri&FILE_ATTRIBUTE_DIRECTORY;
+
+		if ( (dwFileAttri != INVALID_FILE_ATTRIBUTES) && dwDirFlag)
+		{
+			if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+			{
+				strRet = strExistFailedInfo;
+			}
+			else if (iTrigger == CHECK_TRIGGER_VOILATION)
+			{
+				strTrigrSucc = strExistFailedInfo;
+			}
+
+			if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+			{
+				pWow64RevertWow64FsRedirection(OldValue);
+			}
+
+			if (hModule != NULL)
+			{
+				FreeLibrary(hModule);
+				hModule = NULL;
+			}
+			return strRet;
+		}
+		else if (iCheckCondition == CHECK_EXIST_FLAG)
+		{
+			strRet = strNotExistFailedInfo;
+		}
+		else if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			strTrigrSucc = strNotExistFailedInfo;
+		}
+	}
+
+	if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+	{
+		pWow64RevertWow64FsRedirection(OldValue);
+	}
+
+	if (hModule != NULL)
+	{
+		FreeLibrary(hModule);
+		hModule = NULL;
+	}
+	return strRet;
+}
+
+BOOL CheckFileIsExist(IN const char* szCheckFilePath)
+{
+	FILE* pFile = NULL;
+	BOOL bRet = FALSE;
+	
+	if (fopen_s(&pFile, szCheckFilePath, "r") == 0)
+	{
+		if (pFile)
+		{
+			fclose(pFile); 
+			pFile = NULL;
+		}
+		bRet = TRUE;
+	}
+	
+	return bRet;
+}
+
+string CheckFileSize(IN const char* szCheckFilePath,  IN DWORD dwSetFileSize, IN int iCheckCondition, IN LANGUAGETYPE language, IN int iTrigger, OUT string& strTrigrSucc)
+{
+	HANDLE hFile = NULL;
+	string strRet = "";
+	DWORD dwFileSize = 0;
+	DWORD dwFileSizeHigh = 0;
+	PVOID OldValue = NULL;
+	BOOL bRedirectionFlag = FALSE;
+	HMODULE hModule = LoadLibraryW(L"kernel32.dll");
+
+	if (hModule == NULL)
+	{
+		return strRet;
+	}
+
+	pFnWow64DisableWow64FsRedirection pWow64DisableWow64FsRedirection;
+	pWow64DisableWow64FsRedirection = (pFnWow64DisableWow64FsRedirection)GetProcAddress(hModule, "Wow64DisableWow64FsRedirection");
+
+	pFnWow64RevertWow64FsRedirection pWow64RevertWow64FsRedirection;
+	pWow64RevertWow64FsRedirection = (pFnWow64RevertWow64FsRedirection)GetProcAddress(hModule, "Wow64RevertWow64FsRedirection");
+
+	if (pWow64DisableWow64FsRedirection != NULL)
+	{
+		bRedirectionFlag = pWow64DisableWow64FsRedirection(&OldValue);
+	}
+
+	hFile = CreateFileA(szCheckFilePath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL); 
+
+	if (hFile == INVALID_HANDLE_VALUE || hFile == NULL)
+	{
+		vector<string> vectStr;
+
+		vectStr.push_back((string)szCheckFilePath);
+		strRet = PackageLangInfo(	language, 
+									CUSTOM_CHECK_APPNAME, 
+									pSfCustomKeyStr[SF_FILESIZE_NOT_EXIST],
+									pSfCustomKeyStr[SF_FILESIZE_NOT_EXIST],
+									MAX_BUF_LEN,
+									2,
+									vectStr);
+
+		if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+		{
+			pWow64RevertWow64FsRedirection(OldValue);
+		}
+		if (hModule != NULL)
+		{
+			FreeLibrary(hModule);
+			hModule = NULL;
+		}
+		return strRet;
+	}
+
+	dwFileSize = GetFileSize(hFile, &dwFileSizeHigh);
+
+	if (dwFileSize != INVALID_FILE_SIZE)
+	{
+		string strFailedInfo = "";
+		vector<string> vectStr;
+
+		vectStr.push_back((string)szCheckFilePath);
+		vectStr.push_back(std::to_string((_ULonglong)dwFileSize));
+		vectStr.push_back(std::to_string((_ULonglong)dwSetFileSize));
+
+		switch(iCheckCondition)
+		{
+		case LESS_OR_EQUAL:
+			{
+				if (dwFileSize > dwSetFileSize)
+				{
+					strRet =  PackageLangInfo(	language, 
+						CUSTOM_CHECK_APPNAME, 
+						pSfCustomKeyStr[SF_FILESIZE_MORE],
+						pSfCustomKeyStr[SF_FILESIZE_MORE],
+						MAX_BUF_LEN,
+						4,
+						vectStr);
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(language, 
+													CUSTOM_CHECK_APPNAME, 
+													pSfCustomKeyStr[SF_FILESIZE_LESS],
+													pSfCustomKeyStr[SF_FILESIZE_LESS],
+													MAX_BUF_LEN,
+													4,
+													vectStr);
+				}
+			}
+			break;
+
+		case MORE_OR_EQUAL:
+			{
+				if (dwFileSize < dwSetFileSize)
+				{
+					strRet = PackageLangInfo(language, 
+											CUSTOM_CHECK_APPNAME, 
+											pSfCustomKeyStr[SF_FILESIZE_LESS],
+											pSfCustomKeyStr[SF_FILESIZE_LESS],
+											MAX_BUF_LEN,
+											4,
+											vectStr);
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc =  PackageLangInfo(language, 
+													CUSTOM_CHECK_APPNAME, 
+													pSfCustomKeyStr[SF_FILESIZE_MORE],
+													pSfCustomKeyStr[SF_FILESIZE_MORE],
+													MAX_BUF_LEN,
+													4,
+													vectStr);
+				}
+			}	
+			break;
+
+		case EQUAL:
+			{
+				if (dwFileSize != dwSetFileSize)
+				{
+					strRet = PackageLangInfo(	language, 
+												CUSTOM_CHECK_APPNAME, 
+												pSfCustomKeyStr[SF_FILESIZE_NO_EQUAL],
+												pSfCustomKeyStr[SF_FILESIZE_NO_EQUAL],
+												MAX_BUF_LEN,
+												4,
+												vectStr);
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(	language, 
+													CUSTOM_CHECK_APPNAME, 
+													pSfCustomKeyStr[SF_FILESIZE_EQUAL],
+													pSfCustomKeyStr[SF_FILESIZE_EQUAL],
+													MAX_BUF_LEN,
+													4,
+													vectStr);
+				}
+			}	
+			break;
+
+		case NO_EQUAL:
+			{
+				if (dwFileSize == dwSetFileSize)
+				{
+					strRet = PackageLangInfo(	language, 
+												CUSTOM_CHECK_APPNAME, 
+												pSfCustomKeyStr[SF_FILESIZE_EQUAL],
+												pSfCustomKeyStr[SF_FILESIZE_EQUAL],
+												MAX_BUF_LEN,
+												4,
+												vectStr);
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(	language, 
+													CUSTOM_CHECK_APPNAME, 
+													pSfCustomKeyStr[SF_FILESIZE_NO_EQUAL],
+													pSfCustomKeyStr[SF_FILESIZE_NO_EQUAL],
+													MAX_BUF_LEN,
+													4,
+													vectStr);
+				}
+			}
+			break;
+		}
+	}
+
+	CloseHandle(hFile);
+
+	if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+	{
+		pWow64RevertWow64FsRedirection(OldValue);
+	}
+
+	if (hModule != NULL)
+	{
+		FreeLibrary(hModule);
+		hModule = NULL;
+	}
+	
+	return strRet;
+}
+
+string CheckFileMD5( IN const char* szCheckFilePath, IN const char* pFileMD5, IN LANGUAGETYPE language, IN int iTrigger, OUT string& strTrigrSucc)
+{
+	string strRet = "";
+	string strFileMd5 = "";
+	string strFilePath = "";
+	PVOID OldValue = NULL;
+	BOOL bRedirectionFlag = FALSE;
+	HMODULE hModule = LoadLibraryW(L"kernel32.dll");
+
+	if (hModule == NULL)
+	{
+		return strRet;
+	}
+
+	pFnWow64DisableWow64FsRedirection pWow64DisableWow64FsRedirection;
+	pWow64DisableWow64FsRedirection = (pFnWow64DisableWow64FsRedirection)GetProcAddress(hModule, "Wow64DisableWow64FsRedirection");
+
+	pFnWow64RevertWow64FsRedirection pWow64RevertWow64FsRedirection;
+	pWow64RevertWow64FsRedirection = (pFnWow64RevertWow64FsRedirection)GetProcAddress(hModule, "Wow64RevertWow64FsRedirection");
+
+	if (pWow64DisableWow64FsRedirection != NULL)
+	{
+		bRedirectionFlag = pWow64DisableWow64FsRedirection(&OldValue);
+	}
+
+	if (CheckFileIsExist(szCheckFilePath) == FALSE)
+	{
+		vector<string> vectStr;
+
+		vectStr.push_back((string)szCheckFilePath);
+		strRet = PackageLangInfo(	language, 
+									CUSTOM_CHECK_APPNAME, 
+									pSfCustomKeyStr[SF_FILEMD5_NOT_EXIST],
+									pSfCustomKeyStr[SF_FILEMD5_NOT_EXIST],
+									MAX_BUF_LEN,
+									2,
+									vectStr);
+
+		if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+		{
+			pWow64RevertWow64FsRedirection(OldValue);
+		}
+		if (hModule != NULL)
+		{
+			FreeLibrary(hModule);
+			hModule = NULL;
+		}
+
+		return strRet;
+	}
+
+	vector<string> vectStr;
+
+	strFilePath = (string)szCheckFilePath;
+	strFileMd5 = GetFileMD5(strFilePath);
+	vectStr.push_back(strFilePath);
+	vectStr.push_back(strFileMd5);
+	vectStr.push_back((string)pFileMD5);
+
+	if (_strnicmp(strFileMd5.c_str(), pFileMD5, strFileMd5.length()) != 0)
+	{
+		strRet = PackageLangInfo(	language, 
+									CUSTOM_CHECK_APPNAME, 
+									pSfCustomKeyStr[SF_FILEMD5_NO_EQUAL],
+									pSfCustomKeyStr[SF_FILEMD5_NO_EQUAL],
+									MAX_BUF_LEN,
+									4,
+									vectStr);
+	}
+	else if (iTrigger == CHECK_TRIGGER_VOILATION)
+	{
+		strTrigrSucc = PackageLangInfo(	language, 
+										CUSTOM_CHECK_APPNAME, 
+										pSfCustomKeyStr[SF_FILEMD5_EQUAL],
+										pSfCustomKeyStr[SF_FILEMD5_EQUAL],
+										MAX_BUF_LEN,
+										4,
+										vectStr);
+	}
+
+	if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+	{
+		pWow64RevertWow64FsRedirection(OldValue);
+	}
+	if (hModule != NULL)
+	{
+		FreeLibrary(hModule);
+		hModule = NULL;
+	}
+
+	return strRet;
+}
+
+bool GetFileVersion(IN const char* szCheckFilePath, WORD *pBuffer)
+{
+	VS_FIXEDFILEINFO *pVi;
+	DWORD dwHandle;
+	string str;
+	int size = GetFileVersionInfoSizeA(szCheckFilePath, &dwHandle);
+
+	if (size > 0) 
+	{
+		BYTE *buffer = new BYTE[size];
+
+		if (GetFileVersionInfoA(szCheckFilePath, dwHandle, size, buffer))
+		{
+			if (VerQueryValue(buffer, _T("\\"), (LPVOID *)&pVi, (PUINT)&size)) 
+			{
+				pBuffer[0] = HIWORD(pVi->dwFileVersionMS);
+				pBuffer[1] = LOWORD(pVi->dwFileVersionMS);
+				pBuffer[2] = HIWORD(pVi->dwFileVersionLS);
+				pBuffer[3] = LOWORD(pVi->dwFileVersionLS);
+
+				delete buffer;
+				return true;
+			}
+		}
+		delete[] buffer;
+	}
+
+	return false;
+}
+
+string GetFileVersion(IN const char* szCheckFilePath)
+{
+	string strVer;
+	WORD wdBuffer[4];
+
+	if (GetFileVersion(szCheckFilePath, wdBuffer))
+	{
+		char chOutBuffer[32];
+
+		for (int i = 0; i < sizeof(wdBuffer)/sizeof(WORD); i++)
+		{
+			_itoa_s(wdBuffer[i], chOutBuffer, 32, 10);
+			strVer += chOutBuffer;
+
+			if (i != sizeof(wdBuffer)/sizeof(WORD) - 1)
+			{
+				strVer += ".";
+			}
+		}
+	}
+
+	return strVer;
+}
+
+void ConvertFileVersion(string strFileVersion, int *pVersion)
+{
+	string strSubVer("");
+	unsigned int j = 0;
+
+	for (unsigned int i = 0; i < strFileVersion.size(); i++)
+	{
+		if (strFileVersion[i] == '.')
+		{
+			pVersion[j++] = atoi(strSubVer.c_str());
+			strSubVer = "";
+		}
+		else
+		{
+			strSubVer += strFileVersion[i];
+		}
+	}
+	pVersion[j++] = atoi(strSubVer.c_str());
+}
+
+string CheckFileVersion( IN const char* szCheckFilePath,  IN const char* pFileVersion, IN int iCheckCondition, IN LANGUAGETYPE language, IN int iTrigger, OUT string& strTrigrSucc)
+{	
+	string strLocalFileVer = "";
+	int iServerFileVer[4] = {0};
+	int iLocalFileVer[4] = {0};
+	int iMemRet = 0;
+	string strRet = "";
+	PVOID OldValue = NULL;
+	BOOL bRedirectionFlag = FALSE;
+	HMODULE hModule = LoadLibraryW(L"kernel32.dll");
+
+	if (hModule == NULL)
+	{
+		return strRet;
+	}
+
+	pFnWow64DisableWow64FsRedirection pWow64DisableWow64FsRedirection;
+	pWow64DisableWow64FsRedirection = (pFnWow64DisableWow64FsRedirection)GetProcAddress(hModule, "Wow64DisableWow64FsRedirection");
+
+	pFnWow64RevertWow64FsRedirection pWow64RevertWow64FsRedirection;
+	pWow64RevertWow64FsRedirection = (pFnWow64RevertWow64FsRedirection)GetProcAddress(hModule, "Wow64RevertWow64FsRedirection");
+
+	if (pWow64DisableWow64FsRedirection != NULL)
+	{
+		bRedirectionFlag = pWow64DisableWow64FsRedirection(&OldValue);
+	}
+
+	if (CheckFileIsExist(szCheckFilePath) == FALSE)
+	{
+		vector<string> vectStr;
+
+		vectStr.push_back((string)szCheckFilePath);
+		strRet = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_FILE_VERSION_NOT_EXIST],
+								pSfCustomKeyStr[SF_FILE_VERSION_NOT_EXIST],
+								MAX_BUF_LEN,
+								2,
+								vectStr);
+
+		if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+		{
+			pWow64RevertWow64FsRedirection(OldValue);
+		}
+		if (hModule != NULL)
+		{
+			FreeLibrary(hModule);
+			hModule = NULL;
+		}
+
+		return strRet;
+	}
+
+	strLocalFileVer = GetFileVersion(szCheckFilePath);
+	ConvertFileVersion((string)pFileVersion, iServerFileVer);
+	ConvertFileVersion(strLocalFileVer ,iLocalFileVer);
+
+	if (strLocalFileVer.length() < 3)
+	{
+		if (strlen(pFileVersion) > 1)
+		{
+			vector<string> vectStr;
+
+			vectStr.push_back((string)szCheckFilePath);
+			strRet = PackageLangInfo(language, 
+									CUSTOM_CHECK_APPNAME, 
+									pSfCustomKeyStr[SF_FILE_VERSION_GET_FALSE],
+									pSfCustomKeyStr[SF_FILE_VERSION_GET_FALSE],
+									MAX_BUF_LEN,
+									2,
+									vectStr);
+		} 
+	}
+	else
+	{
+		vector<string> vectStr;
+		string strFailedInfo = "";
+
+		vectStr.push_back((string)szCheckFilePath);
+		vectStr.push_back(strLocalFileVer);
+		vectStr.push_back(pFileVersion);
+
+		for (int i = 0; i < 4; i++)
+		{
+			if (iLocalFileVer[i] > iServerFileVer[i])
+			{
+				iMemRet = 1;
+				break;
+			}
+			else if (iLocalFileVer[i] < iServerFileVer[i])
+			{
+				iMemRet = -1;
+				break;
+			}
+		}
+
+		switch(iCheckCondition)
+		{
+		case LESS_OR_EQUAL:
+			{
+				if (iMemRet > 0)
+				{
+					strRet = PackageLangInfo(language, 
+											CUSTOM_CHECK_APPNAME, 
+											pSfCustomKeyStr[SF_FILE_VERSION_MORE],
+											pSfCustomKeyStr[SF_FILE_VERSION_MORE],
+											MAX_BUF_LEN,
+											4,
+											vectStr);
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(language, 
+													CUSTOM_CHECK_APPNAME, 
+													pSfCustomKeyStr[SF_FILE_VERSION_LESS],
+													pSfCustomKeyStr[SF_FILE_VERSION_LESS],
+													MAX_BUF_LEN,
+													4,
+													vectStr);
+				}
+			}
+			break;
+
+		case MORE_OR_EQUAL:
+			{
+				if (iMemRet < 0)
+				{
+					strRet = PackageLangInfo(language, 
+											CUSTOM_CHECK_APPNAME, 
+											pSfCustomKeyStr[SF_FILE_VERSION_LESS],
+											pSfCustomKeyStr[SF_FILE_VERSION_LESS],
+											MAX_BUF_LEN,
+											4,
+											vectStr);
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(language, 
+													CUSTOM_CHECK_APPNAME, 
+													pSfCustomKeyStr[SF_FILE_VERSION_MORE],
+													pSfCustomKeyStr[SF_FILE_VERSION_MORE],
+													MAX_BUF_LEN,
+													4,
+													vectStr);
+				}
+			}	
+			break;
+
+		case EQUAL:
+			{
+				if (iMemRet != 0)
+				{
+					strRet = PackageLangInfo(language, 
+						CUSTOM_CHECK_APPNAME, 
+						pSfCustomKeyStr[SF_FILE_VERSION_NO_EQUAL],
+						pSfCustomKeyStr[SF_FILE_VERSION_NO_EQUAL],
+						MAX_BUF_LEN,
+						4,
+						vectStr); 
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(language, 
+													CUSTOM_CHECK_APPNAME, 
+													pSfCustomKeyStr[SF_FILE_VERSION_EQUAL],
+													pSfCustomKeyStr[SF_FILE_VERSION_EQUAL],
+													MAX_BUF_LEN,
+													4,
+													vectStr);
+				}
+			}	
+			break;
+
+		case NO_EQUAL:
+			{
+				if (iMemRet == 0)
+				{
+					strRet = PackageLangInfo(language, 
+											CUSTOM_CHECK_APPNAME, 
+											pSfCustomKeyStr[SF_FILE_VERSION_EQUAL],
+											pSfCustomKeyStr[SF_FILE_VERSION_EQUAL],
+											MAX_BUF_LEN,
+											4,
+											vectStr);
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(language, 
+													CUSTOM_CHECK_APPNAME, 
+													pSfCustomKeyStr[SF_FILE_VERSION_NO_EQUAL],
+													pSfCustomKeyStr[SF_FILE_VERSION_NO_EQUAL],
+													MAX_BUF_LEN,
+													4,
+													vectStr);
+				}
+			}
+			break;
+		}
+	}
+
+	if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+	{
+		pWow64RevertWow64FsRedirection(OldValue);
+	}
+	if (hModule != NULL)
+	{
+		FreeLibrary(hModule);
+		hModule = NULL;
+	}
+
+	return strRet;
+}
+
+int ClearDirFiles(IN const wchar_t* wszClearDirPath) 
+{ 
+	WIN32_FIND_DATA FindFileData = {0};  
+	HANDLE hFind = NULL;  
+	wstring wstrClearDirPath = L"";
+	int iRet = FALSE;
+
+	wstrClearDirPath = (wstring)wszClearDirPath;
+	wstrClearDirPath += L"\\*.*";
+
+	hFind = FindFirstFile(wstrClearDirPath.c_str(), &FindFileData);  
+
+	if (hFind == INVALID_HANDLE_VALUE)   
+		return iRet;  
+
+	do
+	{  
+		//特殊文件
+		if(FindFileData.cFileName[0] == L'.' || FindFileData.cFileName[0] == L'\0')
+		{
+			continue;
+		}
+
+		//目录
+		if(FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		{
+			wstring wstrSubDirPath = L"";
+			wstring wstrDirName = L"";
+
+			wstrSubDirPath = (wstring)wszClearDirPath;
+			wstrSubDirPath += L"\\";
+			wstrSubDirPath += (wstring)FindFileData.cFileName;
+
+			ClearDirFiles(wstrSubDirPath.c_str());
+			iRet = TRUE;
+		}
+		else
+		{
+			wstring wstrSubDirPath = L"";
+
+			wstrSubDirPath = (wstring)wszClearDirPath;
+			wstrSubDirPath += L"\\";
+			wstrSubDirPath += (wstring)FindFileData.cFileName;
+
+			iRet = DeleteFile(wstrSubDirPath.c_str());
+			iRet = TRUE;
+		}
+
+	}while(FindNextFile(hFind, &FindFileData));    
+
+	FindClose(hFind);
+	RemoveDirectory(wszClearDirPath);
+
+	return iRet;
+}
+
+int ClearDirectory(IN const wchar_t* wszClearDirPath) 
+{
+	SHFILEOPSTRUCT FileOp={0};
+	wchar_t wClearDirPath[MAX_PATH] = {0};
+
+	wcsncpy_s(wClearDirPath, MAX_PATH, wszClearDirPath, wcslen(wszClearDirPath));
+	wClearDirPath[wcslen(wClearDirPath)] = '\0';
+	wClearDirPath[wcslen(wClearDirPath)+1] = '\0';
+
+	FileOp.fFlags = FOF_SILENT|FOF_ALLOWUNDO|FOF_NOCONFIRMATION; 
+	FileOp.pFrom = wClearDirPath;
+	FileOp.pTo = NULL; 
+	FileOp.wFunc = FO_DELETE;
+
+	return SHFileOperation(&FileOp) == 0;
+}
+
+int DeleteFileRepair(IN const char* pszDeleteFilePath)
+{
+	int iRet = FALSE;
+	DWORD dwDirFlag = FALSE;
+
+	PVOID OldValue = NULL;
+	BOOL bRedirectionFlag = FALSE;
+	HMODULE hModule = LoadLibraryW(L"kernel32.dll");
+
+	if (hModule == NULL)
+	{
+		return iRet;
+	}
+
+	pFnWow64DisableWow64FsRedirection pWow64DisableWow64FsRedirection;
+	pWow64DisableWow64FsRedirection = (pFnWow64DisableWow64FsRedirection)GetProcAddress(hModule, "Wow64DisableWow64FsRedirection");
+
+	pFnWow64RevertWow64FsRedirection pWow64RevertWow64FsRedirection;
+	pWow64RevertWow64FsRedirection = (pFnWow64RevertWow64FsRedirection)GetProcAddress(hModule, "Wow64RevertWow64FsRedirection");
+
+	if (pWow64DisableWow64FsRedirection != NULL)
+	{
+		bRedirectionFlag = pWow64DisableWow64FsRedirection(&OldValue);
+	}
+
+	dwDirFlag = GetFileAttributesA(pszDeleteFilePath)&FILE_ATTRIBUTE_DIRECTORY;
+
+	if (!dwDirFlag)
+	{
+		if (DeleteFileA(pszDeleteFilePath))
+		{
+			iRet = TRUE;
+		}
+	}
+	else
+	{		
+		wstring wstrDelFilePath = AnsiToWChar(pszDeleteFilePath);
+
+		iRet = ClearDirFiles(wstrDelFilePath.c_str());
+
+		if(	iRet)
+		{
+			/*ClearDirectory(wszDeleteFilePath);
+			RemoveDirectory(wszDeleteFilePath);*/
+			iRet = TRUE;
+		}
+	}
+
+	if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+	{
+		pWow64RevertWow64FsRedirection(OldValue);
+	}
+	if (hModule != NULL)
+	{
+		FreeLibrary(hModule);
+		hModule = NULL;
+	}
+	return iRet;
+}

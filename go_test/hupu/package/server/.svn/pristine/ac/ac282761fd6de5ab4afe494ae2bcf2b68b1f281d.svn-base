@@ -1,0 +1,1114 @@
+//#include "MonitorFunction.h"
+#include <Windows.h>
+#include <stdio.h>
+#include <string>
+
+#include  "WriteDebugInfo.h"
+#include "..\..\common\GlobalFunction\HpMntIoCtrl.h"
+#include <Shlwapi.h>
+#include <tlhelp32.h>
+#include <UserEnv.h>
+#include <WtsApi32.h>
+
+using namespace std;
+
+#pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "Userenv.lib")
+#pragma comment(lib, "Wtsapi32.lib")
+
+#define SERVICE_STARTED_FALG 1
+#define SERVICE_UNINSTALL_FALG 2
+
+TCHAR szServiceName[] = L"HpImanService";
+TCHAR displayName[] = L"Hu Pu Iman Service";
+const wchar_t SERVERNAME[] = {L"HppassthruMp"};
+
+const int  HPDRIVERINSTALLTIMEOUT = 3*60*1000;//3分钟 
+
+//驱动程序不支持
+const int HP_DRIVER_NOTSUPPLY = 6014;
+
+const int HP_DRIVER_SAME = 6015;
+
+typedef enum UNINSTALLINDEX
+{
+    //不需要处理程序
+    NOUNINSTALL = 0,
+
+    //卸载整个程序
+    UNINSTALL = 1,
+
+    //重启当前主程序
+    RESTART = 2, 
+
+    //切换用户
+    USERCHANGE = 3, 
+
+}_UNINSTALLINDEX;
+
+int g_CurrentTimeId;
+DWORD g_ThreadId;
+int g_currSessionId;
+
+TCHAR  g_AppPath[MAX_PATH];
+TCHAR g_IniFile[MAX_PATH];
+TCHAR g_UninsFilePath[MAX_PATH];
+
+const wchar_t HPMAIMPROG[] = {L"hpidmnac.exe"};
+
+const wchar_t HPINSTALLDRIVERNAME[] = {L"hpintallAnduninstall"};
+
+const DWORD INSTALLDRIVERTIMEOUT = 8000;
+
+SERVICE_STATUS_HANDLE hServiceStatus;
+SERVICE_STATUS status;
+
+void CALLBACK TimeProc(HWND hwnd, UINT message,UINT idTimer,DWORD dwTime);
+BOOL UninstallService();
+BOOL LaunchAppIntoDifferentSession();
+int TerminateProcessByName(wchar_t  *processName);
+BOOL bInstallDriver();
+
+void Init()
+{
+    hServiceStatus = NULL;
+    status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+    status.dwCurrentState = SERVICE_STOPPED;
+    status.dwControlsAccepted = SERVICE_ACCEPT_STOP|SERVICE_ACCEPT_SESSIONCHANGE|
+								SERVICE_ACCEPT_PAUSE_CONTINUE | SERVICE_ACCEPT_SHUTDOWN;
+    status.dwWin32ExitCode = 0;
+    status.dwServiceSpecificExitCode = 0;
+    status.dwCheckPoint = 0;
+    status.dwWaitHint = 0;
+
+    GetModuleFileName(NULL, g_AppPath, MAX_PATH*sizeof(TCHAR));
+    for (int i = wcslen(g_AppPath)-1;i>=0;i--)
+    {
+        if (g_AppPath[i]== L'\\')
+        {
+            g_AppPath[i+1]= L'\0';
+            break;
+        }
+    }
+    _snwprintf_s(g_IniFile,MAX_PATH,MAX_PATH-1,L"%sdata\\VersAndLog_config.ini",g_AppPath);
+     _snwprintf_s(g_UninsFilePath,MAX_PATH,MAX_PATH-1,L"%sHpUninstall.exe",g_AppPath);
+}
+
+DWORD GetCurrentActiveSessionId()
+{
+    PWTS_SESSION_INFO  pSessionInfo = 0;  
+    DWORD dwCount = 0;   
+    ::WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionInfo, &dwCount);  
+    int session_id = 0;  
+
+    char enumbersess[MAX_PATH] = {0};
+    sprintf_s(enumbersess,sizeof(enumbersess),"WTSEnumerateSessions=%d",dwCount);
+    WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, enumbersess,g_AppPath);
+
+    for (int i = 0; i < dwCount; ++i)  
+    {        
+        WTS_SESSION_INFO si = pSessionInfo[i];   
+        if (WTSActive == si.State)    
+        {          
+            char enumbersess[MAX_PATH] = {0};
+            sprintf_s(enumbersess,sizeof(enumbersess),"WTSActive session=%d",si.SessionId);
+            WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, enumbersess,g_AppPath);
+            session_id = si.SessionId;    
+            break;      
+        }  
+    }   
+    ::WTSFreeMemory(pSessionInfo); 
+    return session_id;
+}
+
+void CALLBACK TimeProc(HWND hwnd,UINT message,UINT idTimer,DWORD dwTime)
+{
+	if (PathFileExists(g_IniFile))
+	{
+		int exception = 0;
+		exception = GetPrivateProfileInt(L"Param", L"EXCEPTION",0, g_IniFile);
+		int uninstalllog = 0;
+		uninstalllog = GetPrivateProfileInt(L"Param", L"Uninstall",0, g_IniFile);
+		if( exception ||  uninstalllog == UNINSTALL )
+		{
+			//去除进程保护
+			MntDeviceIOControl((LPVOID)"0", 1, HNM_SET_PROTECT_PROC, NULL, 0);
+			KillTimer(NULL, g_CurrentTimeId);
+			WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "结束服务的定时器", g_AppPath);
+			UninstallService();
+			exit(0);
+		}
+		else
+		{
+			//保护程序
+			bool IsExplorerExist = false;
+			bool IsProcessExist = false;
+
+			PROCESSENTRY32 pe32;
+			pe32.dwSize = sizeof(pe32);
+
+			HANDLE hProcessSnap=::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);
+			if(hProcessSnap != INVALID_HANDLE_VALUE)
+			{
+				BOOL bMore=::Process32First(hProcessSnap,&pe32);
+				while(bMore)
+				{
+					if (_wcsnicmp(pe32.szExeFile,L"explorer.exe",MAX_PATH)==0)
+					{
+						IsExplorerExist=true;
+					}
+					if (_wcsnicmp(pe32.szExeFile,L"hpidmnac.exe",MAX_PATH)==0)
+					{
+						IsProcessExist=true;
+					}
+
+					if (IsProcessExist&&IsExplorerExist)
+					{
+						WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "主程序已存在,不需要启动主程序",g_AppPath);
+						break;
+					}
+					bMore=::Process32Next(hProcessSnap,&pe32);
+				}
+				CloseHandle(hProcessSnap);
+				hProcessSnap=NULL;
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "打开进程句柄失败",g_AppPath);
+			}
+			if ( IsExplorerExist && (!IsProcessExist))
+			{
+				LaunchAppIntoDifferentSession();
+			} 
+		}
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "配置档不存在",g_AppPath);
+	}
+}
+
+BOOL LaunchAppIntoDifferentSession() 
+{
+     WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "LaunchAppIntoDifferentSession",g_AppPath);
+	 
+    PROCESS_INFORMATION pi;
+    STARTUPINFO si;
+    BOOL bResult = FALSE;
+    DWORD dwSessionId,winlogonPid;
+    HANDLE hUserTokenDup,hPToken,hProcess;
+    DWORD dwCreationFlags;
+
+    PWTS_SESSION_INFO  pSessionInfo = 0;  
+    DWORD dwCount = 0;   
+
+     dwSessionId = GetCurrentActiveSessionId();
+
+    PROCESSENTRY32 procEntry;
+
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap == INVALID_HANDLE_VALUE)
+    {
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "CreateToolhelp32Snapshot Fail",g_AppPath);
+        return FALSE;
+    }
+    procEntry.dwSize = sizeof(PROCESSENTRY32);
+    if (!Process32First(hSnap, &procEntry))
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "Process32First Fail",g_AppPath);
+        CloseHandle(hSnap);
+        hSnap=NULL;
+        return FALSE;
+    }
+
+    bool winlogonexist = false;
+    do
+    {
+        if (_wcsnicmp(procEntry.szExeFile, L"winlogon.exe",MAX_PATH) == 0)
+        {
+            // We found a winlogon process...make sure it's running in the console session
+            DWORD winlogonSessId = 0;
+            if (ProcessIdToSessionId(procEntry.th32ProcessID, &winlogonSessId) && winlogonSessId == dwSessionId)
+            {
+                winlogonPid = procEntry.th32ProcessID;
+                winlogonexist = true;
+                break;
+            }
+        }
+        if ( winlogonexist )
+        {
+            break;
+        }
+    } while (Process32Next(hSnap, &procEntry));
+
+    CloseHandle(hSnap);
+    hSnap=NULL;
+    if (!winlogonexist)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "winlogon not exist ",g_AppPath);
+       return FALSE;
+    }
+
+    dwCreationFlags = NORMAL_PRIORITY_CLASS|CREATE_NEW_CONSOLE;
+    ZeroMemory(&si, sizeof(STARTUPINFO));
+    si.cb= sizeof(STARTUPINFO);
+    si.lpDesktop = L"winsta0\\default";
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    ZeroMemory(&pi, sizeof(pi));
+
+    TOKEN_PRIVILEGES tp;
+    LUID luid;
+
+    hProcess = OpenProcess(MAXIMUM_ALLOWED,FALSE,winlogonPid);
+
+    if(!::OpenProcessToken(hProcess,TOKEN_ADJUST_PRIVILEGES|TOKEN_QUERY
+        |TOKEN_DUPLICATE|TOKEN_ASSIGN_PRIMARY|TOKEN_ADJUST_SESSIONID
+        |TOKEN_READ|TOKEN_WRITE,&hPToken))
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "Process token open Fail",g_AppPath);
+        return FALSE;
+    }
+
+    if (!LookupPrivilegeValue(NULL,SE_DEBUG_NAME,&luid))
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "Lookup Privilege value fail",g_AppPath);
+    }
+    tp.PrivilegeCount =1;
+    tp.Privileges[0].Luid =luid;
+    tp.Privileges[0].Attributes =SE_PRIVILEGE_ENABLED;
+
+    DuplicateTokenEx(hPToken,MAXIMUM_ALLOWED,NULL,SecurityIdentification,TokenPrimary,&hUserTokenDup);
+    //Adjust Token privilege
+    SetTokenInformation(hUserTokenDup,TokenSessionId,(void*)dwSessionId,sizeof(DWORD));
+
+    if (!AdjustTokenPrivileges(hUserTokenDup,FALSE,&tp,sizeof(TOKEN_PRIVILEGES),(PTOKEN_PRIVILEGES)NULL,NULL))
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "Adjust Privilege value Error",g_AppPath);
+    }
+
+    LPVOID pEnv =NULL;
+    if(CreateEnvironmentBlock(&pEnv,hUserTokenDup,TRUE))
+    {
+       dwCreationFlags|=CREATE_UNICODE_ENVIRONMENT;
+    }
+    else
+        pEnv=NULL;
+
+    // Launch the process in the client's logon session.
+	wchar_t  Setupexe[MAX_PATH]={L"0"};
+	_snwprintf_s(Setupexe,MAX_PATH,MAX_PATH-1,L"%shpidmnac.exe",(wchar_t*)g_AppPath);
+
+	if (!PathFileExists(Setupexe))
+	{
+		  WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "主程序不存在", g_AppPath);
+		  return FALSE;
+	}
+    bResult = CreateProcessAsUser(
+        hUserTokenDup,         // client's access token
+        (LPWSTR)Setupexe,
+        NULL,              // command line
+        NULL,     
+        NULL,              // pointer to thread SECURITY_ATTRIBUTES
+        FALSE,             // handles are not inheritable
+        dwCreationFlags,  // creation flags
+        pEnv,              // pointer to new environment block 
+        NULL,              // name of current directory 
+        &si,               // pointer to STARTUPINFO structure
+        &pi                // receives information about new process
+        );
+    // End impersonation of client.
+
+	DWORD dw = GetLastError();
+	char procmsg[MAX_PATH] = {"0"};
+	sprintf_s(procmsg,sizeof(procmsg),"CreateProcessAsUser GetLastError=%d",dw);
+	WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, procmsg,g_AppPath);
+    
+	DWORD waitobjectRes = WaitForSingleObject(pi.hProcess,1000);
+	if ( waitobjectRes == WAIT_OBJECT_0 )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "CreateProcessAsUser WAIT_OBJECT_0",g_AppPath);
+	}
+	else if (waitobjectRes == WAIT_TIMEOUT)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "CreateProcessAsUser WAIT_TIMEOUT",g_AppPath);
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "CreateProcessAsUser 出现错误",g_AppPath);
+	}
+
+    CloseHandle(hProcess);
+    hProcess=NULL;
+    CloseHandle(hUserTokenDup);
+    hUserTokenDup=NULL;
+    CloseHandle(hPToken);
+    hPToken=NULL;
+    return TRUE;
+}
+
+BOOL Start(IN wchar_t* pServiceName)
+{
+	SC_HANDLE hSCM = NULL;
+	SC_HANDLE hService = NULL;
+	BOOL bRet = FALSE;
+
+	hSCM = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	if ( NULL == hSCM )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "OpenSCManager Failed!",g_AppPath);
+		return bRet;
+	}
+
+	hService = OpenService(hSCM, pServiceName, SERVICE_ALL_ACCESS);
+	if ( NULL == hService )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "OpenService Failed!",g_AppPath);
+		CloseServiceHandle(hSCM);
+		return bRet;
+	}
+
+	if (StartServiceA(hService, 0, NULL) != 0)
+	{
+		bRet = TRUE;
+	}
+
+	CloseServiceHandle(hService);
+	CloseServiceHandle(hSCM);
+	return bRet;
+}
+
+DWORD WINAPI ServiceStrl(DWORD controlCode,
+    DWORD dwEventType,
+    LPVOID lpEventData,
+    LPVOID lpContext)
+{
+    DWORD dwErrorCode = NO_ERROR;
+    switch(controlCode)
+    {
+    case SERVICE_CONTROL_SESSIONCHANGE:
+        switch(dwEventType)
+        {
+        case WTS_SESSION_LOGOFF:
+		case WTS_SESSION_LOGON:
+		case WTS_CONSOLE_DISCONNECT:
+		case WTS_CONSOLE_CONNECT:
+			{
+				WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "用户注销,需要重启小助手",g_AppPath);
+				wchar_t  restartindex[MAX_PATH] = {L"0"};
+				wsprintf(restartindex, L"%d", USERCHANGE);
+				WritePrivateProfileString(L"Param", L"Uninstall", restartindex, g_IniFile);
+				TerminateProcessByName(const_cast<wchar_t*>(HPMAIMPROG));
+				memset(restartindex,0,sizeof(restartindex));
+				wsprintf(restartindex, L"%d", NOUNINSTALL);
+				WritePrivateProfileString(L"Param", L"Uninstall", restartindex, g_IniFile);
+			}
+            break;
+        default:
+            break;
+        }
+        break;
+    case SERVICE_CONTROL_STOP:
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "SERVICE_CONTROL_STOP",g_AppPath);
+            KillTimer(NULL,g_CurrentTimeId);
+            status.dwCurrentState = SERVICE_STOP_PENDING;
+            SetServiceStatus(hServiceStatus, &status);
+            wchar_t  restartindex[MAX_PATH] = {L"0"};
+            wsprintf(restartindex, L"%d", USERCHANGE);
+            WritePrivateProfileString(L"Param", L"Uninstall", restartindex, g_IniFile);
+            WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "SERVICE_CONTROL_SESSIONCHANGE",g_AppPath);
+            PostThreadMessage(g_ThreadId, WM_CLOSE, 0, 0);
+			
+			Sleep(500);
+			status.dwCurrentState = SERVICE_STOPPED;
+			SetServiceStatus(hServiceStatus, &status);
+        }
+        break;
+
+    case SERVICE_CONTROL_PAUSE:
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "SERVICE_CONTROL_PAUSE",g_AppPath);
+        }
+        break;
+
+    case SERVICE_CONTROL_CONTINUE:
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "SERVICE_CONTROL_CONTINUE",g_AppPath);
+        }
+        break;
+
+    case SERVICE_CONTROL_INTERROGATE:
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "SERVICE_CONTROL_INTERROGATE",g_AppPath);
+        }
+        break;
+
+    case SERVICE_CONTROL_SHUTDOWN:
+        {
+            KillTimer(NULL,g_CurrentTimeId);
+            WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "SERVICE_CONTROL_SHUTDOWN",g_AppPath);
+        }
+        break;
+    }
+    return dwErrorCode;
+}
+
+void WINAPI ServiceMain()
+{ 
+	OSVERSIONINFO   osVer;    
+
+	status.dwCurrentState = SERVICE_START_PENDING ;
+    status.dwControlsAccepted = SERVICE_ACCEPT_STOP|SERVICE_ACCEPT_SESSIONCHANGE|
+								SERVICE_ACCEPT_PAUSE_CONTINUE|SERVICE_ACCEPT_SHUTDOWN;
+    hServiceStatus = RegisterServiceCtrlHandlerEx(szServiceName, ServiceStrl, NULL);
+
+	if (hServiceStatus == NULL)
+	{
+		OutputDebugStringA("RegisterServiceCtrlHandler failed\n");
+		return;
+	}
+	
+    SetServiceStatus(hServiceStatus,&status);
+    status.dwWin32ExitCode = S_OK;
+    status.dwCheckPoint = 0;
+    status.dwWaitHint = 0;
+    status.dwCurrentState = SERVICE_RUNNING;
+	status.dwControlsAccepted = SERVICE_ACCEPT_SESSIONCHANGE;
+	SetServiceStatus(hServiceStatus, &status);
+
+	osVer.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);     
+	GetVersionEx(&osVer);    
+
+	if (bInstallDriver())
+	{
+		if (osVer.dwMajorVersion >= 6)
+		{
+			DWORD dwCurProId = GetCurrentProcessId();
+			string strCurProId = std::to_string((_ULonglong)dwCurProId);
+			BOOL bRet = FALSE;
+			int iCount = 0;
+
+			Start(L"Imhp");
+			bRet = MntDeviceIOControl((LPVOID)"1", 1, HNM_SET_PROTECT_PROC, NULL, 0);
+
+			while(!bRet)
+			{
+				iCount++;
+				Sleep(1000);
+				bRet = MntDeviceIOControl((LPVOID)"1", 1, HNM_SET_PROTECT_PROC, NULL, 0);
+				if (iCount > 5)
+				{
+					break;
+				}
+			}
+			MntDeviceIOControl((LPVOID)strCurProId.c_str(), strCurProId.length(), HNM_ADD_PROTECT_PROC,NULL, 0);
+		}
+	}
+
+    g_CurrentTimeId = SetTimer(NULL, 1, 15000, TimeProc); 
+    MSG msg;
+    while (GetMessage(&msg,NULL,0,0))
+    {
+        if(msg.message==WM_TIMER)
+		{
+			TranslateMessage(&msg);
+            DispatchMessage(&msg);
+		}
+    }
+
+	status.dwControlsAccepted = SERVICE_ACCEPT_STOP|SERVICE_ACCEPT_SESSIONCHANGE;
+	status.dwCurrentState = SERVICE_STOPPED;
+    SetServiceStatus(hServiceStatus, &status);
+}
+
+BOOL IsInstalled()
+{
+    BOOL bResult = FALSE;
+    //打开服务控制管理器
+    SC_HANDLE hSCM = ::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+
+    if (hSCM != NULL)
+    {
+        SC_HANDLE hService = ::OpenService(hSCM, szServiceName, SERVICE_QUERY_CONFIG);
+        if (hService != NULL)
+        {
+            bResult = TRUE;
+            ::CloseServiceHandle(hService);
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "OpenService Fail",g_AppPath);
+        }
+        ::CloseServiceHandle(hSCM);
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "OpenSCManager Fail",g_AppPath);
+    }
+    return bResult;
+}
+
+VOID  DoUpdateSvcDesc() 
+{ 
+    SC_HANDLE schSCManager; 
+    SC_HANDLE schService; 
+    SERVICE_DESCRIPTION sd; 
+
+    // Get a handle to the SCM database.   
+
+    schSCManager = OpenSCManager(  NULL,                    // local computer  
+        NULL,                    // ServicesActive database   
+        SC_MANAGER_ALL_ACCESS);  // full access rights   
+
+    if (NULL == schSCManager)  
+    { 
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "OpenSCManager failed",g_AppPath);
+        return; 
+    } 
+
+    // Get a handle to the service.  
+    schService = OpenService(  schSCManager,            // SCM database   
+        szServiceName,               // name of service   
+        SERVICE_CHANGE_CONFIG);  // need change config access   
+
+    if (schService == NULL) 
+    {  
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "OpenService failed",g_AppPath);
+        CloseServiceHandle(schSCManager); 
+        return; 
+    }     
+
+    // Change the service description.  
+    sd.lpDescription = displayName; 
+
+    if( !ChangeServiceConfig2( schService,                 // handle to service  
+        SERVICE_CONFIG_DESCRIPTION, // change: description  
+        &sd) )                      // new description  
+    { 
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "ChangeServiceConfig2 failed",g_AppPath);
+
+        CloseServiceHandle(schService);  
+        CloseServiceHandle(schSCManager); 
+        return;
+    } 
+    CloseServiceHandle(schService);  
+    CloseServiceHandle(schSCManager); 
+} 
+
+BOOL InstallService()
+{
+    BOOL Result = FALSE;
+    SC_HANDLE hSCM = NULL;
+    TCHAR szFilePath[MAX_PATH] = {L"0"};
+    SC_HANDLE hService = NULL;
+
+    hSCM = ::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+
+    if (hSCM == NULL)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "Couldn't open service manager",g_AppPath);
+        return Result;
+    }
+
+    ::GetModuleFileName(NULL, szFilePath, MAX_PATH);
+
+     hService = ::CreateService(hSCM,
+            szServiceName, 
+            szServiceName,							
+            SERVICE_ALL_ACCESS, 
+            SERVICE_WIN32_OWN_PROCESS/*|SERVICE_INTERACTIVE_PROCESS*/,
+            SERVICE_AUTO_START, 
+            SERVICE_ERROR_NORMAL,
+            szFilePath, 
+            NULL, 
+            NULL, 
+            L"", 
+            NULL, 
+            NULL);
+
+        if (hService != NULL || 
+            GetLastError() == ERROR_ACCESS_DENIED ||
+            GetLastError() == ERROR_DUPLICATE_SERVICE_NAME ||
+            GetLastError() == ERROR_SERVICE_EXISTS)
+        {
+            Result = TRUE;
+            DoUpdateSvcDesc();
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "CreateService Fail",g_AppPath);
+        }
+    ::CloseServiceHandle(hService);
+    ::CloseServiceHandle(hSCM);
+    return TRUE;
+}
+
+BOOL UninstallService()
+{
+    if (!IsInstalled())
+        return TRUE;
+
+    KillTimer(NULL,g_CurrentTimeId);
+
+    SC_HANDLE hSCM = ::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+
+    if (hSCM == NULL)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "Couldn't open service manager",g_AppPath);
+        return FALSE;
+    }
+
+    SC_HANDLE hService = ::OpenService(hSCM, szServiceName, SERVICE_STOP | DELETE);
+
+    if (hService == NULL)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "OpenService Fail",g_AppPath);
+        ::CloseServiceHandle(hSCM);
+        return FALSE;
+    }
+
+    SERVICE_STATUS status;
+
+    ::ControlService(hService, SERVICE_CONTROL_STOP, &status);
+
+    //删除服务
+    BOOL bDelete = ::DeleteService(hService);
+
+    ::CloseServiceHandle(hService);
+    ::CloseServiceHandle(hSCM);
+
+    if (bDelete)
+        return TRUE;
+
+    else
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "DeleteServiceFail, ErrorCode",g_AppPath);
+    }
+    return FALSE;
+}
+
+//判断是否需要安装驱动:需要安装返回TRUE
+//不需要安装返回FALSE
+BOOL bInstallDriver()
+{
+    wchar_t inipath[MAX_PATH] = {L"0"};
+    wsprintf(inipath,L"%sdata\\VersAndLog_config.ini",g_AppPath);
+    int  driveMake = 0;//0表示不安装驱动，1表示安装驱动
+    driveMake=GetPrivateProfileInt(L"Param", L"DriverMake",0, inipath);
+    if (driveMake)
+    {
+        return TRUE;
+    }
+    else
+    {
+        return FALSE;
+    }
+}
+
+BOOL IsWin64Os()
+{
+    BOOL bwin64 = FALSE;
+
+    SYSTEM_INFO  si;
+    ::GetNativeSystemInfo(&si);
+    if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||   
+        si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 )  
+    {  
+        bwin64 = TRUE;
+    } 
+    return bwin64;
+}
+
+//获取驱动的服务程序是否启动:启动状态返回TRUE,停止状态返回FALSE
+BOOL GetDriverServiceState()
+{
+	BOOL bRes = FALSE;
+	SC_HANDLE hSCM = ::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+
+	if (hSCM == NULL)
+	{
+		 WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "Couldn't open service manager",g_AppPath);
+		return bRes;
+	}
+
+	SC_HANDLE hService = ::OpenService(hSCM, SERVERNAME, SERVICE_QUERY_STATUS);
+
+	if (hService == NULL)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "OpenService Fail",g_AppPath);
+		::CloseServiceHandle(hSCM);
+		return bRes;
+	}
+
+	SERVICE_STATUS status;
+	if ( ::QueryServiceStatus(hService,&status) == FALSE )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "QueryServiceStatus Fail",g_AppPath);
+		::CloseServiceHandle(hSCM);
+		::CloseServiceHandle(hSCM);
+		return bRes;
+	}
+	if (status.dwCurrentState == SERVICE_RUNNING )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "HppassthruMp  Running",g_AppPath);
+		bRes = TRUE;
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "HppassthruMp  Stop",g_AppPath);
+	}
+	::CloseServiceHandle(hService);
+	::CloseServiceHandle(hSCM);
+
+	return bRes;
+}
+
+//安装驱动程序
+void InstallHupuDriver()
+{
+    wchar_t exepath[MAX_PATH] = {L"0"};
+    if (IsWin64Os())
+    {
+        _snwprintf_s(exepath,MAX_PATH,MAX_PATH-1,L"%s%s64.exe",g_AppPath,HPINSTALLDRIVERNAME); 
+    }
+    else
+    {
+        _snwprintf_s(exepath,MAX_PATH,MAX_PATH-1,L"%s%s32.exe",g_AppPath,HPINSTALLDRIVERNAME);
+    }
+    SHELLEXECUTEINFO ShExecInfo = {0};
+    ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+    ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+    ShExecInfo.hwnd = NULL;
+    ShExecInfo.lpVerb = L"open";
+    ShExecInfo.lpFile = exepath;
+    ShExecInfo.lpParameters = L"/install";
+    ShExecInfo.lpDirectory = NULL;
+    ShExecInfo.nShow = SW_HIDE;
+    ShExecInfo.hInstApp = NULL;
+    ShellExecuteEx(&ShExecInfo);
+    DWORD res = WaitForSingleObject(ShExecInfo.hProcess,INSTALLDRIVERTIMEOUT);//等待5s中驱动安装
+    if ( res == WAIT_OBJECT_0 )
+    {
+         WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "WAIT_OBJECT_0 驱动安装成功",g_AppPath);
+    }
+    else if (res == WAIT_TIMEOUT)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "WAIT_TIMEOUT 驱动安装失败",g_AppPath);
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "其他错误",g_AppPath);
+    }
+	
+	DWORD dwExitCode = 0;
+    GetExitCodeProcess(ShExecInfo.hProcess, &dwExitCode); 
+	//WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "GetExitCodeProcess",(int)dwExitCode);
+	if ( (dwExitCode != HP_DRIVER_NOTSUPPLY) && (dwExitCode != HP_DRIVER_SAME))
+	{
+
+	}
+}
+
+void UninstallHupuDriver()
+{
+	wchar_t exepath[MAX_PATH] = {L"0"};
+	if (IsWin64Os())
+	{
+		_snwprintf_s(exepath,MAX_PATH,MAX_PATH-1,L"%s%s64.exe",g_AppPath,HPINSTALLDRIVERNAME); 
+	}
+	else
+	{
+		_snwprintf_s(exepath,MAX_PATH,MAX_PATH-1,L"%s%s32.exe",g_AppPath,HPINSTALLDRIVERNAME);
+	}
+
+	SHELLEXECUTEINFO ShExecInfo = {0};
+	ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+	ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+	ShExecInfo.hwnd = NULL;
+	ShExecInfo.lpVerb = L"open";
+	ShExecInfo.lpFile = exepath;
+	ShExecInfo.lpParameters = L"/uninstall";
+	ShExecInfo.lpDirectory = NULL;
+	ShExecInfo.nShow = SW_HIDE;
+	ShExecInfo.hInstApp = NULL;
+	ShellExecuteEx(&ShExecInfo);
+	DWORD res = WaitForSingleObject(ShExecInfo.hProcess,INSTALLDRIVERTIMEOUT);//等待5s中驱动安装
+	if ( res == WAIT_OBJECT_0 )
+	{
+		OutputDebugString(L"WAIT_OBJECT_0 驱动卸载成功");
+	}
+	else if (res == WAIT_TIMEOUT)
+	{
+		OutputDebugString(L"WAIT_OBJECT_0 驱动卸载失败");
+	}
+	else
+	{
+		OutputDebugString(L"其他错误");
+	}
+}
+
+//安装wpcap库
+void InstallWpcapLib()
+{
+	wstring wstrInstallFile = g_AppPath;
+	SHELLEXECUTEINFO ShExecInfo = {0};
+
+	wstrInstallFile += HPINSTALLDRIVERNAME;
+
+	if (IsWin64Os())
+	{
+		wstrInstallFile +=  L"64.exe";
+	}
+	else
+	{
+		wstrInstallFile +=  L"32.exe";
+	}
+
+	ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+	ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+	ShExecInfo.hwnd = NULL;
+	ShExecInfo.lpVerb = L"open";
+	ShExecInfo.lpFile = wstrInstallFile.c_str();
+	ShExecInfo.lpParameters = L"/InstallNpf";
+	ShExecInfo.lpDirectory = NULL;
+	ShExecInfo.nShow = SW_HIDE;
+	ShExecInfo.hInstApp = NULL;
+
+	ShellExecuteEx(&ShExecInfo);
+}
+
+//安装Imanserver
+void InstalllNacMntor()
+{
+	wstring wstrInstallFile = g_AppPath;
+	wstring wstrImanServPath = L"/InstallNacMntor";
+	SHELLEXECUTEINFO ShExecInfo = {0};
+
+	wstrInstallFile += HPINSTALLDRIVERNAME;
+
+	if (IsWin64Os())
+	{
+		wstrInstallFile +=  L"64.exe";
+	}
+	else
+	{
+		wstrInstallFile +=  L"32.exe";
+	}
+
+	ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+	ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+	ShExecInfo.hwnd = NULL;
+	ShExecInfo.lpVerb = L"open";
+	ShExecInfo.lpFile = wstrInstallFile.c_str();
+	ShExecInfo.lpParameters = wstrImanServPath.c_str();
+	ShExecInfo.lpDirectory = NULL;
+	ShExecInfo.nShow = SW_HIDE;
+	ShExecInfo.hInstApp = NULL;
+
+	ShellExecuteEx(&ShExecInfo);
+	if (ShExecInfo.hProcess)
+	{
+		WaitForSingleObject(ShExecInfo.hProcess, 3000);
+	}
+}
+
+//安装Imanserver
+void InstallImanServer()
+{
+	wstring wstrInstallFile = g_AppPath;
+	wstring wstrImanServPath = L"\"/InstallImanServ\" \"";
+	SHELLEXECUTEINFO ShExecInfo = {0};
+
+	wstrInstallFile += HPINSTALLDRIVERNAME;
+	wstrInstallFile +=  L"32.exe";
+
+	wstrImanServPath += g_AppPath;
+	wstrImanServPath += L"ImanSvc.dll\"";
+
+	ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
+	ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+	ShExecInfo.hwnd = NULL;
+	ShExecInfo.lpVerb = L"open";
+	ShExecInfo.lpFile = wstrInstallFile.c_str();
+	ShExecInfo.lpParameters = wstrImanServPath.c_str();
+	ShExecInfo.lpDirectory = NULL;
+	ShExecInfo.nShow = SW_HIDE;
+	ShExecInfo.hInstApp = NULL;
+
+	ShellExecuteEx(&ShExecInfo);
+	if (ShExecInfo.hProcess)
+	{
+		WaitForSingleObject(ShExecInfo.hProcess, 3000);
+	}
+}
+
+void BackupSetupDir(IN string& strFromDir, IN string& strToDir)
+{
+	try
+	{
+		string strDirPath = "";
+		WIN32_FIND_DATAA wfd;
+		HANDLE hFind = NULL;
+
+		strDirPath = strFromDir;
+		strDirPath += "\\";
+		strDirPath += "*.*";
+
+		CreateDirectoryA(strToDir.c_str(), NULL);
+
+		hFind = FindFirstFileA(strDirPath.c_str(), &wfd);
+
+		if(hFind == INVALID_HANDLE_VALUE)
+		{
+			return;
+		}
+
+		do
+		{
+			if((strcmp(wfd.cFileName, ".") == 0)||
+				(strcmp(wfd.cFileName, "..") == 0))
+			{
+				continue;
+			}
+
+			string strFilePath = "";
+			DWORD dwAttributes = INVALID_FILE_ATTRIBUTES; 
+			string strSourceDir = "";
+			string strDesDir = "";
+
+			strFilePath = strFromDir;
+			strFilePath += "\\";
+			strFilePath += wfd.cFileName;
+
+			dwAttributes = GetFileAttributesA(strFilePath.c_str());
+
+			if(dwAttributes & FILE_ATTRIBUTE_READONLY)
+			{
+				dwAttributes &= ~FILE_ATTRIBUTE_READONLY;
+				SetFileAttributesA(strFilePath.c_str(), dwAttributes);
+			}
+
+			strSourceDir = strFromDir;
+			strSourceDir += "\\";
+			strSourceDir += wfd.cFileName;
+
+			strDesDir = strToDir;
+			strDesDir += "\\";
+			strDesDir += wfd.cFileName;
+
+			if(wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			{
+				BackupSetupDir(strSourceDir, strDesDir);
+			}
+			else
+			{
+				CopyFileA(strSourceDir.c_str(), strDesDir.c_str(), FALSE);
+			}
+
+		}while(FindNextFileA(hFind, &wfd));
+
+		FindClose(hFind);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"BackupSetupDir Exception", L"error", 0);
+#endif
+	}
+}
+
+int TerminateProcessByName(wchar_t  *processName)
+{
+	PROCESSENTRY32 pe32; 
+	pe32.dwSize = sizeof(pe32); 
+	HANDLE hProcessSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0); 
+	if (hProcessSnap == INVALID_HANDLE_VALUE)
+	{ 
+		return 0; 
+	} 
+	BOOL bMore = ::Process32First(hProcessSnap,&pe32);
+	while (bMore)
+	{ 
+		if(_wcsnicmp(pe32.szExeFile,processName , MAX_PATH)==0)
+		{
+			HANDLE hProcessHandle=::OpenProcess(PROCESS_TERMINATE,FALSE,pe32.th32ProcessID);
+			if (hProcessHandle == NULL )
+			{
+				 WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "OpenProcess fail",g_AppPath);
+			}
+			else
+			{
+				DWORD dwExitCode = 0;
+				if (!TerminateProcess(hProcessHandle,GetExitCodeProcess(hProcessHandle,&dwExitCode)))
+				{
+					 WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "TerminateProcess fail",g_AppPath);
+				}
+				CloseHandle(hProcessHandle);
+				hProcessHandle = NULL;
+			}
+
+		}
+		bMore = ::Process32Next(hProcessSnap,&pe32); 
+	}
+	::CloseHandle(hProcessSnap);
+	hProcessSnap = NULL;
+	return 0;
+}
+
+int main(int argc, char *argv[])
+{
+	int iRet = FALSE;
+    Init();
+    g_ThreadId = ::GetCurrentThreadId();
+    g_currSessionId = -1;
+
+	//install service
+	if (argc > 1 && (_strnicmp(argv[1], "/i", 2) == 0 || _strnicmp(argv[1], "-i", 2) == 0 ))
+	{
+		InstallService();
+        Start(szServiceName);
+	}
+
+	//uninstall service
+	else if (argc > 1 && (_strnicmp(argv[1], "/u", 2) == 0 || _strnicmp(argv[1], "-u", 2) == 0 ))
+    {
+        UninstallService();
+    }
+
+	//setup packet
+	else if (argc > 1 && (_strnicmp(argv[1], "/s", 2) == 0 || _strnicmp(argv[1], "-s", 2) == 0 ))
+	{
+		//安装驱动程序
+		if (bInstallDriver())
+		{
+			InstallHupuDriver();
+			WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "exe install driver",g_AppPath);
+
+			//安装wpcap库
+			InstallWpcapLib();
+			InstalllNacMntor();
+			InstallImanServer();
+		}
+		else
+		{
+			UninstallHupuDriver();
+			WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "no need install driver",g_AppPath);
+		}
+		InstallService();
+		Start(szServiceName);
+	}
+	else
+	{
+		SERVICE_TABLE_ENTRY st[] =
+		{
+			{ szServiceName, (LPSERVICE_MAIN_FUNCTION)ServiceMain },
+			{ NULL, NULL }
+		};
+		//return StartServiceCtrlDispatcher(st);
+        ::StartServiceCtrlDispatcher(st);
+	}
+
+	return iRet;
+}

@@ -1,0 +1,210 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "..\GetLangValue.h"
+#include "..\CustomCheck\CommData.h"
+#include "CheckDiskSpace.h"
+#include "..\GlobalDate.h"
+#include "..\DebugInfo.h"
+
+/************************************************************ 
+ Description: 初始化磁盘检查策略
+ input: pItemName[字段名]、pItemValue[字段值]、pDiskSpacePolicy[磁盘策略]
+*************************************************************/
+void InitDiskSpacePolicy(IN char* pItemName, IN char* pItemValue, OUT PDISKSPACEPOLICY pDiskSpacePolicy)
+{
+    char writeLog[MAX_WRITE_BUF*2] = {0};
+
+    if(strcmp(pItemName, "sconfigpercent") == 0)
+    {
+        pDiskSpacePolicy->iConfigPercent = atoi(pItemValue);
+    }
+    else if (strcmp(pItemName, "ichecksystemdriver") == 0)
+    {
+        pDiskSpacePolicy->iCheckSystemDriver = atoi(pItemValue);
+    }
+    else if (strcmp(pItemName, "icheckotherdriver") == 0)
+    {
+        pDiskSpacePolicy->iCheckOtherDriver = atoi(pItemValue);
+    }
+
+    sprintf_s(writeLog, 
+            MAX_WRITE_BUF*2, 
+            "iConfigPercent[%d] iCheckSystemDriver[%d] iCheckOtherDriver[%d]\n", 
+            pDiskSpacePolicy->iConfigPercent, 
+            pDiskSpacePolicy->iCheckSystemDriver, 
+            pDiskSpacePolicy->iCheckOtherDriver);
+
+    WriteDebugInfomation(LEVEL_RELEASE, MODULE_DISKSPACE, LOGLOCATION, "磁盘检查=", writeLog);
+}
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input: 
+ Return: 
+*************************************************************/
+bool DiskSpaceRetShowMsg(IN int iCheckState,  IN safecheckattr checkItem, IN PDISKSPACEPOLICY pDiskSpacePolicy, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language)
+{
+    bool ret = true;
+    std::string violationDiskSpace("");
+
+    if (iCheckState)
+    {
+		char strDiskSpaceName[MAX_BUF_LEN] = {0};
+		char strLangMsg[MAX_BUF_LEN] = {0};
+
+		GetLangValueByKeyA(language, 
+			"SF_DISKSPACE_MSG", 
+			"SF_DISKSPACE_NAME", 
+			"磁盘检查", 
+			strDiskSpaceName, 
+			MAX_BUF_LEN);
+		GetLangValueByKeyA(language, 
+			"SF_DISKSPACE_MSG", 
+			"SF_DISKSPACE_LANG_MSG", 
+			"磁盘使用超过管理员配置的", 
+			strLangMsg, 
+			MAX_BUF_LEN);
+
+        (*pFailNum)++;
+        ret = false;
+
+        if(!pDiskSpacePolicy->violationDiskList.empty())
+        {
+            VIOLATIONDISKLIST::iterator iter;
+            char *pDriverName = NULL;
+
+            pDriverName = (char*)malloc(sizeof(char)*2);
+            for (iter = pDiskSpacePolicy->violationDiskList.begin(); iter != pDiskSpacePolicy->violationDiskList.end(); iter++)
+            {
+				if (iter != pDiskSpacePolicy->violationDiskList.begin())
+				{
+					violationDiskSpace += ",";
+				}
+                memset(pDriverName, 0, sizeof(char)*2);
+                pDriverName[0] = (*iter).driverName;
+                pDriverName[1] = '\0';
+                violationDiskSpace += pDriverName;
+            }
+
+			violationDiskSpace += " ";
+            free(pDriverName);
+            pDriverName = NULL;
+        }
+
+        sprintf_s(  pMsgBuf, 
+                    msgBufLen,
+                    "<subitem checkItemId=\"0\" faildes=\"%s%s% d%%\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+					violationDiskSpace.c_str(),
+					strLangMsg,
+                    pDiskSpacePolicy->iConfigPercent,
+					strDiskSpaceName,
+                    checkItem.warningcont, 
+                    checkItem.warninglevel, 
+                    checkItem.srcevent);
+
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_NETSHARE, LOGLOCATION, pMsgBuf);
+    }
+
+    return ret;
+}
+
+/************************************************************
+ Description: 检查磁盘使用情况
+*************************************************************/
+BOOL CheckDiskSpace(_Inout_ PDISKSPACEPOLICY pDiskSpacePolicy)
+{
+    ULARGE_INTEGER lpFreeBytesAvailableToCaller = {0};
+    ULARGE_INTEGER lpTotalNumberOfBytes = {0};
+    ULARGE_INTEGER lpTotalNumberOfFreeBytes = {0};
+    TCHAR szRoot[4] = {0};
+    int driverFlag = 0;
+    DWORD allDrives = GetLogicalDrives();
+    DISKSPACEINFO driverInfo = {0};
+    BOOL ret = FALSE;
+    char writeLog[MAX_WRITE_BUF] = {0};
+    wchar_t systemDir[MAX_SYSTEMDIR_LEN] = {0};
+
+    if (allDrives == 0)
+        return ret; 
+
+    pDiskSpacePolicy->violationDiskList.clear();
+
+    if (allDrives!=0)
+    {
+        GetSystemDirectory(systemDir, MAX_SYSTEMDIR_LEN);
+
+        for(int i=0; i<26; i++) 
+        { 
+            if ((allDrives & 1)==1)
+            {
+                wsprintf(szRoot, L"%c:\\", i+'A');
+
+                if(GetDriveType(szRoot) == DRIVE_FIXED)
+                {
+                    memset(&driverInfo, 0, sizeof(DISKSPACEINFO));
+                    driverInfo.driverName = (char)(i+'A');
+
+                    if (GetDiskFreeSpaceEx(szRoot, &lpFreeBytesAvailableToCaller, &lpTotalNumberOfBytes, &lpTotalNumberOfFreeBytes))
+                    {
+                        double fTotalNumberOfBytes = (double)lpTotalNumberOfBytes.QuadPart/(1024.0*1024.0);
+                        double flpTotalNumberOfFreeBytes = (double)lpTotalNumberOfFreeBytes.QuadPart/(1024.0*1024.0);
+
+                        driverInfo.percent = (int)(100.0*(fTotalNumberOfBytes - flpTotalNumberOfFreeBytes)/fTotalNumberOfBytes);
+
+                        sprintf_s(  writeLog, 
+									MAX_WRITE_BUF, 
+									"磁盘：%c 使用百分比[%d%%]\n", 
+									i+'A', 
+									driverInfo.percent);
+
+                        if (driverInfo.percent >= pDiskSpacePolicy->iConfigPercent)
+                        {
+                            if (pDiskSpacePolicy->iCheckSystemDriver && !pDiskSpacePolicy->iCheckOtherDriver)
+                            {
+                                if (wcsstr(systemDir, szRoot))
+                                {
+                                    pDiskSpacePolicy->violationDiskList.push_back(driverInfo);
+                                    ret  = TRUE;
+                                }
+                            }
+                            else if (!pDiskSpacePolicy->iCheckSystemDriver && pDiskSpacePolicy->iCheckOtherDriver)
+                            {
+                                if (!wcsstr(systemDir, szRoot))
+                                {
+                                    pDiskSpacePolicy->violationDiskList.push_back(driverInfo);
+                                    ret  = TRUE;
+                                }
+                            }
+                            else if (pDiskSpacePolicy->iCheckSystemDriver && pDiskSpacePolicy->iCheckOtherDriver)
+                            {
+                                pDiskSpacePolicy->violationDiskList.push_back(driverInfo);
+                                ret  = TRUE;
+                            }
+                        }
+
+                        sprintf_s(  writeLog, 
+                                    MAX_WRITE_BUF, 
+                                    "磁盘：%c 总空间大小[%ldM] 剩余空间[%ldM] 使用百分比[%d%%]\n", 
+                                    i+'A', 
+                                    (long)fTotalNumberOfBytes,
+                                    (long)flpTotalNumberOfFreeBytes,
+                                    driverInfo.percent);
+
+                        WriteDebugInfomation(LEVEL_DEBUG, MODULE_DISKSPACE, LOGLOCATION, writeLog);
+                    }
+                    driverFlag++;
+                }
+            }
+            allDrives = allDrives >> 1;
+        } 
+    }
+
+    return ret;
+}

@@ -1,0 +1,517 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include <Windows.h>
+#include "..\GlobalFunction.h"
+#include "CommData.h"
+#include "../GlobalDate.h"
+#include "../CommPub.h"
+#include "..\GetLangValue.h"
+#include "CheckPort.h"
+
+#include <winsock.h>
+#include <Psapi.h>
+#include <tlhelp32.h>
+#include <string>
+
+using namespace std;
+#pragma comment(lib, "Ws2_32.lib")
+
+DWORD TcpGetProcessIdByPort(DWORD dwPort)
+{
+	HMODULE hModule = LoadLibraryW(L"iphlpapi.dll");
+	DWORD dwRet = 0;
+
+	if (hModule == NULL)
+	{
+		goto ExitRet;
+	}
+
+	PFNAllocateAndGetTcpExTableFromStack pAllocateAndGetTcpExTableFromStack;
+	pAllocateAndGetTcpExTableFromStack = (PFNAllocateAndGetTcpExTableFromStack)GetProcAddress(hModule, "AllocateAndGetTcpExTableFromStack");
+
+	if (pAllocateAndGetTcpExTableFromStack != NULL)
+	{
+		PMIB_TCPEXTABLE pTcpExTable = NULL;
+
+		if (pAllocateAndGetTcpExTableFromStack(&pTcpExTable, TRUE, GetProcessHeap(), 0, AF_INET) != 0)
+		{
+			if (pTcpExTable)
+			{
+				HeapFree(GetProcessHeap(), 0, pTcpExTable);
+			} 
+			goto ExitRet;
+		}
+
+		for (UINT i = 0; i < pTcpExTable->dwNumEntries; i++)
+		{
+			if(dwPort == ntohs(0x0000FFFF & pTcpExTable->table[i].dwLocalPort))
+			{
+				DWORD dwProcessId = pTcpExTable->table[i].dwProcessId;
+
+				if (pTcpExTable)
+				{
+					HeapFree(GetProcessHeap(), 0, pTcpExTable);
+				}
+				dwRet = dwProcessId;
+				goto ExitRet;
+			}
+		}  
+		if (pTcpExTable)
+		{
+			HeapFree(GetProcessHeap(), 0, pTcpExTable);
+		}
+	}
+	else
+	{
+		PMIB_TCPEXTABLE_VISTA pTcpExTable = NULL;
+
+		PFNInternalGetTcpTable2 pInternalGetTcpTable2 = (PFNInternalGetTcpTable2)GetProcAddress(hModule, "InternalGetTcpTable2");
+
+		if (pInternalGetTcpTable2 == NULL)
+		{
+			if (pTcpExTable)
+			{
+				HeapFree(GetProcessHeap(), 0, pTcpExTable);
+			}
+
+			goto ExitRet;
+		}
+
+		if (pInternalGetTcpTable2(&pTcpExTable, GetProcessHeap(), 1))
+		{
+			if (pTcpExTable)
+			{
+				HeapFree(GetProcessHeap(), 0, pTcpExTable);
+			}
+
+			goto ExitRet;
+		}
+
+		for (UINT i = 0; i < pTcpExTable->dwNumEntries; i++)
+		{
+			if(dwPort == ntohs(0x0000FFFF & pTcpExTable->table[i].dwLocalPort))
+			{
+				DWORD dwProcessId = pTcpExTable->table[i].dwProcessId;
+
+				if (pTcpExTable)
+				{
+					HeapFree(GetProcessHeap(), 0, pTcpExTable);
+				}  
+				dwRet = dwProcessId;
+				goto ExitRet;
+			}
+		}
+		if (pTcpExTable)
+		{
+			HeapFree(GetProcessHeap(), 0, pTcpExTable);
+		}
+	}
+
+ExitRet:
+
+	if (hModule != NULL)
+	{
+		FreeLibrary(hModule);
+		hModule = NULL;
+	}
+
+	return dwRet;
+}
+
+DWORD UdpGetProcessIdByPort(DWORD dwPort)
+{
+	HMODULE hModule = LoadLibraryW(L"iphlpapi.dll");
+	DWORD dwRet = 0;
+
+	if (hModule == NULL)
+	{
+		return dwRet;
+	}
+
+	PMIB_UDPEXTABLE pUdpExTable = NULL;
+
+	PFNAllocateAndGetUdpExTableFromStack pAllocateAndGetUdpExTableFromStack;
+	pAllocateAndGetUdpExTableFromStack = (PFNAllocateAndGetUdpExTableFromStack)GetProcAddress(hModule, "AllocateAndGetUdpExTableFromStack");
+
+	if (pAllocateAndGetUdpExTableFromStack != NULL)
+	{
+		if (pAllocateAndGetUdpExTableFromStack(&pUdpExTable, TRUE, GetProcessHeap(), 0, AF_INET) != 0)
+		{
+			if (pUdpExTable)
+			{
+				HeapFree(GetProcessHeap(), 0, pUdpExTable);
+			}
+
+			goto ExitRet;
+		}
+
+		for (UINT i = 0; i < pUdpExTable->dwNumEntries; i++)
+		{
+			if (dwPort == ntohs(0x0000FFFF & pUdpExTable->table[i].dwLocalPort))
+			{
+				DWORD dwProcessId = pUdpExTable->table[i].dwProcessId;
+				if (pUdpExTable)
+				{
+					HeapFree(GetProcessHeap(), 0, pUdpExTable);
+				}
+				dwRet = dwProcessId;
+				goto ExitRet;
+			}
+		}
+		if (pUdpExTable)
+		{
+			HeapFree(GetProcessHeap(), 0, pUdpExTable);
+		}
+
+		goto ExitRet;
+	}
+	else
+	{
+		PFNInternalGetUdpTableWithOwnerPid pInternalGetUdpTableWithOwnerPid;
+		pInternalGetUdpTableWithOwnerPid = (PFNInternalGetUdpTableWithOwnerPid)GetProcAddress(hModule, "InternalGetUdpTableWithOwnerPid");
+
+		if (pInternalGetUdpTableWithOwnerPid != NULL)
+		{
+			if (pInternalGetUdpTableWithOwnerPid(&pUdpExTable, GetProcessHeap(), 1))
+			{
+				if (pUdpExTable)
+				{
+					HeapFree(GetProcessHeap(), 0, pUdpExTable);
+				}
+				goto ExitRet;
+			}
+
+			for (UINT i = 0; i < pUdpExTable->dwNumEntries; i++)
+			{
+				if (dwPort == ntohs(0x0000FFFF & pUdpExTable->table[i].dwLocalPort))
+				{
+					DWORD dwProcessId = pUdpExTable->table[i].dwProcessId;
+
+					if (pUdpExTable)
+					{
+						HeapFree(GetProcessHeap(), 0, pUdpExTable);
+					}
+
+					dwRet = dwProcessId;
+					goto ExitRet;
+				}
+			}
+		}
+
+		if (pUdpExTable)
+		{
+			HeapFree(GetProcessHeap(), 0, pUdpExTable);
+		}  
+	}
+
+ExitRet:
+
+	FreeLibrary(hModule);
+	hModule = NULL;
+
+	return dwRet;
+}
+
+string CheckPortIsExist(IN const char* szCheckPortNum, 
+						IN const char* szCheckPortType, 
+						IN int iCheckCondition, 
+						IN LANGUAGETYPE language, 
+						IN int iTrigger, 
+						OUT string& strTrigrSucc)
+{
+	string strRet = "";
+	DWORD dwCheckPortNum = atoi(szCheckPortNum);
+	DWORD dwCheckPortType = atoi(szCheckPortType);
+	DWORD dwTcpProcId = 0;
+	DWORD dwUdpProcId = 0;
+	vector<string> vectStr;
+
+	vectStr.push_back((string)szCheckPortNum);
+
+	if ((strlen(szCheckPortNum) < 1) || (dwCheckPortNum == 0) || (dwCheckPortType == 0))
+	{
+		if (iCheckCondition == CHECK_EXIST_FLAG)
+		{
+			strRet = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+				pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+				MAX_BUF_LEN,
+				2,
+				vectStr);
+		}
+		else if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			strTrigrSucc = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+				pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+				MAX_BUF_LEN,
+				2,
+				vectStr);
+		}
+
+		return strRet;
+	}
+
+	switch(dwCheckPortType)
+	{
+		case CHECK_TCP_TYPE:
+			{
+				dwTcpProcId = TcpGetProcessIdByPort(dwCheckPortNum);
+				if (dwTcpProcId == 0)
+				{
+					if (iCheckCondition == CHECK_EXIST_FLAG)
+					{
+						strRet = "TCP";
+						if (language == ENGLISH)
+						{
+							strRet += " ";
+						}
+						strRet += PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+							pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+					else if (iTrigger == CHECK_TRIGGER_VOILATION)
+					{
+						strTrigrSucc = "TCP";
+						if (language == ENGLISH)
+						{
+							strTrigrSucc += " ";
+						}
+						strTrigrSucc += PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+							pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+				}
+				else
+				{
+					if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+					{
+						strRet = "TCP";
+						if (language == ENGLISH)
+						{
+							strRet += " ";
+						}
+						strRet += PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_EXIST],
+							pSfCustomKeyStr[SF_PORT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+					else if (iTrigger == CHECK_TRIGGER_VOILATION)
+					{
+						strTrigrSucc = "TCP";
+						if (language == ENGLISH)
+						{
+							strTrigrSucc += " ";
+						}
+						strTrigrSucc += PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_EXIST],
+							pSfCustomKeyStr[SF_PORT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+				}
+			}
+			break;
+		case CHECK_UDP_TYPE:
+			{
+				dwUdpProcId = UdpGetProcessIdByPort(dwCheckPortNum);
+				if (dwUdpProcId == 0)
+				{
+					if (iCheckCondition == CHECK_EXIST_FLAG)
+					{
+						strRet = "UDP";
+						if (language == ENGLISH)
+						{
+							strRet += " ";
+						}
+						strRet += PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+							pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+					else if (iTrigger == CHECK_TRIGGER_VOILATION)
+					{
+						strTrigrSucc = "UDP";
+						if (language == ENGLISH)
+						{
+							strTrigrSucc += " ";
+						}
+						strTrigrSucc += PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+							pSfCustomKeyStr[SF_PORT_NOT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+				}
+				else
+				{
+					if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+					{
+						strRet = "UDP";
+						if (language == ENGLISH)
+						{
+							strRet += " ";
+						}
+						strRet += PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_EXIST],
+							pSfCustomKeyStr[SF_PORT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+					else if (iTrigger == CHECK_TRIGGER_VOILATION)
+					{
+						strTrigrSucc = "UDP";
+						if (language == ENGLISH)
+						{
+							strTrigrSucc += " ";
+						}
+						strTrigrSucc += PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_EXIST],
+							pSfCustomKeyStr[SF_PORT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+				}
+			}
+			break;
+		case CHECK_TCPORUDP_TYPE:
+			{
+				dwTcpProcId = TcpGetProcessIdByPort(dwCheckPortNum);
+				dwUdpProcId = UdpGetProcessIdByPort(dwCheckPortNum);
+
+				if (dwTcpProcId == 0 && dwUdpProcId == 0)
+				{
+					if (iCheckCondition == CHECK_EXIST_FLAG)
+					{
+						strRet = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_AND_NOT_EXIST],
+							pSfCustomKeyStr[SF_PORT_AND_NOT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+					else if (iTrigger == CHECK_TRIGGER_VOILATION)
+					{
+						strTrigrSucc = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_AND_NOT_EXIST],
+							pSfCustomKeyStr[SF_PORT_AND_NOT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+				}
+				else
+				{
+					if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+					{
+						strRet = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_OR_EXIST],
+							pSfCustomKeyStr[SF_PORT_OR_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+					else if (iTrigger == CHECK_TRIGGER_VOILATION)
+					{
+						strTrigrSucc = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_OR_EXIST],
+							pSfCustomKeyStr[SF_PORT_OR_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+				}
+			}
+			break;
+		case CHECK_TCPANDUDP_TYPE:
+			{
+				dwTcpProcId = TcpGetProcessIdByPort(dwCheckPortNum);
+				dwUdpProcId = UdpGetProcessIdByPort(dwCheckPortNum);
+				if (dwTcpProcId == 0 || dwUdpProcId == 0)
+				{
+					if (iCheckCondition == CHECK_EXIST_FLAG)
+					{
+						strRet = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_OR_NOT_EXIST],
+							pSfCustomKeyStr[SF_PORT_OR_NOT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+					else if (iTrigger == CHECK_TRIGGER_VOILATION)
+					{
+						strTrigrSucc = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_OR_NOT_EXIST],
+							pSfCustomKeyStr[SF_PORT_OR_NOT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+				}
+				else if ( dwTcpProcId != 0 && dwUdpProcId != 0)
+				{
+					if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+					{
+						strRet = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_AND_EXIST],
+							pSfCustomKeyStr[SF_PORT_AND_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+					else if (iTrigger == CHECK_TRIGGER_VOILATION)
+					{
+						strTrigrSucc = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_PORT_AND_EXIST],
+							pSfCustomKeyStr[SF_PORT_AND_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+				}
+			}
+			break;
+	}
+
+	return strRet;
+}
+

@@ -1,0 +1,817 @@
+#include "StdAfx.h"
+#include "NetMon.h"
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+#include "..\sqlite3.h"
+#include "SafeCheckFuntion.h"
+#include "..\lsp\OpLsp.h"
+#include "MD5Checksum.h"
+#include "..\..\..\common\CalcuPacket.h"
+
+
+CNetMon::CNetMon(void)
+{
+	memset(&m_xmlexterninfo,0,sizeof(XMLEXTERNINFO));
+}
+
+
+CNetMon::~CNetMon(void)
+{
+
+}
+
+void CNetMon::GetNetMonXmlConfig(char* xmlname,char* xmlvalue)
+{
+	try
+	{
+		 if (strcmp(xmlname,"iflowdirection")==0)
+		{
+			memset(m_xmlexterninfo.direction,0,sizeof(m_xmlexterninfo.direction));
+			Convert(xmlvalue,m_xmlexterninfo.direction,sizeof(m_xmlexterninfo.direction),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"sflowspeed")==0)
+		{
+			memset(m_xmlexterninfo.speed,0,sizeof(m_xmlexterninfo.speed));
+			Convert(xmlvalue,m_xmlexterninfo.speed,sizeof(m_xmlexterninfo.speed),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"iflowspeedunit")==0)
+		{
+			memset(m_xmlexterninfo.speedunit,0,sizeof(m_xmlexterninfo.speedunit));
+			Convert(xmlvalue,m_xmlexterninfo.speedunit,sizeof(m_xmlexterninfo.speedunit),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"sflowtotal")==0)
+		{
+			memset(m_xmlexterninfo.total,0,sizeof(m_xmlexterninfo.total));
+			Convert(xmlvalue,m_xmlexterninfo.total,sizeof(m_xmlexterninfo.total),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"iflowtotalunit")==0)
+		{
+			memset(m_xmlexterninfo.totalunit,0,sizeof(m_xmlexterninfo.totalunit));
+			Convert(xmlvalue,m_xmlexterninfo.totalunit,sizeof(m_xmlexterninfo.totalunit),CP_UTF8,CP_ACP);
+		}
+		else if (strcmp(xmlname,"iflowcycle")==0)
+		{
+			memset(m_xmlexterninfo.totalcycle,0,sizeof(m_xmlexterninfo.totalcycle));
+			Convert(xmlvalue,m_xmlexterninfo.totalcycle,sizeof(m_xmlexterninfo.totalcycle),CP_UTF8,CP_ACP);
+		}
+		else 
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"NetMon中没有该数据");
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"CNetMon::GetNetMonXmlConfig Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "CNetMon::GetNetMonXmlConfig Exception");
+	}
+}
+
+int CNetMon::SaveNetMonCntTodb(IN int policyid,IN sqlite3 *db,IN list<XMLNAMEANDVALUECON> thirditemattri)
+{
+	try
+	{
+		list<XMLNAMEANDVALUECON>::iterator  thirditemiter;
+
+		char  policyauthid[HP_C_USERCONTENTLEN] = {"1"};
+		char startip[HP_C_USERCONTENTLEN] = {"0"};
+		char endip[HP_C_USERCONTENTLEN] = {"0"};
+		char descip[MAX_PATH] = {"0"};
+		int itemcnt = 0;
+
+		memset(policyauthid, 0, sizeof(policyauthid));
+		sprintf_s(policyauthid, HP_C_USERCONTENTLEN, "%d", policyid);
+
+		int ret = 0;
+		char sql[HP_C_SQLDATA]={"0"};
+		char sqlReal[HP_C_SQLDATA]={"0"};
+
+		for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+		{
+			if (strcmp((*thirditemiter).name, "ipolicyauthid")==0)
+			{
+				itemcnt++;
+			}
+			else if(strcmp((*thirditemiter).name, "icheckflowcontrolid")==0)
+			{
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "startip")==0)
+			{
+				Convert((*thirditemiter).value,startip,sizeof(startip),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "startip")==0)
+			{
+				Convert((*thirditemiter).value,startip,sizeof(startip),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sendip")==0)
+			{
+				Convert((*thirditemiter).value,endip,sizeof(endip),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else if (strcmp((*thirditemiter).name, "sdesc")==0)
+			{
+				Convert((*thirditemiter).value,descip,sizeof(descip),CP_UTF8,CP_ACP);
+				itemcnt++;
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"不存在该字段");
+			}
+			if (itemcnt == (*thirditemiter).contsize)
+			{
+				sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO tstgnetmoncont(ipolicyauthid,startip,endip,descip) VALUES(\"%s\",\"%s\",\"%s\",\"%s\")",
+										   policyauthid,startip,endip,descip);
+				Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);	
+
+				ret = SqlExec(db,sqlReal);
+				if (ret!=0)
+				{
+					WriteDebugInfomation(LEVEL_RELEASE,MODULE_OPDB,LOGLOCATION,"SqlExec 执行失败,数据库回滚");
+					sprintf_s(sql,HP_C_SQLDATA,"ROLLBACK");	
+					Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+					ret = SqlExec(db,sqlReal);
+					return HP_DB_OPFAIL;
+				}
+				itemcnt = 0;
+			}
+			thirditemattri.erase(thirditemiter++);
+		}// for (thirditemiter = thirditemattri.begin( ); thirditemiter != thirditemattri.end( );  )
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"CNetMon::SaveNetMonCntTodb Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "CNetMon::SaveNetMonCntTodb Exception");
+	}
+	return HP_SUCCESS;
+}
+
+BOOL CNetMon::GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday)
+{
+	int ret=SQLITE_OK;
+	if (HP_openDB(dirpath)==HP_DB_OPENFAIL)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_PORT,LOGLOCATION,"打开数据库失败");
+		return HP_DB_OPENFAIL;
+	}
+	else
+	{
+		DeleteData();
+		//获取process数据
+		char sql[HP_C_SQLDATA]={'0'}; 
+		char sqlReal[HP_C_SQLDATA]={'0'};
+		char **pszResult='\0';
+		CHAR *szErrMsg='\0';
+		INT nRow = 0;
+		INT nCloumn = 0;
+		sprintf_s(sql,HP_C_SQLDATA,"SELECT %s,dmodifytime,spolicyname,dstartdate,denddate,stimeperiod,sweekday,\
+				ipolicyauthid,direction,speed,speedunit,total,totalunit,totalcycle,startip,endip FROM (SELECT * FROM \
+				tstgnetmon a, tstgnetmoncont b WHERE (a.ipolicyauthid=b.ipolicyauthid)\
+				AND (a.iuserid=%d) AND (a.usertype=\'%s\')AND (dstartdate<=\'%s\') AND (denddate>=\'%s\') AND (%ld>a.sstarttime) \
+				AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority DESC) AS tb ORDER BY tb.ipriority ASC ", 
+				HP_ATTRIBUTE_SQLNAME,atoi(userid),usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));	 
+
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_PORT,LOGLOCATION,"查询流量控制策略的SQL语句",sql); 
+		Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+		if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+		{
+			sqlite3_free_table(pszResult);
+			ret = sqlite3_close(g_db);
+			g_db=NULL;
+			return HP_DB_GETTABLEFAIL;
+		}
+		if ((nRow > 0) && (nCloumn > 0))
+        {	
+            for (int i=0;i<nRow;i++)
+            {
+				STGRULEINFO tmpstgrule;
+				memset(&tmpstgrule,0,sizeof(STGRULEINFO));
+                for (int j=0; j < nCloumn; j++)
+                {
+                   GetdbColumndata(pszResult[j],pszResult[(i+1)*nCloumn+j],&tmpstgrule);
+                }//for (int j=0; j < nCloumn; j++)
+				m_sqlselclist.push_back(tmpstgrule);
+            }//for (int i=0;i<nRow;i++)
+        }//if ((nRow > 0) && (nCloumn > 0))
+		
+		//配置了流量控制之后,如果配置动作全部为不启用流量控制,则相当于没有配置该策略，取消流量控制
+
+		int stgnum = m_sqlselclist.size();
+		if(stgnum)
+		{
+			MergerdbStgInfo();
+			for(int i=0;i<MAX_RULES;i++)
+			{
+				if( m_RuleInfo[i].stgaction == ACL_ACTIONALLOW )
+				{
+					m_totalNum++;//表示存在流量控制策略
+					break;
+				}
+			}
+		}
+		if(m_totalNum)
+		{
+			//计算流量策略的MD5值
+			BOOL bEmpty =0;
+			bEmpty = bGetLastRecordStg(userid,usertype,currdata);
+			SendLspDllStg(currdata,bEmpty);
+		}
+		else
+		{
+			//不存在流量控制策略，如果已经开启流量控制,需要关闭流量控制
+			PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd,WM_NETMON,NULL,NULL);
+		}
+		sqlite3_free_table(pszResult);
+	}
+	return HP_SUCCESS;
+}
+
+string CNetMon::ExecNetMonItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess)
+{
+	char tempheader[MAX_PATH]={"0"};
+	sprintf_s(tempheader, MAX_PATH, "%s;%s;%d;%d;1;%d;%s;", servertime, g_deviceid.c_str(), totalitem, curritem, nextitem, mac);
+	bool bIsSucces = true;
+	string xmlstring="";
+
+	string failmsg;
+	GetIniFailMsg();
+	 list<INIAPPANDKEY>::iterator  inifileiter;
+	 for (inifileiter = m_inifileinfolist.begin( ); inifileiter != m_inifileinfolist.end( );  ++inifileiter)
+	 {
+		 INIAPPANDKEY tmpiniapp = *inifileiter;
+		 if((tmpiniapp.packstate == PACKET_STATE_DROP)||(tmpiniapp.packstate == PACKET_STATE_LIMITSPEED))
+		 {
+			 bIsSucces = FALSE;
+			 string stginfo = GetStgDesFromStdId(tmpiniapp.stgid);
+			failmsg += stginfo;
+			 m_failItemNum++;
+		 }
+	 }
+	if(bIsSucces)
+	{
+		IsSuccess[WEAKPWD] = HP_SUCCESS;
+		xmlstring = SendSingleItemSafeCheckSuccess(tempheader);
+	}
+	else
+	{
+		IsSuccess[WEAKPWD] = HP_SF_SAFECHECKFAIL;
+		string Sendtmpheader =tempheader;
+		string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac><iman succflag =\"0\">";
+		string  xmltail ="</iman></nac>";
+		xmlstring = Sendtmpheader+xmlHeader+failmsg+xmltail;
+	}
+
+	WriteDebugInfomation(LEVEL_RELEASE, MODULE_SOCKETINFO, LOGLOCATION, (char*)xmlstring.c_str());
+
+	return xmlstring;
+}
+
+int  CNetMon::RestoreFailItem(int index)
+{
+	return 0;
+}
+
+void CNetMon::DeleteData()
+{
+	 m_totalNum = 0;
+	 m_failItemNum = 0;
+	 memset(m_RuleInfo,0,sizeof(RuleInfo)*MAX_RULES);
+	 list<STGRULEINFO>::iterator  iter;
+	 for (iter = m_sqlselclist.begin( ); iter != m_sqlselclist.end( );  )
+	 {
+		 m_sqlselclist.erase(iter++);
+	 }
+	  list<INIAPPANDKEY>::iterator  inifileiter;
+	 for (inifileiter = m_inifileinfolist.begin( ); inifileiter != m_inifileinfolist.end( );  )
+	 {
+		 m_inifileinfolist.erase(inifileiter++);
+	 } 
+	 list<INIAPPANDKEY>::iterator  sqlcalciter;
+	  for (sqlcalciter = m_sqlcalcmd5list.begin( ); sqlcalciter != m_sqlcalcmd5list.end( );  )
+	 {
+		 m_sqlcalcmd5list.erase(sqlcalciter++);
+	 } 
+}
+
+void CNetMon::GetdbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, STGRULEINFO *dbrowdata)
+{
+	 if(strcmp(dbcolumnname,"ipriority")==0)
+    {			
+        memset(dbrowdata->attriinfo.ipriority, '\0', sizeof(dbrowdata->attriinfo.ipriority));
+        Convert(dbcolumnvalue, dbrowdata->attriinfo.ipriority,sizeof(dbrowdata->attriinfo.ipriority), CP_UTF8, CP_ACP);					
+    }
+	 else if(strcmp(dbcolumnname,"dmodifytime")==0)
+    {			
+		memset(dbrowdata->dmodifytime,'\0',sizeof(dbrowdata->dmodifytime));
+        Convert(dbcolumnvalue,dbrowdata->dmodifytime,sizeof(dbrowdata->dmodifytime),CP_UTF8,CP_ACP);		
+    }
+	 else if(strcmp(dbcolumnname,"dstartdate")==0)
+    {			
+		memset(dbrowdata->startdate,'\0',sizeof(dbrowdata->startdate));
+        Convert(dbcolumnvalue,dbrowdata->startdate,sizeof(dbrowdata->startdate),CP_UTF8,CP_ACP);
+    }
+	 else if(strcmp(dbcolumnname,"denddate")==0)
+    {			
+		memset(dbrowdata->enddate,'\0',sizeof(dbrowdata->enddate));
+        Convert(dbcolumnvalue,dbrowdata->enddate,sizeof(dbrowdata->enddate),CP_UTF8,CP_ACP);
+    }
+	 else if(strcmp(dbcolumnname,"stimeperiod")==0)
+    {			
+		memset(dbrowdata->stimeperiod,'\0',sizeof(dbrowdata->stimeperiod));
+        Convert(dbcolumnvalue,dbrowdata->stimeperiod,sizeof(dbrowdata->stimeperiod),CP_UTF8,CP_ACP);
+    }
+	  else if(strcmp(dbcolumnname,"sweekday")==0)
+    {			
+		memset(dbrowdata->sweekday,'\0',sizeof(dbrowdata->sweekday));
+        Convert(dbcolumnvalue,dbrowdata->sweekday,sizeof(dbrowdata->sweekday),CP_UTF8,CP_ACP);
+    }
+    else if(strcmp(dbcolumnname,"spolicyaction")==0)
+    {			
+        memset(dbrowdata->attriinfo.spolicyaction,'\0',sizeof(dbrowdata->attriinfo.spolicyaction));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.spolicyaction,sizeof(dbrowdata->attriinfo.spolicyaction),CP_UTF8,CP_ACP);		
+		dbrowdata->ruleinfo.stgaction = atoi(dbcolumnvalue);
+    }
+    else if(strcmp(dbcolumnname,"spromptinfo")==0)
+    {
+        memset(dbrowdata->attriinfo.spromptinfo,'\0',sizeof(dbrowdata->attriinfo.spromptinfo));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.spromptinfo,sizeof(dbrowdata->attriinfo.spromptinfo),CP_UTF8,CP_ACP);					
+    }
+    else  if(strcmp(dbcolumnname,"warningcont")==0)
+    {
+        memset(dbrowdata->attriinfo.warningcont,'\0',sizeof(dbrowdata->attriinfo.warningcont));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.warningcont,sizeof(dbrowdata->attriinfo.warningcont),CP_UTF8,CP_ACP);					
+    }	
+    else  if(strcmp(dbcolumnname,"warninglevel")==0)
+    {
+        memset(dbrowdata->attriinfo.warninglevel,'\0',sizeof(dbrowdata->attriinfo.warninglevel));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.warninglevel,sizeof(dbrowdata->attriinfo.warninglevel),CP_UTF8,CP_ACP);					
+    }	
+    else  if(strcmp(dbcolumnname,"srcevent")==0)
+    {
+        memset(dbrowdata->attriinfo.srcevent,'\0',sizeof(dbrowdata->attriinfo.srcevent));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.srcevent,sizeof(dbrowdata->attriinfo.srcevent),CP_UTF8,CP_ACP);					
+    }
+	 else  if(strcmp(dbcolumnname,"spolicyname")==0)
+    {
+		memset(dbrowdata->policyname,'\0',sizeof(dbrowdata->policyname));
+        Convert(dbcolumnvalue,dbrowdata->policyname,sizeof(dbrowdata->policyname),CP_UTF8,CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname,"ipolicyauthid")==0)
+    {
+		dbrowdata->ruleinfo.stgid = atoi(dbcolumnvalue);			
+    }
+    else if(strcmp(dbcolumnname,"direction")==0)
+    {
+		dbrowdata->ruleinfo.direction = atoi(dbcolumnvalue);
+    }
+    else if(strcmp(dbcolumnname,"speed")==0)
+    {
+		dbrowdata->ruleinfo.flowspeed = atof(dbcolumnvalue);			
+    }				
+    else if(strcmp(dbcolumnname,"speedunit")==0)
+    {
+		dbrowdata->ruleinfo.flowspeedunit = atoi(dbcolumnvalue);
+    }	
+    else if(strcmp(dbcolumnname,"total")==0)
+    {
+		dbrowdata->ruleinfo.totalflow = atof(dbcolumnvalue);
+    }	
+	else if (strcmp(dbcolumnname,"totalunit")==0)
+	{
+		dbrowdata->ruleinfo.totalflowunit = atoi(dbcolumnvalue);
+	}
+	else if (strcmp(dbcolumnname,"totalcycle")==0)
+	{
+		dbrowdata->ruleinfo.totalcycle= atof(dbcolumnvalue);
+	}
+	else if (strcmp(dbcolumnname,"startip")==0)
+	{
+		dbrowdata->ruleinfo.iplist[0].startip = ntohl(inet_addr(dbcolumnvalue));
+	}
+	else if (strcmp(dbcolumnname,"endip")==0)
+	{
+		dbrowdata->ruleinfo.iplist[0].endip = ntohl(inet_addr(dbcolumnvalue));
+	}
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"没有该字段");
+    }
+}
+
+void CNetMon::MergerdbStgInfo()
+{
+	int index = 0;
+	memset(m_RuleInfo,0,sizeof(RuleInfo)*MAX_RULES);
+
+	list<STGRULEINFO>::iterator stgruleiter;
+	for( stgruleiter = m_sqlselclist.begin(); stgruleiter!= m_sqlselclist.end();++stgruleiter)
+	{
+		STGRULEINFO tmprule = *stgruleiter;
+		if( index>=MAX_RULES )
+			break;
+		else
+		{
+			if(m_RuleInfo[index].ipcount == 0)
+			{
+				m_RuleInfo[index]=tmprule.ruleinfo;
+				m_RuleInfo[index].ipcount++;
+			}
+			else
+			{
+				if( m_RuleInfo[index].stgid == tmprule.ruleinfo.stgid )//表明是同一条策略
+				{
+					if(m_RuleInfo[index].ipcount <=MAX_IPRULE)
+					{
+						m_RuleInfo[index].iplist[m_RuleInfo[index].ipcount].startip = tmprule.ruleinfo.iplist[0].startip;
+						m_RuleInfo[index].iplist[m_RuleInfo[index].ipcount].endip = tmprule.ruleinfo.iplist[0].endip;
+						m_RuleInfo[index].ipcount++;
+					}
+				}
+				else
+				{
+					index++;
+					m_RuleInfo[index]=tmprule.ruleinfo;
+					m_RuleInfo[index].ipcount++;
+				}
+			}
+		}
+	}
+}
+
+int CNetMon::SqlExec(IN sqlite3 *db ,IN const char *sql)
+{
+	try
+	{
+		if(db == NULL)
+			return HP_DB_OPFAIL;
+		char errorMsg[MAX_PATH]={"0"};
+		sqlite3_stmt *stmt;  
+
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, (char*)sql);
+		int ret = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+		if ((ret != SQLITE_OK) ||(stmt == NULL)) 
+		{
+			sprintf_s(errorMsg, MAX_PATH, "Can't prepare database: %s\n", sqlite3_errmsg(db));
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, errorMsg);
+			sqlite3_finalize(stmt);  
+			return HP_DB_OPFAIL;
+		}
+		if (sqlite3_step(stmt) != SQLITE_DONE)  
+		{
+			sprintf_s(errorMsg, MAX_PATH, "Can't operating database: %s\n", sqlite3_errmsg(db));
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, errorMsg);
+			return HP_DB_OPFAIL;
+		}  
+		sqlite3_finalize(stmt);  
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"CNetMon::SqlExec Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "CNetMon::SqlExec Exception");
+	}
+	return HP_SUCCESS;
+}
+
+void CNetMon::SendLspDllStg(string servdate,BOOL  bupdatetozero)
+{
+	RuleInfo *ruleinfo = new RuleInfo[MAX_RULES];
+	memset(ruleinfo,0,sizeof(RuleInfo)*MAX_RULES);
+	char *rulecntinfo = new char[SQLTABLEITEMLEN*2];
+	memset(rulecntinfo,0,SQLTABLEITEMLEN*2);
+	int numcount = 0;
+	for(int i=0;i<MAX_RULES;i++)
+	{
+		if(m_RuleInfo[i].ipcount == 0)
+		  break;
+		ruleinfo[i] = m_RuleInfo[i];
+		numcount++;
+	}
+	sprintf_s(rulecntinfo,SQLTABLEITEMLEN*2-1,"%d;%d;%s",numcount,bupdatetozero,servdate.c_str());
+	PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd,WM_NETMON,(WPARAM)ruleinfo,(LPARAM)rulecntinfo);
+}
+
+void CNetMon::GetIniFailMsg()
+{
+	wchar_t  dirptahW[MAX_PATH] = {L"0"};
+	ConvertA2W(g_nacdirpath,dirptahW,sizeof(dirptahW));
+	wstring iniFileStr;
+	iniFileStr = dirptahW;
+	iniFileStr += L"\\";
+	iniFileStr += RECORDPACKETFILE;
+	try
+	{
+		list<INIAPPANDKEY>::iterator  sqlcalciter;
+		for (sqlcalciter = m_sqlcalcmd5list.begin( ); sqlcalciter != m_sqlcalcmd5list.end( ); ++sqlcalciter)
+		{
+			INIAPPANDKEY tmpappandkey = *sqlcalciter;
+
+			INIAPPANDKEY  iniappandkey;
+			memset(&iniappandkey,0,sizeof(INIAPPANDKEY));
+			wsprintf(iniappandkey.md5value,L"%s",tmpappandkey.md5value);
+
+			wstring stgidwstr = L"0";
+			wchar_t  kayvalue[SQLTABLEITEMLEN] = {L"0"};
+			if(GetPrivateProfileString(iniappandkey.md5value,INISTGID,NULL,kayvalue,sizeof(kayvalue),iniFileStr.c_str()))  
+			{
+				iniappandkey.stgid = _wtoi(kayvalue);
+				stgidwstr = kayvalue;
+			}
+			memset(kayvalue,0,sizeof(kayvalue));
+			if(GetPrivateProfileString(iniappandkey.md5value,INITOTAL,NULL,kayvalue,sizeof(kayvalue),iniFileStr.c_str()))
+			{
+				iniappandkey.totalpack = _wtof(kayvalue);
+			}
+			memset(kayvalue,0,sizeof(kayvalue));
+			if(GetPrivateProfileString(iniappandkey.md5value,INIUNIT,NULL,kayvalue,sizeof(kayvalue),iniFileStr.c_str()))  
+			{
+				iniappandkey.totalpackunit = _wtoi(kayvalue);
+			}
+			memset(kayvalue,0,sizeof(kayvalue));
+			if(GetPrivateProfileString(iniappandkey.md5value,INISTSTATE,NULL,kayvalue,sizeof(kayvalue),iniFileStr.c_str()))  
+			{
+				iniappandkey.packstate = _wtoi(kayvalue);
+			}
+			m_inifileinfolist.push_back(iniappandkey);
+		} 
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL,L"CNetMon GetIniFailMsg Exception",L"Msg",0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"CNetMon GetIniFailMsg Exception");
+	}
+}
+
+string CNetMon::GetStgDesFromStdId(int stgid)
+{
+	 string stgDes;
+	 list<STGRULEINFO>::iterator  iter;
+	 for (iter = m_sqlselclist.begin( ); iter != m_sqlselclist.end( );  ++iter)
+	 {
+		 STGRULEINFO tmpruleinfo = *iter;
+		 if(tmpruleinfo.ruleinfo.stgid == stgid)
+		 {
+			 stgDes += "<subitem checkItemId=\"";
+			 stgDes += std::to_string(long long(m_failItemNum));
+			 stgDes += "\" checkItemAction=\"";
+			 stgDes += tmpruleinfo.attriinfo.spolicyaction;
+			 stgDes += "\"  faildes=\"";
+			 stgDes += tmpruleinfo.policyname;
+			 stgDes += "安检失败";
+			 stgDes += "\"  name=\"";
+			 stgDes += "流量控制";
+			 stgDes += "\" swarnname=\"";
+			 stgDes += tmpruleinfo.attriinfo.warningcont; 
+			 stgDes += "\" iwarnlevel=\"";
+			 stgDes += tmpruleinfo.attriinfo.warninglevel; 
+			 stgDes += "\" ilogrecord=\"";
+			 stgDes += tmpruleinfo.attriinfo.srcevent; 
+			 stgDes +=  "\" />";
+			 break;
+		 }
+	 }
+	 return stgDes;
+}
+
+///////////////////////////////////////////////////////////////
+//MD5值包含的项:1:userid,usertype,策略变更时间,时间段,周和生效日期
+//和结束日期及流量控制的所有参数：ip列表及流量总数及流量速度的判断
+////////////////////////////////////////////////////////////
+wstring CNetMon::GetStgMd5Value(char *userid,char* usertype,RuleInfo ruleinfo)
+{
+	wstring stgMd5;
+	list<STGRULEINFO>::iterator  iter;
+	for (iter = m_sqlselclist.begin( ); iter != m_sqlselclist.end( );  ++iter)
+	{
+		STGRULEINFO tmpruleinfo = *iter;
+		if(tmpruleinfo.ruleinfo.stgid == ruleinfo.stgid)
+		{
+			string bufferstr;
+			bufferstr +=  userid;
+			bufferstr += ";";
+			bufferstr +=  usertype;
+			bufferstr += ";";
+			bufferstr +=  tmpruleinfo.dmodifytime;
+			bufferstr += ";";
+			bufferstr +=  tmpruleinfo.stimeperiod;
+			bufferstr += ";";
+			bufferstr +=  tmpruleinfo.sweekday;
+			bufferstr += ";";
+			bufferstr +=  tmpruleinfo.startdate;
+			bufferstr += ";";
+			bufferstr +=  tmpruleinfo.enddate;
+			bufferstr += ";";
+
+			for(int j=0;j<ruleinfo.ipcount;j++)
+			{
+				bufferstr +=  std::to_string(long long(ruleinfo.iplist[j].startip));
+				bufferstr += ";";
+				bufferstr +=  std::to_string(long long(ruleinfo.iplist[j].endip));
+				bufferstr += ";";
+			}
+			bufferstr += std::to_string(long long(ruleinfo.direction));
+			bufferstr += ";";
+			bufferstr += std::to_string(long long(ruleinfo.flowspeed));
+			bufferstr += ";";
+			bufferstr += std::to_string(long long(ruleinfo.flowspeedunit));
+			bufferstr += ";";
+			bufferstr += std::to_string(long long(ruleinfo.totalflow));
+			bufferstr += ";";
+			bufferstr += std::to_string(long long(ruleinfo.totalflowunit));
+			bufferstr += ";";
+			bufferstr += std::to_string(long long(ruleinfo.totalcycle));
+			bufferstr += ";";
+			bufferstr += std::to_string(long long(ruleinfo.stgaction));
+
+			CString md5Str = CMD5Checksum::GetMD5((BYTE*)bufferstr.c_str(),bufferstr.size());
+			wchar_t md5wchar[MD5VALUELEN+1] = {L"0"};
+			wsprintf(md5wchar,L"%s",md5Str.GetBuffer());
+			stgMd5 = md5wchar;
+			md5Str.ReleaseBuffer();
+			break;
+		}
+	}
+   return stgMd5;
+}
+
+BOOL CNetMon::bGetLastRecordStg(char *userid,char* usertype,string timedate)
+{
+	BOOL bNewStg = FALSE;
+	BOOL bNewNewCalc =FALSE;
+
+	for(int i=0;i<MAX_RULES;i++)
+	{
+		if(m_RuleInfo[i].ipcount == 0 )
+			break;
+
+		wstring md5value = GetStgMd5Value(userid,usertype,m_RuleInfo[i]);
+		wsprintf(m_RuleInfo[i].md5str,L"%s",md5value.c_str());
+
+		INIAPPANDKEY tmpiniinfo;
+		memset(&tmpiniinfo,0,sizeof(INIAPPANDKEY));
+		wsprintf(tmpiniinfo.md5value,L"%s",m_RuleInfo[i].md5str);
+		tmpiniinfo.stgid = m_RuleInfo[i].stgid;
+		tmpiniinfo.totalpack = 0;
+		tmpiniinfo.totalpackunit = BUNIT;
+		tmpiniinfo.packstate = PACKET_STATE_PASS;
+
+		wchar_t  dirptahW[MAX_PATH] = {L"0"};
+		ConvertA2W(g_nacdirpath,dirptahW,sizeof(dirptahW));
+		wstring iniFileStr;
+		iniFileStr = dirptahW;
+		iniFileStr += L"\\";
+		iniFileStr += RECORDPACKETFILE;
+
+		wchar_t  stgid[SQLTABLEITEMLEN] = {L"0"};
+		if(GetPrivateProfileString(tmpiniinfo.md5value,INISTGID,NULL,stgid,sizeof(stgid),iniFileStr.c_str()))  
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"已经执行过该条策略");
+			if(m_RuleInfo[i].totalcycle >= ALWAYCYCLE)
+			{
+				//修改数据包的总数信息
+				wchar_t  totalvalue[SQLTABLEITEMLEN] = {L"0"};
+				GetPrivateProfileString(tmpiniinfo.md5value,INITOTAL,NULL,totalvalue,sizeof(totalvalue),iniFileStr.c_str());
+				wchar_t totalunitvalue[SQLTABLEITEMLEN] = {L"0"};
+				GetPrivateProfileString(tmpiniinfo.md5value,INIUNIT,NULL,totalunitvalue,sizeof(totalunitvalue),iniFileStr.c_str());
+				wchar_t statevalue[SQLTABLEITEMLEN] = {L"0"};
+				GetPrivateProfileString(tmpiniinfo.md5value,INISTSTATE,NULL,statevalue,sizeof(statevalue),iniFileStr.c_str());
+				wchar_t  packtime[SQLTABLEITEMLEN*2] = {L"0"};
+				GetPrivateProfileString(tmpiniinfo.md5value,TIME,NULL,packtime,sizeof(packtime),iniFileStr.c_str());
+				wchar_t usedvalue[SQLTABLEITEMLEN] = {L"0"};
+				GetPrivateProfileString(tmpiniinfo.md5value,USEDTOTAL,NULL,usedvalue,sizeof(usedvalue),iniFileStr.c_str());
+				wchar_t usedunitvalue[SQLTABLEITEMLEN] = {L"0"};
+				GetPrivateProfileString(tmpiniinfo.md5value,USEDUNIT,NULL,usedunitvalue,sizeof(usedunitvalue),iniFileStr.c_str());
+				string pactimestr = ConvertUniToAnsi(packtime);
+
+				if(CalcbNeedAddUpPacket(m_RuleInfo[i].totalcycle,timedate,pactimestr))
+				{
+					WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"Need Cycle");
+					if(_wtoi(statevalue) == PACKET_STATE_PASS)//表示还没有超出流量限制
+					{
+						if((m_RuleInfo[i].flowspeed != 0) ||(m_RuleInfo[i].totalflow != 0))//测试配置了全不为0但是设置为限制流量控制的配置
+						{
+							double tmpused = _wtof(usedvalue);
+							int tmpusedunit = _wtoi(usedunitvalue);
+							CalcAddUpData(&tmpused,&tmpusedunit,_wtof(totalvalue),_wtoi(totalunitvalue));
+							m_RuleInfo[i].alreadyuse = tmpused;
+							m_RuleInfo[i].alreadyuseunit =tmpusedunit;
+
+							double tmptotal = 0.01;
+							int tmpunit = 0;
+							CalcLastData(m_RuleInfo[i].totalflow,m_RuleInfo[i].totalflowunit,tmpused,tmpusedunit,
+								&tmptotal,&tmpunit);
+							m_RuleInfo[i].totalflow = tmptotal;
+							m_RuleInfo[i].totalflowunit= tmpunit;
+
+							string addupstr = "totalflow=";
+							addupstr += std::to_string(long double(m_RuleInfo[i].totalflow));
+							addupstr += ";flowunit=";
+							addupstr += std::to_string(long long(m_RuleInfo[i].totalflowunit));
+							addupstr += ";used=";
+							addupstr += std::to_string(long long(tmpused));
+							addupstr += ";usedunit=";
+							addupstr += std::to_string(long long(tmpusedunit));
+							WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,(char*)addupstr.c_str());
+						}
+					}
+					else//表示已经超出流量限制,不进行操作
+					{
+						WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"CNetMon,already extend limit");
+						if((m_RuleInfo[i].flowspeed != 0) ||(m_RuleInfo[i].totalflow != 0))//测试配置了全不为0但是设置为限制流量控制的配置
+						{
+							m_RuleInfo[i].totalflow = 0.01;
+							m_RuleInfo[i].totalflowunit= 0;
+							m_RuleInfo[i].alreadyuse = m_RuleInfo[i].totalflow;
+							m_RuleInfo[i].alreadyuseunit = m_RuleInfo[i].totalflowunit;
+						}
+					}
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"CalcbNeedAddUpPacket 不需要累计数据包");
+					bNewNewCalc = TRUE;
+				}
+			}
+		}
+		else//不存在该条策略信息,添加该条策略信息
+		{
+			wstring datavalue = std::to_wstring(long long(tmpiniinfo.stgid));
+			WritePrivateProfileString(tmpiniinfo.md5value,INISTGID,datavalue.c_str(), iniFileStr.c_str());
+			bNewStg = TRUE;
+		}
+		m_sqlcalcmd5list.push_back(tmpiniinfo);
+	}
+
+	if(!bNewStg && bNewNewCalc)
+	{
+		return TRUE;
+	}
+	else
+	{
+		return FALSE;
+	}
+}
+
+BOOL CNetMon::CalcbNeedAddUpPacket(int rulecycletype,string currtime,string packettime)
+{
+	BOOL bAddUpPacket = FALSE;
+	if((currtime.size()==0) ||(packettime.size() == 0 ))
+	{
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"time format error");
+		return bAddUpPacket;
+	}
+	int datetimelen = strlen("2016-05-01");
+	string currdate = currtime.substr(0,datetimelen);
+	string packetdate = packettime.substr(0,datetimelen);
+	vector<string> currdateVec;
+	currdateVec = split(currdate,"-");
+	vector<string> packetdateVec;
+	packetdateVec = split(packetdate,"-");
+
+	if((currdateVec.size() != packetdateVec.size()))
+		return bAddUpPacket;
+
+	switch(rulecycletype)
+	{
+	case ALWAYCYCLE:
+		{
+			bAddUpPacket = TRUE;
+		}
+		break;
+	case EVERYDAYCYCLE:
+		{
+			if( currdate == packetdate)
+			{
+				bAddUpPacket = TRUE;
+			}
+		}
+		break;
+	case EVERYMONTHCYCLE:
+		{
+			if( (currdateVec[0] == currdateVec[0])&&(currdateVec[1] == currdateVec[1]) )
+			{
+				bAddUpPacket = TRUE;
+			}
+		}
+		break;
+	case EVERYYEARCYCLE:
+		{
+			if( currdateVec[0] == currdateVec[0] )
+			{
+				bAddUpPacket = TRUE;
+			}
+		}
+		break;
+	default:
+		break;
+	}
+	return bAddUpPacket;
+}

@@ -1,0 +1,15 @@
+#ifndef DEVICECONTROLFUNCTION_H_
+#define DEVICECONTROLFUNCTION_H_ 1
+
+#include <Windows.h>
+#include <string>
+#include <vector>
+using namespace std;
+
+typedef void (__cdecl *pFnEnableAllUsbPolicyDev)(IN std::vector<std::string>&enableDevList);  
+typedef void (__cdecl *pFnDisableAllUSbPolicyDev)(IN std::vector<std::string>&disableDevList);  
+
+bool EnableUsbDev(IN std::vector<std::string>&enableDevList);
+bool DisableUsbDev(IN std::vector<std::string>&disbleDevList);
+
+#endif

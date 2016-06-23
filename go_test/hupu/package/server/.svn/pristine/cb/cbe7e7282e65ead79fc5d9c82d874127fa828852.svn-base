@@ -1,0 +1,584 @@
+#include "StdAfx.h"
+#include "OpLsp.h"
+#include "..\GlobalDate.h"
+#include < Shlwapi.h>
+#pragma comment(lib,"Shlwapi.lib")
+#include <string>
+using namespace std;
+#include "..\SafeCheckItem\SafeCheckFuntion.h"
+#include "..\SafeCheckItem\MD5Checksum.h"
+#include "..\DebugInfo.h"
+
+//////2016/05/14修改为只有在设备上线之后才开始进行流量控制
+
+LPWSCUPDATEPROVIDER fnWscUpdateProvider   = NULL,
+	fnWscUpdateProvider32 = NULL;
+HMODULE             gModule = NULL;
+GUID                gProviderGuid;
+
+#define  MY_PROTCOL_NAME		L"hp net limiter"
+#define  TCP_NAME				L"MSAFD Tcpip [TCP/IP]"
+#define  UDP_NAME				L"MSAFD Tcpip [UDP/IP]"
+
+
+COpLsp::COpLsp(void)
+{
+	for(int i=0;i<MAX_RULES;i++)
+		memset(&m_configRule[i],0,sizeof(RuleInfo));
+
+	m_confRuleCont = 0;
+	m_bInstall = FALSE;
+
+	m_bNeedNetMon =FALSE;
+	DoInit();
+	m_dwstart = 0;
+	GetLspDllPath();
+	InitializeCriticalSection(&m_hasrulecs);
+}
+
+
+COpLsp::~COpLsp(void)
+{
+	m_bInstall = FALSE;
+	LeaveCriticalSection(&m_hasrulecs);
+}
+
+int COpLsp::DoInit()
+{
+	WSADATA             wsd;
+	int rc = WSAStartup( MAKEWORD(2,2), &wsd );
+	if ( 0 != rc )
+	{
+		//TRACE("Unable to load winsock: %d\n", rc );
+		return -1;
+	}
+
+	// Initialize data structures
+	LspCreateHeap( &rc );
+
+	__try
+	{
+		InitializeCriticalSection( &gDebugCritSec );
+	}
+	__except( EXCEPTION_EXECUTE_HANDLER )
+	{
+		goto cleanup;
+	}
+
+	gModule = LoadUpdateProviderFunction();
+
+	return 0;
+
+cleanup:
+	DoUninit();
+	return 0;
+}
+
+void COpLsp::DoUninit()
+{
+	if(m_bInstall)
+	{
+		if ( NULL != gModule )
+			FreeLibrary( gModule );
+
+		LspDestroyHeap();
+		DeleteCriticalSection(&gDebugCritSec);
+		WSACleanup();
+		m_bInstall = FALSE;
+	}
+}
+
+DWORD COpLsp::FindMyLimiterLayer(WINSOCK_CATALOG Catalog, LPCWSTR lpszName)
+{
+	WSAPROTOCOL_INFOW  *pProtocolInfo = NULL;
+	int iProtocolCount = 0, i;
+
+	// Enumerate catalog and print it
+	pProtocolInfo = EnumerateProviders(Catalog, &iProtocolCount);
+	if ( NULL == pProtocolInfo )
+	{
+		//TRACE("PrintProviders: Unable to enumerate catalog!\n" );
+		goto cleanup;
+	}
+
+	for(i=0; i < iProtocolCount ;i++)
+	{
+		if(wcscmp(pProtocolInfo[i].szProtocol, lpszName) == 0)
+			return pProtocolInfo[i].dwCatalogEntryId;
+	}
+
+cleanup:
+	if ( NULL != pProtocolInfo )
+		FreeProviders( pProtocolInfo );
+	return 0;
+}
+
+BOOL COpLsp::bIsInstallDll()
+{
+	DWORD dwID = FindMyLimiterLayer(LspCatalog32Only, MY_PROTCOL_NAME);
+	if(dwID > 0)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "already install dll");
+		return TRUE;
+	}
+	return FALSE;
+}
+
+void COpLsp::InstallDll()
+{
+	if(bIsInstallDll())
+	{
+		m_bInstall = TRUE;
+		return;
+	}
+
+	DWORD CatalogIdArray[2] = {1001, 1002};
+	//Here we tried to overlap TCP/UDP via IPv4, if the name is changed, please change it.
+	CatalogIdArray[0] = FindMyLimiterLayer(LspCatalog32Only, TCP_NAME);
+	CatalogIdArray[1] = FindMyLimiterLayer(LspCatalog32Only, UDP_NAME);
+
+	InstallLsp(LspCatalog32Only, MY_PROTCOL_NAME, (wchar_t*)m_lspdllpath.c_str(),
+		2,
+		CatalogIdArray,
+		FALSE,			//For IFS LSP please change it to TRUE
+		FALSE);
+	m_bInstall = TRUE;
+}
+
+void COpLsp::UninstallDll()
+{
+	DWORD dwID = FindMyLimiterLayer(LspCatalog32Only, MY_PROTCOL_NAME);
+	if(dwID > 0)
+	{
+		if(m_confRuleCont)
+		{
+			PassAllPacket();
+			m_confRuleCont = 0;
+		}
+		RemoveProvider(LspCatalog32Only, dwID);
+		for(int i=0;i<50;i++)
+		{
+			wchar_t  dirptahW[MAX_PATH] = {L"0"};
+			ConvertA2W(g_nacdirpath,dirptahW,sizeof(dirptahW));
+			wstring newlspname = dirptahW;
+			newlspname += L"\\";
+			newlspname += FILTER_DLLNAME;
+			newlspname += std::to_wstring((long long)i);
+			newlspname += L".dll";
+			if(!PathFileExists(newlspname.c_str()))
+			{
+				::MoveFile(m_lspdllpath.c_str(),newlspname.c_str());
+				::MoveFileEx(newlspname.c_str(),NULL,MOVEFILE_DELAY_UNTIL_REBOOT);
+				break;
+			}
+		}
+	}
+	else
+	{
+		DeleteFile(m_lspdllpath.c_str());
+	}
+}
+
+void COpLsp::GetRuleInfo(RuleInfo* ruleinfo,int rulecnt)
+{
+	for(int i=0;i<MAX_RULES;i++)
+	{
+		if(i<rulecnt)
+		  m_configRule[i] = ruleinfo[i];
+		else
+			memset(&m_configRule[i],0,sizeof(RuleInfo));
+	}
+	m_confRuleCont = rulecnt;
+}
+
+void COpLsp::AddRule()
+{
+	InstallDll();
+	for(int i=0;i<MAX_RULES;i++)
+	{
+		if( m_configRule[i].ipcount == 0 )
+		{
+			break;
+		}
+		SetLimitCondition(m_lspdllpath.c_str(),m_configRule[i]);
+	}
+	SetLSPWorkMode(m_lspdllpath.c_str(),ACL_DELAYBYRULE);
+}
+
+void COpLsp::PassAllPacket()
+{
+	SetLSPWorkMode(m_lspdllpath.c_str(),ACL_PASSALL);
+}
+	
+void COpLsp::ExceptIp(char*  exceptipstr)
+{
+	unsigned long ulipvalue = ntohl(inet_addr(exceptipstr));
+	SetLSPServIp(m_lspdllpath.c_str(),ulipvalue);
+}
+
+void COpLsp::WriteRuleResultToIniFileAndAddNewRule(string servdatetime)
+{
+	ACLRULE  m_aclRuleRes[MAX_RULES] = {0};
+
+	wchar_t  dirptahW[MAX_PATH] = {L"0"};
+	ConvertA2W(g_nacdirpath,dirptahW,sizeof(dirptahW));
+	wstring iniFileStr;
+	iniFileStr = dirptahW;
+	iniFileStr += L"\\";
+	iniFileStr += RECORDPACKETFILE;
+
+	int rulecnt = 0;
+	GetLimitRule(m_lspdllpath.c_str(),m_aclRuleRes,MAX_RULES);
+	for(int i=0;i<MAX_RULES;i++)
+	{
+		if(m_aclRuleRes[i].ruleinfo.ipcount == 0)
+			break;
+		wstring appname =  m_aclRuleRes[i].ruleinfo.md5str;
+		wstring datavalue = std::to_wstring(long long(m_aclRuleRes[i].dwTotalBytes));
+		WritePrivateProfileString(appname.c_str(),INITOTAL,datavalue.c_str(), iniFileStr.c_str());
+		datavalue = std::to_wstring(long long(m_aclRuleRes[i].dwTotalBytesUnit));
+		WritePrivateProfileString(appname.c_str(),INIUNIT,datavalue.c_str(), iniFileStr.c_str());
+		datavalue = std::to_wstring(long long(m_aclRuleRes[i].packstate));
+		WritePrivateProfileString(appname.c_str(),INISTSTATE,datavalue.c_str(), iniFileStr.c_str());
+		wstring usedwstr = std::to_wstring(long double(m_aclRuleRes[i].ruleinfo.alreadyuse));
+		WritePrivateProfileString(m_configRule[i].md5str,USEDTOTAL,usedwstr.c_str(), iniFileStr.c_str());
+		wstring usedunitwstr =  std::to_wstring(long long(m_aclRuleRes[i].ruleinfo.alreadyuseunit));
+		WritePrivateProfileString(m_configRule[i].md5str,USEDUNIT,usedunitwstr.c_str(), iniFileStr.c_str());
+		wstring tmptime = ConvertAnsiToUni(servdatetime);
+		WritePrivateProfileString(appname.c_str(),TIME,tmptime.c_str(), iniFileStr.c_str());
+		rulecnt++;
+	}
+	//清空策略,重新进行添加
+	if(bCmpNeedUpdateRule(m_aclRuleRes,rulecnt))
+	{
+		PassAllPacket();
+		for(int i=0;i<MAX_RULES;i++)
+		{
+			if( m_configRule[i].ipcount == 0 )
+			{
+				break;
+			}
+			string addupstr = std::to_string(long long(i));
+			addupstr += ";";
+			addupstr = "totalflow=";
+			addupstr += std::to_string(long double(m_configRule[i].totalflow));
+			addupstr += ";flowunit=";
+			addupstr += std::to_string(long long(m_configRule[i].totalflowunit));
+			addupstr += ";";
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,(char*)addupstr.c_str());
+			SetLimitCondition(m_lspdllpath.c_str(),m_configRule[i]);
+
+			WritePrivateProfileString(m_configRule[i].md5str,INITOTAL,L"0", iniFileStr.c_str());
+			WritePrivateProfileString(m_configRule[i].md5str,INIUNIT,L"0", iniFileStr.c_str());
+			WritePrivateProfileString(m_configRule[i].md5str,INISTSTATE,L"0", iniFileStr.c_str());
+			wstring usedwstr = std::to_wstring(long double(m_configRule[i].alreadyuse));
+			WritePrivateProfileString(m_configRule[i].md5str,USEDTOTAL,usedwstr.c_str(), iniFileStr.c_str());
+			wstring usedunitwstr =  std::to_wstring(long long(m_configRule[i].alreadyuseunit));
+			WritePrivateProfileString(m_configRule[i].md5str,USEDUNIT,usedunitwstr.c_str(), iniFileStr.c_str());
+			wstring tmptime = ConvertAnsiToUni(servdatetime);
+			WritePrivateProfileString(m_configRule[i].md5str,TIME,tmptime.c_str(), iniFileStr.c_str());
+		}
+		SetLSPWorkMode(m_lspdllpath.c_str(),ACL_DELAYBYRULE);
+	}
+}
+
+
+void COpLsp::GetLspDllPath()
+{
+	wchar_t lpszLspPathAndFile[MAX_PATH] = {L"0"};
+	GetModuleFileName(NULL, lpszLspPathAndFile, MAX_PATH);
+	PathRemoveFileSpec(lpszLspPathAndFile);
+	PathAppend(lpszLspPathAndFile, FILTER_DLL);
+	m_lspdllpath=lpszLspPathAndFile;
+}
+
+void COpLsp::SetLimitCondition(const wchar_t *LspPath,RuleInfo ruleinfo)
+{
+	HMODULE hMod = NULL;
+	LPFN_SETLIMITOPTION fnSetLimitation = NULL;
+
+	// Load teh library
+	hMod = LoadLibrary( LspPath );
+	if ( NULL == hMod )
+	{
+		fprintf( stderr, "SetLimitCondition: LoadLibraryA failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Get a pointer to the LSPs GetLspGuid function
+	fnSetLimitation = (LPFN_SETLIMITOPTION) GetProcAddress( hMod, "SetLimitOption");
+	if ( NULL == fnSetLimitation )
+	{
+		fprintf( stderr, "RetrieveLspGuid: GetProcAddress failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Retrieve the LSPs GUID
+	fnSetLimitation(ruleinfo);
+
+cleanup:
+
+	if ( NULL != hMod )
+		FreeLibrary( hMod );
+}
+
+void COpLsp::GetLimitRule(const wchar_t *LspPath,ACLRULE* ruleinfo,int ruleCount)
+{
+	HMODULE hMod = NULL;
+	LPFN_GETLIMITRULEINFO fnGetLimitRule= NULL;
+
+	// Load teh library
+	hMod = LoadLibrary( LspPath );
+	if ( NULL == hMod )
+	{
+		fprintf( stderr, "SetLimitCondition: LoadLibraryA failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Get a pointer to the LSPs GetLspGuid function
+	fnGetLimitRule = (LPFN_GETLIMITRULEINFO) GetProcAddress( hMod, "GetLimitRuleInfo");
+	if ( NULL == fnGetLimitRule )
+	{
+		fprintf( stderr, "RetrieveLspGuid: GetProcAddress failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Retrieve the LSPs GUID
+	fnGetLimitRule(ruleinfo,ruleCount);
+
+cleanup:
+
+	if ( NULL != hMod )
+		FreeLibrary( hMod );
+}
+
+void COpLsp::SetLSPWorkMode(const wchar_t *LspPath,BYTE bWorkMode)
+{
+	HMODULE hMod = NULL;
+	LPFN_SETWORKMODE fnSetWorkMode = NULL;
+
+	// Load teh library
+	hMod = LoadLibrary( LspPath );
+	if ( NULL == hMod )
+	{
+		fprintf( stderr, "SetLSPWorkMode: LoadLibraryA failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Get a pointer to the LSPs GetLspGuid function
+	fnSetWorkMode = (LPFN_SETWORKMODE) GetProcAddress( hMod, "SetWorkMode");
+	if ( NULL == fnSetWorkMode )
+	{
+		fprintf( stderr, "SetLSPWorkMode: GetProcAddress failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Retrieve the LSPs GUID
+	fnSetWorkMode(bWorkMode);
+
+cleanup:
+
+	if ( NULL != hMod )
+		FreeLibrary( hMod );
+}
+
+BYTE COpLsp::GetLSPWorkMode(const wchar_t *LspPath)
+{
+	HMODULE hMod = NULL;
+	LPFN_GETWORKMODE fnGetWorkMode = NULL;
+
+	// Load teh library
+	hMod = LoadLibrary( LspPath );
+	if ( NULL == hMod )
+	{
+		fprintf( stderr, "GetLSPWorkMode: LoadLibraryA failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Get a pointer to the LSPs GetLspGuid function
+	fnGetWorkMode = (LPFN_GETWORKMODE) GetProcAddress( hMod, "GetWorkMode");
+	if ( NULL == fnGetWorkMode )
+	{
+		fprintf( stderr, "GetLSPWorkMode: GetProcAddress failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Retrieve the LSPs GUID
+	return fnGetWorkMode();
+
+cleanup:
+
+	if ( NULL != hMod )
+		FreeLibrary( hMod );
+	return ACL_DELAYBYRULE;
+}
+
+void WSPAPI COpLsp::SetLSPServIp(const wchar_t *LspPath,unsigned long ServIp)
+{
+	HMODULE hMod = NULL;
+	LPFN_SETSERVIP fnSetServIp = NULL;
+
+	// Load teh library
+	hMod = LoadLibrary( LspPath );
+	if ( NULL == hMod )
+	{
+		fprintf( stderr, "SetLSPServIp: LoadLibraryA failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Get a pointer to the LSPs GetLspGuid function
+	fnSetServIp = (LPFN_SETSERVIP) GetProcAddress( hMod, "SetServIp");
+	if ( NULL == fnSetServIp )
+	{
+		fprintf( stderr, "SetLSPWorkMode: GetProcAddress failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Retrieve the LSPs GUID
+	fnSetServIp(ServIp);
+
+cleanup:
+
+	if ( NULL != hMod )
+		FreeLibrary( hMod );
+}
+
+unsigned long WSPAPI  COpLsp::GetLSPServIp(const wchar_t *LspPath)
+{
+	HMODULE hMod = NULL;
+	LPFN_GETSERVIP fnGetServIp = NULL;
+
+	// Load teh library
+	hMod = LoadLibrary( LspPath );
+	if ( NULL == hMod )
+	{
+		fprintf( stderr, "GetLSPServIp: LoadLibraryA failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Get a pointer to the LSPs GetLspGuid function
+	fnGetServIp = (LPFN_GETSERVIP) GetProcAddress( hMod, "GetServIp");
+	if ( NULL == fnGetServIp )
+	{
+		fprintf( stderr, "GetLSPServIp: GetProcAddress failed: %d\n", GetLastError() );
+		goto cleanup;
+	}
+
+	// Retrieve the LSPs GUID
+	return fnGetServIp();
+
+cleanup:
+
+	if ( NULL != hMod )
+		FreeLibrary( hMod );
+	return 0;
+}
+
+BOOL COpLsp::bCmpNeedUpdateRule(ACLRULE* ruleinfo,int ruleCount)
+{
+	if(ruleCount != m_confRuleCont )
+		return TRUE;
+	//表示个数相等，判断内容是否相等，内容不相等的话更新策略
+	for(int i=0;i<ruleCount;i++)
+	{
+		if(wcscmp(ruleinfo[i].ruleinfo.md5str,m_configRule[i].md5str) != 0 )
+			return TRUE;
+	}
+	return FALSE;
+}
+
+void COpLsp::HandleServXmlStg(int stgsize)
+{
+	if( stgsize == 0 )
+	{
+		m_bNeedNetMon = FALSE;
+		if(m_confRuleCont)
+		{
+			if(bIsInstallDll())
+				PassAllPacket();
+		}
+	}
+	else
+	{
+		m_bNeedNetMon = TRUE;
+	}
+}
+
+void COpLsp::SelectNetMonStg(wchar_t  *dirpath,int iuserid,int iusertype,string timediff)
+{
+	char currdata[MAX_PATH]={0};
+	char millisecdata[MAX_PATH]={0};
+	char weekday[50]={0};
+	int bExecNetMon = TRUE;
+	if((timediff.size() == 0)||(timediff.compare("0") == 0) )
+		bExecNetMon = FALSE;
+	if(bExecNetMon)
+	{
+		string useridstr = std::to_string(long long(iuserid));
+		string usertypestr = std::to_string(long long(iusertype));
+
+		GetDetailDataInfo((char*)timediff.c_str(), currdata, millisecdata, weekday);
+
+		int iRet = m_netmon.GetDataFromDB(dirpath, (char*)useridstr.c_str(), (char*)usertypestr.c_str(), currdata, millisecdata, weekday);
+	}
+	m_dwstart = GetTickCount();
+}
+
+void COpLsp::NoNetMonRule()
+{
+	if(m_confRuleCont)
+	{
+		if(bIsInstallDll())
+		{
+			PassAllPacket();
+		}
+		m_confRuleCont = 0;
+	}
+}
+
+void COpLsp::HasNetMonRule(RuleInfo *ruleinfo,char* msginfo,BOOL bOnLine)
+{
+	EnterCriticalSection(&m_hasrulecs);
+	if(bOnLine)
+	{
+		string cntandupdatestr = msginfo;
+		int poscnt = string::npos;
+		int postime = string::npos;
+		poscnt = cntandupdatestr.find(";",0);
+		int rulecnt = 0;
+		int needupdate = 0;
+		if( poscnt != string::npos )
+		{
+			string cntstr = cntandupdatestr.substr(0,poscnt);
+			postime = cntandupdatestr.find(";",poscnt+1);
+			string updatestr = cntandupdatestr.substr(poscnt+1);
+			string servtimestr = "0";
+			if( postime != string::npos)
+				servtimestr =  cntandupdatestr.substr(postime+1);
+			rulecnt = atoi(cntstr.c_str());
+			needupdate = atoi(updatestr.c_str());
+			if(needupdate)
+				PassAllPacket();
+			GetRuleInfo(ruleinfo,rulecnt);
+			char servip[HP_C_USERCONTENTLEN] = {"0"};
+			ConvertW2A(g_ServerIp,servip,sizeof(servip));
+			InstallDll();
+			ExceptIp(servip);
+			WriteRuleResultToIniFileAndAddNewRule(servtimestr);
+		}
+	}
+	m_bNeedNetMon = TRUE;
+	LeaveCriticalSection(&m_hasrulecs);
+}
+
+void COpLsp::DeleteRecordFile()
+{
+	wchar_t  dirptahW[MAX_PATH] = {L"0"};
+	ConvertA2W(g_nacdirpath,dirptahW,sizeof(dirptahW));
+	wstring iniFileStr;
+	iniFileStr = dirptahW;
+	iniFileStr += L"\\";
+	iniFileStr += RECORDPACKETFILE;
+	if(PathFileExists(iniFileStr.c_str()))
+		DeleteFile(iniFileStr.c_str());
+}

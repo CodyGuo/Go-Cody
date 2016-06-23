@@ -1,0 +1,248 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "..\GetLangValue.h"
+#include "..\GlobalDate.h"
+#include "..\CustomCheck\CommData.h"
+#include "CheckJunkFiles.h"
+#include "..\GlobalFunction.h"
+#include "..\DebugInfo.h"
+
+
+/************************************************************ 
+ Description: 初始化垃圾文件策略
+ input: pItemName[字段名]、pItemValue[字段值]、pMainPagePolicy[主页策略]
+*************************************************************/
+void InitJunkFilePolicy(IN char* pItemName, IN char* pItemValue, OUT PJUNKDIRPOLICY pJunkDirPolicy)
+{
+    char prin[128] = {0};
+
+    if(strcmp(pItemName, "ichecktempfile")==0)
+    {
+        pJunkDirPolicy->isCheckTempFile = pItemValue[0];
+    }
+    else if (strcmp(pItemName, "icheckrecycle")==0)
+    {
+        pJunkDirPolicy->isCheckRecycle = pItemValue[0];
+    }
+    else if (strcmp(pItemName, "ifilesize")==0)
+    {
+        pJunkDirPolicy->fileSize = atoi(pItemValue);
+
+    }
+    else if (strcmp(pItemName, "ifilenum")==0)
+    {
+        pJunkDirPolicy->fileNum = atoi(pItemValue);
+    }
+
+    sprintf_s(prin, 
+            128, 
+            "isCheckTempFile[%c] isCheckRecycle[%c] fileSize[%d] fileNum[%d]\n", 
+            pJunkDirPolicy->isCheckTempFile, 
+            pJunkDirPolicy->isCheckRecycle, 
+            pJunkDirPolicy->fileSize, 
+            pJunkDirPolicy->fileNum);
+
+    WriteDebugInfomation(LEVEL_RELEASE, MODULE_JUNKFILES, LOGLOCATION, "垃圾文件=", prin);
+}
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input: 
+ Return: 
+*************************************************************/
+bool JunkFileRetShowMsg(IN int iCheckState, IN safecheckattr checkItem, IN JUNKDIRPOLICY junkDirPolicy, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language)
+{
+    bool ret =true;
+
+    int iFailItem = 0;
+
+    if (iCheckState)
+    {
+		char strJunkFilesName[MAX_BUF_LEN] = {0};
+		vector<string> vecLangMsg;
+		string strLangMsg = "";
+
+		GetLangValueByKeyA(language, 
+			JUNKFILES_APPNAME, 
+			pSfJunkFileKeyStr[SF_JUNKFILES_NAME], 
+			"垃圾文件检查", 
+			strJunkFilesName, 
+			MAX_BUF_LEN);
+
+        (*pFailNum)++;
+        ret = false;
+
+        if (iCheckState == 3)
+        {			
+			GetLangVectorByKeyA(language, 
+								JUNKFILES_APPNAME, 
+								pSfJunkFileKeyStr[SF_JUNKFILES_RECYCLEBIN_TEMP_FALSE], 
+								pSfJunkFileKeyStr[SF_JUNKFILES_RECYCLEBIN_TEMP_FALSE], 
+								MAX_BUF_LEN,
+								3,
+								&vecLangMsg);
+        }
+        else if (iCheckState == 1)
+        {
+			GetLangVectorByKeyA(language, 
+								JUNKFILES_APPNAME, 
+								pSfJunkFileKeyStr[SF_JUNKFILES_RECYCLEBIN_FALSE], 
+								pSfJunkFileKeyStr[SF_JUNKFILES_RECYCLEBIN_FALSE], 
+								MAX_BUF_LEN,
+								3,
+								&vecLangMsg);
+        }
+        else if (iCheckState == 2)
+        {
+			GetLangVectorByKeyA(language, 
+								JUNKFILES_APPNAME, 
+								pSfJunkFileKeyStr[SF_JUNKFILES_TEMP_FALSE], 
+								pSfJunkFileKeyStr[SF_JUNKFILES_TEMP_FALSE], 
+								MAX_BUF_LEN,
+								3,
+								&vecLangMsg);
+        }
+
+		if (vecLangMsg.size() == 3)
+		{
+			strLangMsg = vecLangMsg[0];
+			strLangMsg += std::to_string((_ULonglong)junkDirPolicy.fileSize);
+			strLangMsg += vecLangMsg[1];
+			strLangMsg += std::to_string((_ULonglong)junkDirPolicy.fileNum);
+			strLangMsg += vecLangMsg[2];
+
+			sprintf_s(  pMsgBuf, 
+				msgBufLen,
+				"<subitem checkItemId=\"%d\" faildes=\"%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+				iFailItem,
+				strLangMsg.c_str(),
+				strJunkFilesName,
+				checkItem.warningcont, 
+				checkItem.warninglevel, 
+				checkItem.srcevent);
+		}
+    }
+
+    return ret;
+}
+
+/************************************************************ 
+ Description: 保存垃圾文件策略到数据库中
+ Input:pItemName[字段名];pJunkDirPolicy[垃圾文件策略]
+*************************************************************/
+void SaveJunkFilePolicyToDB(IN char* pName, IN char* pValue, IN PJUNKDIRPOLICY pJunkDirPolicy)
+{ 
+    if (strcmp(pName, "ichecktempfile") == 0)
+    {
+        pJunkDirPolicy->isCheckTempFile = '0';
+        pJunkDirPolicy->isCheckTempFile = pValue[0];
+    }
+    else if (strcmp(pName, "icheckrecycle") == 0)
+    {
+        pJunkDirPolicy->isCheckRecycle = '0';
+        pJunkDirPolicy->isCheckRecycle = pValue[0];
+    }
+    else if (strcmp(pName, "ifilesize") == 0)
+    {
+        pJunkDirPolicy->fileSize = atoi(pValue);
+    }
+    else if (strcmp(pName, "ifilenum") == 0)
+    {
+        pJunkDirPolicy->fileNum = atoi(pValue);
+    }
+}
+
+/************************************************************ 
+ Description: 发送检查垃圾文件消息
+ Input:pJunkDirPolicy[垃圾文件检查策略]
+ return: 0[成功]、1[失败]
+*************************************************************/
+int SendMsgCheckJunkFile(IN PJUNKDIRPOLICY pJunkDirPolicy)
+{
+    int ret = 0;
+    HINSTANCE hSystemCheckDll = NULL;
+    HWND hwnd = NULL;
+    char systemCheckDllPath[MAX_PATH] = {0};
+
+    if (StartRegExePro(2000))
+    {
+        sprintf_s(systemCheckDllPath, "%s\\%s", g_nacdirpath, SYSTEMCHECKDLLNAME);
+        hSystemCheckDll = LoadLibraryA(systemCheckDllPath); 
+
+        if (hSystemCheckDll == NULL)
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_JUNKFILES, LOGLOCATION, "SystemCheck.Dll文件加载失败");
+            return ret;
+        }
+
+        pSetJunkFilePolicy fSetJunkFilePolicy = NULL;
+        fSetJunkFilePolicy = (pSetJunkFilePolicy)GetProcAddress(hSystemCheckDll, "SetJunkFilePolicy");
+        if (fSetJunkFilePolicy == NULL)
+        {
+            return ret;
+        }
+
+        fSetJunkFilePolicy(pJunkDirPolicy);
+
+        hwnd = ::FindWindow(NULL, L"身份认证/安全检测");
+        if (hwnd)
+        {
+            ret = ::SendMessage(hwnd, WM_CHECKJUNKFILE_MSG, 0, 0);
+        }
+
+         FreeLibrary(hSystemCheckDll);
+    }
+   
+    return ret;
+
+}
+
+/************************************************************ 
+ Description: 发送清理垃圾文件消息
+  return: 0[成功]、1[失败]
+*************************************************************/
+int SendMsgCleanFile(IN PJUNKDIRPOLICY pJunkDirPolicy)
+{
+    HWND hwnd = NULL;
+    int ret = FALSE;
+    HINSTANCE hSystemCheckDll = NULL;
+    char systemCheckDllPath[MAX_PATH] = {0};
+
+    if (StartRegExePro(2000))
+    {
+        sprintf_s(systemCheckDllPath, "%s\\%s", g_nacdirpath, SYSTEMCHECKDLLNAME);
+        hSystemCheckDll = LoadLibraryA(systemCheckDllPath); 
+
+        if (hSystemCheckDll == NULL)
+        {
+            OutputDebugStringA("SystemCheck.Dll文件加载失败\n");
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_JUNKFILES, LOGLOCATION, "SystemCheck.Dll文件加载失败");
+            return ret;
+        }
+
+        pSetJunkFilePolicy fSetJunkFilePolicy = NULL;
+        fSetJunkFilePolicy = (pSetJunkFilePolicy)GetProcAddress(hSystemCheckDll, "SetJunkFilePolicy");
+        if (fSetJunkFilePolicy == NULL)
+        {
+            return ret;
+        }
+
+        fSetJunkFilePolicy(pJunkDirPolicy);
+
+        hwnd = ::FindWindow(NULL, L"身份认证/安全检测");
+
+        if (hwnd)
+        {
+            ret = ::SendMessage(hwnd, WM_CLEANJUNKFILE_MSG, 0, 0);
+        }
+    }
+    return ret;
+
+}

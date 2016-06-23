@@ -1,0 +1,222 @@
+/*************************************************
+File Name: MultiServerPage
+Author:  gcy
+Description:  系统安检中服务器端有两层配置的安检项
+                        包括:进程,端口,服务,安装软件
+Version:  0.0.1
+Data:  2014/10/31
+**************************************************/
+#include "StdAfx.h"
+#include "MultiServerPage.h"
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+
+
+MultiServerPage::MultiServerPage(void)
+{
+   m_processinfo = NULL;
+
+}
+
+
+MultiServerPage::~MultiServerPage(void)
+{
+	if (m_processinfo != NULL)
+	{
+		delete m_processinfo;
+		m_processinfo = NULL;
+	}
+}
+
+
+/*************************************************
+Function Name: GetDataFromDB
+Description: 从数据库中查询安检数据
+Input and output:  
+      dirpath   :程序文件夹路径
+      userid:用户id号
+      usertype:用户类型
+      itemtype:属性表的表名称
+      currdata:当前日期
+      millisecond:当前毫秒数
+      weekday:当前的星期
+RetVal:成功返回HP_SUCCESS
+             失败返回HP_DB_OPFAIL
+**************************************************/
+int MultiServerPage::GetDataFromDB(IN wchar_t  *dirpath,IN char *userid,IN char* usertype,IN char* itemtype,IN char *currdata,IN char *millisecond,IN char *weekday)
+{
+    int ret = HP_DB_OPENFAIL;
+
+    if (HP_openDB(dirpath)==HP_DB_OPENFAIL)
+    {
+        return ret;
+    }
+    else
+    {       
+        char sql[HP_C_SQLDATA]={'0'};  
+        char sqlReal[HP_C_SQLDATA]={'0'};
+        char **pszResult='\0';
+        CHAR *szErrMsg='\0';
+        INT nRow = 0;
+        INT nCloumn = 0;
+
+        if ( strcmp(itemtype,(char*)HP_PROCESS_TABLE) == 0 )
+        {
+			sprintf_s(sql,HP_C_SQLDATA,HP_SELECTPROCESS_TABLE,HP_ATTRIBUTE_SQLNAME,HP_ATTRIBUTE_SQLLIMIT,
+				userid,usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));
+
+			m_processinfo = new PROCESSINFO;
+        }
+        else if ( strcmp(itemtype,(char*)HP_PORT_TABLE) == 0)
+        {
+			sprintf_s(sql,HP_C_SQLDATA,HP_SELECTPORT_TABLE,HP_ATTRIBUTE_SQLNAME,HP_ATTRIBUTE_SQLLIMIT,userid,
+				usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));
+        }
+		else if ( strcmp(itemtype,(char*)HP_SERVICES_TABLE) == 0)
+		{
+			sprintf_s(sql,HP_C_SQLDATA,HP_SELECTSERVICE_TABLE,HP_ATTRIBUTE_SQLNAME,HP_ATTRIBUTE_SQLLIMIT,userid,
+				usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));
+		}
+		else if ( strcmp(itemtype,(char*)HP_SOFTWARE_TABLE) == 0)
+		{
+			sprintf_s(sql,HP_C_SQLDATA,HP_SELECTSOFTWARE_TABLE,HP_ATTRIBUTE_SQLNAME,HP_ATTRIBUTE_SQLLIMIT,userid,
+				usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));
+		}
+
+        Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+		EnterCriticalSection(&g_opdbcs);
+        if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sql, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"sql=",sql);
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"sqlite3_get_table Fail");
+			LeaveCriticalSection(&g_opdbcs);
+            sqlite3_free_table(pszResult);
+            ret = sqlite3_close(g_db);
+            g_db=NULL;
+            return HP_DB_GETTABLEFAIL;
+        }
+        if ((nRow>0) && (nCloumn>0))
+        {	
+            for (int i=0;i<nRow;i++)
+            {
+				safecheckattr attrinfo;
+				memset(&attrinfo,0,sizeof(safecheckattr));
+
+                for (int j=0;j<nCloumn;j++)
+                {
+                    if(strcmp(pszResult[j],"ipriority")==0)
+                    {		
+                        memset(attrinfo.ipriority,0,sizeof(attrinfo.ipriority));
+                        Convert(pszResult[(i+1)*nCloumn+j],attrinfo.ipriority,sizeof(attrinfo.ipriority),CP_UTF8,CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j],"spolicyaction")==0)
+                    {			
+                        memset(attrinfo.spolicyaction,0,sizeof(attrinfo.spolicyaction));
+                        Convert(pszResult[(i+1)*nCloumn+j],attrinfo.spolicyaction,sizeof(attrinfo.spolicyaction),CP_UTF8,CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j],"spromptinfo")==0)
+                    {
+                        memset(attrinfo.spromptinfo,0,sizeof(attrinfo.spromptinfo));
+                        Convert(pszResult[(i+1)*nCloumn+j],attrinfo.spromptinfo,sizeof(attrinfo.spromptinfo),CP_UTF8,CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j],"warningcont")==0)
+                    {			
+                        memset(attrinfo.warningcont,0,sizeof(attrinfo.warningcont));
+                        Convert(pszResult[(i+1)*nCloumn+j],attrinfo.warningcont,sizeof(attrinfo.warningcont),CP_UTF8,CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j],"warninglevel")==0)
+                    {
+                        memset(attrinfo.warninglevel,0,sizeof(attrinfo.warninglevel));
+                        Convert(pszResult[(i+1)*nCloumn+j],attrinfo.warninglevel,sizeof(attrinfo.warninglevel),CP_UTF8,CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j],"srcevent")==0)
+                    {
+                        memset(attrinfo.srcevent,0,sizeof(attrinfo.srcevent));
+                        Convert(pszResult[(i+1)*nCloumn+j],attrinfo.srcevent,sizeof(attrinfo.srcevent),CP_UTF8,CP_ACP);					
+                    }
+                    else
+                    {
+						if (strcmp(itemtype,(char*)HP_PROCESS_TABLE) == 0 )
+						{
+							m_processinfo->attriinfo = attrinfo;
+						}
+						else if ( strcmp(itemtype,(char*)HP_PORT_TABLE) == 0)
+						{
+							
+						}
+						else if ( strcmp(itemtype,(char*)HP_SERVICES_TABLE) == 0)
+						{
+							
+						}
+						else if ( strcmp(itemtype,(char*)HP_SOFTWARE_TABLE) == 0)
+						{
+							
+						}
+                    }
+                }//for (int j=0;j<nCloumn;j++)
+
+				if (strcmp(itemtype,(char*)HP_PROCESS_TABLE) == 0 )
+				{
+
+				}
+				else if ( strcmp(itemtype,(char*)HP_PORT_TABLE) == 0)
+				{
+
+				}
+				else if ( strcmp(itemtype,(char*)HP_SERVICES_TABLE) == 0)
+				{
+
+				}
+				else if ( strcmp(itemtype,(char*)HP_SOFTWARE_TABLE) == 0)
+				{
+
+				}
+            }// for (int i=0;i<nRow;i++)
+        }//if ((nRow>0) && (nCloumn>0))
+        sqlite3_free_table(pszResult);
+		LeaveCriticalSection(&g_opdbcs);
+    }
+    return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: ExecSafeCheckItem
+Description: 从数据库中查询安检数据
+Input and output:  
+      servertime   :服务器发送的时间戳
+      mac:本机计算机的MAC
+      totalitem:安检的总项数
+      curritem:当前的安检项
+      nextitem:下一个将要安检的项目
+      exeresult:安检的执行结果
+RetVal:
+      将要回传给服务器的安检的字符串
+**************************************************/
+string MultiServerPage::ExecSafeCheckItem(IN char *servertime,IN char* mac,IN int totalitem,IN int curritem,IN int nextitem,IN int *exeresult)
+{
+    UNREFERENCED_PARAMETER(exeresult);
+
+    char tempheader[MAX_PATH]={"0"};
+
+    sprintf_s(tempheader, MAX_PATH, "%s;%s;%d;%d;1;%d;%s;", servertime, g_deviceid.c_str(), totalitem, curritem, nextitem, mac);
+
+    return "";
+}
+
+/*************************************************
+Function Name: RestoreFailItem
+Description: 修复失败的安检项
+Input and output:  
+      curritem:当前的安检项
+RetVal:
+      成功返回HP_SUCCESS
+      失败返回HP_SF_REPAIRESAFECHECKFAIL
+**************************************************/
+int MultiServerPage::RestoreFailItem(IN int curritem)
+{
+    UNREFERENCED_PARAMETER(curritem);
+
+    int res = HP_SF_REPAIRESAFECHECKFAIL;
+
+    return res;
+}

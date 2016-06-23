@@ -1,0 +1,362 @@
+// AboutDlg.cpp : implementation file
+/*模块名称：CAboutDlg 
+   模块功能：程序的信息显示
+   描述:        包括程序的所属公司,版本,官网
+                    更新时间,运行时间和当前连接的服务器ip地址
+   作者：gcy
+   时间：2014/8/25
+*/
+
+#include "stdafx.h"
+#include "AboutDlg.h"
+#include "strconvert.h"
+#include "ControlName.h"
+#include "GlobalDate.h"
+#include "Download.h"
+#include "GlobalFunction.h"
+
+const TCHAR MENU_ABOUT_CLOSEBTN[] = {_T("MENU_ABOUT_CLOSEBTN")};
+
+
+CAboutFrameWnd *CAboutFrameWnd::aboutdlgThis = NULL;
+
+CAboutFrameWnd::CAboutFrameWnd()
+{
+	aboutdlgThis = this;
+	memset(m_xmlpath,0,sizeof(m_xmlpath));
+	m_langtype = ENGLISH;
+	memset(m_inifilepath,0,sizeof(m_inifilepath));
+	ZeroMemory(&m_guisetting,sizeof(GUISETTING));
+}
+
+LPCTSTR CAboutFrameWnd::GetWindowClassName() const
+{ 
+	return MenuAboutDlg; 
+}
+
+UINT CAboutFrameWnd::GetClassStyle() const
+{
+	 return UI_CLASSSTYLE_DIALOG; 
+};
+
+void CAboutFrameWnd::OnFinalMessage(HWND /*hWnd*/) 
+{ 
+	m_pm.RemovePreMessageFilter(this);
+	delete this; 
+};
+
+ void CALLBACK CAboutFrameWnd::TimeProc(HWND hwnd, UINT message,UINT idTimer,DWORD dwTime)
+{
+	if (aboutdlgThis->m_pexectime)
+	{
+		wchar_t exectime[HP_C_USERCONTENTLEN] = {L"0"};
+		aboutdlgThis->GetExecTime(exectime);
+		aboutdlgThis->m_pexectime->SetText(exectime);
+	}
+}
+
+
+ void CAboutFrameWnd::Init(wchar_t *xmlpath,LANGUAGETYPE lang) 
+{
+	memset(m_xmlpath,0,sizeof(m_xmlpath));
+	wsprintf(m_xmlpath,L"%s",xmlpath);
+	m_langtype = lang;
+ }
+
+void CAboutFrameWnd::Notify(TNotifyUI& msg)
+{
+		if( msg.sType == _T("click") ) {
+			if( msg.pSender->GetName() == MENU_ABOUT_CLOSEBTN ) {KillTimer(*this,1); Close(); return; }
+			else if(msg.pSender->GetName() == ABOUTCONTROLSTR[MENU_ABOUT_OFFICALNETNAME] )
+			{
+				
+			}
+		}
+		else if( msg.sType == _T("itemselect") ) {
+		}
+	
+		else if( msg.sType == _T("link") ) {
+			//if( msg.pSender->GetName() == MENU_ABOUT_OFFICALNETNAME ) {
+			//MessageBox(NULL,L"link",L"input_richedit",0);
+			//}
+		}
+}
+
+LRESULT CAboutFrameWnd::OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	aboutdlgThis = this;
+	LONG styleValue = ::GetWindowLong(*this, GWL_STYLE);
+	styleValue &= ~WS_CAPTION;
+	::SetWindowLong(*this, GWL_STYLE, styleValue | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);
+	
+	RECT rcDlg;
+	GetWindowRect(*this, &rcDlg);
+	RECT rcParent;
+	HWND hWndParent = GetDesktopWindow();
+	SystemParametersInfo(SPI_GETWORKAREA, 0, (PVOID)&rcParent, 0);
+	POINT ptParentInScreen;
+	ptParentInScreen.x = rcParent.left;
+	ptParentInScreen.y = rcParent.top;
+	::ClientToScreen(hWndParent, (LPPOINT)&ptParentInScreen);
+	SetWindowPos(*this, NULL, ptParentInScreen.x + (rcParent.right - rcParent.left - (rcDlg.right - rcDlg.left)) / 2, 
+		ptParentInScreen.y + (rcParent.bottom - rcParent.top - (rcDlg.bottom - rcDlg.top)) / 2, 0, 0,  
+		SWP_NOZORDER | SWP_NOSIZE);
+
+	m_pm.Init(m_hWnd);
+	m_pm.AddPreMessageFilter(this);
+	CDialogBuilder builder;
+
+	CControlUI* pRoot = builder.Create(m_xmlpath, (UINT)0, NULL, &m_pm);
+	ASSERT(pRoot && "Failed to parse XML");
+	if (pRoot == NULL )
+	{
+		MessageBox(NULL,L"CAboutFrameWndpRoot==NULL",L"error",0);
+		return 0;
+	}
+
+	if (GetGuiSizeAndFontSize(FALSE,&m_guisetting))
+	{
+		m_pm.SetInitSize(m_guisetting.xsize,m_guisetting.ysize);
+		m_pm.SetDefaultFont(L"微软雅黑",m_guisetting.fontsize,FALSE,FALSE,FALSE);
+	}
+	
+	m_pm.AttachDialog(pRoot);
+	m_pm.AddNotifier(this);
+	InitControlText();
+	
+	return 0;
+}
+
+LRESULT CAboutFrameWnd::OnNcActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	if( ::IsIconic(*this) ) bHandled = FALSE;
+	return (wParam == 0) ? TRUE : FALSE;
+}
+
+LRESULT CAboutFrameWnd::OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	return 0;
+}
+
+LRESULT CAboutFrameWnd::OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	return 0;
+}
+
+LRESULT CAboutFrameWnd::OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	POINT pt; pt.x = GET_X_LPARAM(lParam); pt.y = GET_Y_LPARAM(lParam);
+	::ScreenToClient(*this, &pt);
+
+	RECT rcClient;
+	::GetClientRect(*this, &rcClient);
+
+	RECT rcCaption = m_pm.GetCaptionRect();
+	if( pt.x >= rcClient.left + rcCaption.left && pt.x < rcClient.right - rcCaption.right \
+		&& pt.y >= rcCaption.top && pt.y < rcCaption.bottom ) {
+			CControlUI* pControl = static_cast<CControlUI*>(m_pm.FindControl(pt));
+			if( pControl && _tcscmp(pControl->GetClass(), _T("ButtonUI")) != 0 )
+				return HTCAPTION;
+	}
+
+	return HTCLIENT;
+}
+
+LRESULT CAboutFrameWnd::OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	SIZE szRoundCorner = m_pm.GetRoundCorner();
+	if( !::IsIconic(*this) && (szRoundCorner.cx != 0 || szRoundCorner.cy != 0) ) {
+		DuiLib::CRect rcWnd;
+		::GetWindowRect(*this, &rcWnd);
+		rcWnd.Offset(-rcWnd.left, -rcWnd.top);
+		rcWnd.right++; rcWnd.bottom++;
+		HRGN hRgn = ::CreateRoundRectRgn(rcWnd.left, rcWnd.top, rcWnd.right, rcWnd.bottom, szRoundCorner.cx, szRoundCorner.cy);
+		::SetWindowRgn(*this, hRgn, TRUE);
+		::DeleteObject(hRgn);
+	}
+
+	bHandled = FALSE;
+	return 0;
+}
+
+LRESULT CAboutFrameWnd::OnLButtonClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+	CControlUI * pControl = this->m_pm.FindControl(pt);
+
+	if (pControl != NULL)
+	{	
+		CStdString controlname = pControl->GetName();
+		if ( controlname == ABOUTCONTROLSTR[MENU_ABOUT_OFFICALNETNAME])
+		{
+			CStdString  urlinfo = pControl->GetText();
+			CDownload downloadfile(NULL, 0);
+			string strHpRegProcPath = "";
+			string strUrl = "http://";
+
+			if(urlinfo.GetLength() > 1)
+			{
+				strUrl += WCharToAnsi(urlinfo.GetData());
+			}
+
+			strHpRegProcPath = g_nacdirpath;
+			strHpRegProcPath += "\\";
+			strHpRegProcPath += HP_REGISTEREXE_NAME;
+
+			downloadfile.ExecProgram((char*)strHpRegProcPath.c_str(), (char*)strUrl.c_str(), TRUE);
+
+		}
+		else if (controlname == MENU_ABOUT_CLOSEBTN )
+		{
+			KillTimer(*this,1);
+			Close();
+		}
+	}
+	return 0;
+}
+LRESULT CAboutFrameWnd::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	LRESULT lRes = 0;
+	BOOL bHandled = TRUE;
+	switch( uMsg ) {
+	case WM_CREATE:        lRes = OnCreate(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCACTIVATE:    lRes = OnNcActivate(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCCALCSIZE:    lRes = OnNcCalcSize(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCPAINT:       lRes = OnNcPaint(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCHITTEST:     lRes = OnNcHitTest(uMsg, wParam, lParam, bHandled); break;
+	case WM_SIZE:          lRes = OnSize(uMsg, wParam, lParam, bHandled); break;
+  case WM_LBUTTONDBLCLK:  
+   case WM_LBUTTONDOWN:lRes = OnLButtonClick(uMsg, wParam, lParam, bHandled);break;
+   case WM_LANGCHANGE:lRes=0;Close();break;
+	default:
+		bHandled = FALSE;
+	}
+	if( bHandled ) return lRes;
+	if( m_pm.MessageHandler(uMsg, wParam, lParam, lRes) ) return lRes;
+	return CWindowWnd::HandleMessage(uMsg, wParam, lParam);
+}
+
+LRESULT CAboutFrameWnd::MessageHandler(UINT uMsg, WPARAM wParam, LPARAM lParam, bool& bHandled)
+{
+	if( uMsg == WM_KEYDOWN ) {
+		if( wParam == VK_RETURN ) {
+			return true;
+		}
+		else if( wParam == VK_ESCAPE ) {
+			PostQuitMessage(0);
+			return true;
+		}
+	}
+	return false;
+}
+
+void CAboutFrameWnd::InitControlText()
+{
+	wchar_t  dirptahW[MAX_PATH] = {L"0"};
+	ConvertA2W(g_nacdirpath,dirptahW,sizeof(dirptahW));
+	wsprintf(m_inifilepath,L"%s\\lang\\%s.ini",dirptahW,LANGUAGECONFIG[m_langtype]);
+	for (int i=0; i<MENU_ABOUT_TOTAL; i++)
+	{
+		CControlUI  *contrui = m_pm.FindControl(ABOUTCONTROLSTR[i]);
+		if (contrui)
+		{
+			if ( i == MENU_ABOUT_VERSIONNAME)
+			{
+				wchar_t programVersion[MAX_PATH]={L"0"};
+				ConvertA2W(g_version,programVersion,MAX_PATH);
+			   contrui->SetText(programVersion);
+			}
+			else if ( i == MENU_ABOUT_UPDATETIMENAME)
+			{
+				contrui->SetText(g_Updatetime);
+			}
+			else if (i == MENU_ABOUT_EXECTIMENAME)
+			{
+				m_pexectime = static_cast<CLabelUI*>(contrui);
+				wchar_t progexetime[HP_C_USERCONTENTLEN] = {L"0"};
+				 GetExecTime(progexetime);
+				 contrui->SetText(progexetime);
+				 SetTimer(*this,1,1000,TimeProc);
+			}
+			else if ( i == MENU_ABOUT_SERVERIPNAME )
+			{
+				contrui->SetText(g_ServerIp);
+			}
+			else if ( i == MENU_ABOUT_OFFICALNETNAME)
+			{
+				CRichEditUI *prichedit = static_cast<CRichEditUI*>(contrui);
+				wchar_t contrtext[MAX_PATH] = {L"0"};
+				GetPrivateProfileString(MenuAboutDlg,ABOUTCONTROLSTR[i],ABOUTCONTROLSTR[i],contrtext,sizeof(contrtext),m_inifilepath);
+				prichedit->ReplaceSel(contrtext,false);
+				CHARFORMAT2 cf ;
+				memset(&cf,0,sizeof(CHARFORMAT2));
+				cf.cbSize = sizeof(CHARFORMAT2);
+				cf.dwMask = CFM_COLOR|CFM_FACE|CFM_SIZE|CFM_UNDERLINE|CFM_UNDERLINETYPE|CFM_LINK;
+				cf.dwEffects = CFE_LINK|CFE_UNDERLINE;
+				cf.crTextColor = RGB(128, 0, 0); 
+				if (m_guisetting.xsize)
+					cf.yHeight=400;
+				else
+					cf.yHeight=200;
+				int iEndPos = wcslen(contrtext);
+				prichedit->SetSel(0, iEndPos);
+				prichedit->SetSelectionCharFormat(cf);
+				prichedit->SetEventMask(ENM_LINK);
+				
+			    prichedit->SetReadOnly(true);
+			}
+			else
+			{
+				wchar_t contrtext[MAX_PATH] = {L"0"};
+				GetPrivateProfileString(MenuAboutDlg,ABOUTCONTROLSTR[i],ABOUTCONTROLSTR[i],contrtext,sizeof(contrtext),m_inifilepath);
+				contrui->SetText(contrtext);
+				if (m_guisetting.xsize != 0 )
+				{
+					contrui->SetAttribute(L"width",m_guisetting.lefttextwidth);
+				}
+			}
+		} 
+	}
+}
+
+void CAboutFrameWnd::GetExecTime(wchar_t *exectime)
+{
+	DWORD currTime = GetTickCount();
+
+	int second = (g_stexectime)/1000;
+	int minute =0;
+	int hour=0;
+	int day=0;
+	if(second>59)
+	{
+		minute=second/60;
+		second = second%60;
+	}
+	if(minute>59)
+	{
+		hour=minute/60;
+		minute=minute%60;
+	}
+	if(hour>23)
+	{
+		day=hour/24;
+		hour=hour%24;
+	}
+
+
+	wchar_t exetimetext[MAX_PATH] = {L"0"};
+	GetPrivateProfileString(MenuAboutDlg,ABOUTCONTROLSTR[MENU_ABOUT_EXECTIMENAME],ABOUTCONTROLSTR[MENU_ABOUT_EXECTIMENAME],
+		exetimetext,sizeof(exetimetext),m_inifilepath);
+
+	vector<wstring> paramVec;
+	paramVec = splitwstr((wstring)exetimetext,L"#");
+	if (paramVec.size()<4)
+	{
+		wsprintf(exectime,L"%s",L"unknow errror");
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "param error");
+		return;
+	}
+
+	wsprintf(exectime,L"%d%s%02d%s%02d%s%02d%s",day,paramVec[0].c_str(),hour,paramVec[1].c_str(),minute,paramVec[2].c_str(),
+		second,paramVec[3].c_str());
+}

@@ -1,0 +1,53 @@
+
+#include "DuilibConfig.h"
+
+#include "DebugInfo.h"
+#include "GUISetting.h"
+
+#pragma warning( disable : 4100 )
+
+class CAboutFrameWnd : public CWindowWnd, public INotifyUI, public IMessageFilterUI
+{
+public:
+	CAboutFrameWnd();
+	LPCTSTR GetWindowClassName() const ;
+	UINT GetClassStyle() const ;
+	void OnFinalMessage(HWND /*hWnd*/);
+
+	static void CALLBACK TimeProc(HWND hwnd, UINT message,UINT idTimer,DWORD dwTime);
+
+	void Init(wchar_t *xmlpath,LANGUAGETYPE lang);
+
+	void Notify(TNotifyUI& msg);
+
+	LRESULT OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+
+	LRESULT OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnLButtonClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+	LRESULT MessageHandler(UINT uMsg, WPARAM wParam, LPARAM lParam, bool& bHandled);
+
+	void InitControlText();
+
+public:
+	CLabelUI *m_pexectime;
+	CPaintManagerUI m_pm;
+	static CAboutFrameWnd *aboutdlgThis;
+	wchar_t m_xmlpath[MAX_PATH];
+	LANGUAGETYPE m_langtype;
+    void GetExecTime(wchar_t *exectime);
+	wchar_t m_inifilepath[MAX_PATH];
+	GUISETTING  m_guisetting;
+};

@@ -1,0 +1,21 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : 
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _INSTALLSERVER_H
+#define _INSTALLSERVER_H 1
+
+#define SERVER_NAME_NUM 4
+#define MAX_BUF_LEN 256
+
+extern const wchar_t *pServerName[SERVER_NAME_NUM];
+
+BOOL StartService(LPCTSTR lpService);
+BOOL InstallService(wchar_t* pServiceName, wchar_t* pDisplayName, wchar_t* strPathName);
+BOOL InstallSvchostService(wchar_t* pServiceName, wchar_t* pDisplayName, wchar_t* pDllPath);
+
+#endif

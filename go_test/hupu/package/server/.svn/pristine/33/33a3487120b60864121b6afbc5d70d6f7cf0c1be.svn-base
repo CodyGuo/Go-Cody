@@ -1,0 +1,46 @@
+// stdafx.h : include file for standard system include files,
+// or project specific include files that are used frequently, but
+// are changed infrequently
+//
+
+#pragma once
+
+#include "targetver.h"
+
+#include <stdio.h>
+#include <tchar.h>
+
+#include "OperationSystem.h"
+
+
+// TODO: reference additional headers your program requires here
+const wchar_t APP_NAME[] = {L"hpClient"};
+
+//执行成功
+const int HP_DRIVER_SUCCESS = 0;
+
+//驱动安装失败
+const int HP_DRIVER_INSTALLFAIL = 6001;
+
+//驱动服务程序没有安装
+const int HP_DRIVER_SRVINSTALLFAIL = 6002;
+
+//驱动服务程序安装但是服务没有启动
+const int HP_DRIVER_SERVERRUNFAIL = 6003;
+
+//驱动卸载失败
+const int HP_DRIVER_UNINSTALLFAIL = 6011;
+
+//驱动程序服务停止失败
+const int HP_DRIVER_SRVSTOPFAIL = 6012;
+
+//驱动程序服务删除失败
+const int HP_DRIVER_SRVDELETEFAIL = 6013;
+
+//驱动程序不支持
+const int HP_DRIVER_NOTSUPPLY = 6014;
+
+//驱动没有更新
+const int HP_DRIVER_SAME = 6015;
+
+extern  OPSYSTEMTYPE g_opsystem;

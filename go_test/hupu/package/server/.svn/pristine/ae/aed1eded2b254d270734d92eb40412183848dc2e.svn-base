@@ -1,0 +1,59 @@
+#pragma once
+
+struct stuStupSoftwareInfo
+{
+	char displayName[MAX_PATH]; //软件名称
+	char publisher[MAX_PATH];	//发行商
+	char displayVersion[MAX_PATH];//版本
+	char installDate[MAX_PATH];//安装日期
+	char uninstallString[MAX_PATH*2];//卸载命令及参数
+};
+const int INSTALLEDSOFT=1;
+const int  NOTINSTALLEDSOFT=0;
+
+typedef enum _REGROOTTYPE
+{
+	REGCLRT = 1,//HKEY_CLASSES_ROOT
+	REGCUER,//HKEY_CURRENT_USER
+	REGCLM,//HKEY_LOCAL_MACHINE
+	REGUSER,//HKEY_USERS
+	REGCUCF//HKEY_CURRENT_CONFIG
+}REGROOTTYPE;
+
+
+class SoftWare
+{
+public:
+	SoftWare(void);
+	~SoftWare(void);
+
+	int m_sfCnt;      
+	XMLSOFTWARECONTENT  *m_sfInfo; //////执行的策略信息
+	int m_failsfnum;  //////失败的个数
+	XMLSOFTWARECONTENT *m_failsfInfo;
+
+	int GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday);
+	string ExecSoftWareItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess);
+	int RestoreFailItem(int index);
+	BOOL RestoreFailItemById(int index);
+
+	void DeleteData();
+
+	int IsInstallSoftware(XMLSOFTWARECONTENT  &softwareItem);
+
+private:
+
+	list<stuStupSoftwareInfo> softwareInfo;
+	list<stuStupSoftwareInfo>::iterator  iter;
+
+	BOOL StupSoftwareInfo(list<stuStupSoftwareInfo> &stupInfo,BOOL bWin64);
+	int _GetCurrentUserReg(list<stuStupSoftwareInfo> &stupInfo,BOOL bWin64); 
+
+	//从注册表中获取软件信息:
+	BOOL GetSoftWareInfoFromRegister(REGROOTTYPE roottype,wchar_t* regsubkeypath,list<stuStupSoftwareInfo> &stupInfo,BOOL bWin64);
+
+    //去除字符串中的空格
+    char *trim_all(char *s);
+
+};
+

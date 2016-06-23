@@ -1,0 +1,22 @@
+#pragma once
+
+#include <atlbase.h>
+#include <atlcom.h>
+#include <netlistmgr.h>
+
+
+class CNLMNetwork:
+		public INetworkListManagerEvents
+{
+public:
+	CNLMNetwork(void);
+	virtual ~CNLMNetwork(void);
+	STDMETHODIMP QueryInterface(REFIID riid, void **ppvObject);
+	STDMETHODIMP_(ULONG) AddRef();
+	STDMETHODIMP_(ULONG) Release();
+	STDMETHODIMP ConnectivityChanged(NLM_CONNECTIVITY NewConnectivity);
+
+private:
+	long m_lRefCnt;
+};
+

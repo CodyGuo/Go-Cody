@@ -1,0 +1,56 @@
+#pragma once
+
+#include "CommPub.h"
+
+
+class CertificationStg
+{
+public:
+	CertificationStg(void);
+	~CertificationStg(void);
+
+    int  Getusercertification();
+	int Getguestcertification();
+    int Getuserdynamicform();
+    int Getdevicecertification();
+    int Getdeviceinfoaudit();
+    int Getdevicedynamicforms();
+    int Getinstallhelp();
+    int Getsystemsafecheck();
+    unsigned long Getfrequency();
+	int Getfrequencyunit();
+
+    int GetapplicationAuthen();
+    int GetStgId(OUT char* stgid,OUT unsigned int outputlen);
+
+    int GetNetAPPcheck(OUT char*  weidunparam,OUT unsigned int outputLen);
+
+    int GetUserId(OUT char* userid,OUT int useridlen);
+
+	int GetUserType();
+
+    int GetSilenceConfig();
+
+	int GetUninstallCodeConfig();
+
+	int GetEnableDeviceToregisterConfig();
+
+	int GetEnableDeviceMsg(OUT char* msginfo,IN int msginfolen);
+
+	int GetStartdomainregist();
+
+	int GetAutoRepariConfig();
+
+	int GetAutoRegisterOnline();
+
+	int GetShowDefaultInFDomain();
+
+	int GetShowDomainServerName();
+
+    int  parseCertificationXml(IN char *xmlBuffer);
+
+private:
+	CERTIFICATIONPROCESS  m_certifiproc;
+};
+
+

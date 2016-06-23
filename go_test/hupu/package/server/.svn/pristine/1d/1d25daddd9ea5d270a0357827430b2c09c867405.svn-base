@@ -1,0 +1,1346 @@
+/*************************************************
+File Name: CNetWorkConnect
+Author:  gcy
+Description:  获取当前的网络状态是否有拨号链接行为
+                        获取当前的网络状态是否有双网卡行为
+                        关闭拨号链接行为
+                        关闭排除例外进程的双网卡行为
+Version:  0.0.1
+Data:  2014/12/26
+说明:connectinmodem:0表示没有开启拨号连接，1表示开启了拨号连接
+         connectdoubleadapt:0表示没有开启双网卡，1表示开启了双网卡检查
+**************************************************/
+#include "stdafx.h"
+#include "NetWorkConnect.h"
+#include "..\DebugInfo.h"
+#include "SafeCheckFuntion.h"
+
+//InternetGetConnectedState
+#include <WinInet.h>
+#pragma comment(lib,"WinInet.lib")
+
+//RasEnumConnections
+#include <Ras.h>
+#pragma comment(lib,"Rasapi32.lib")
+
+//GetAdaptersInfo
+#include <IPHlpApi.h>
+#pragma  comment(lib,"Iphlpapi.lib")
+
+//SetupDiEnumDeviceInfo
+#include <SetupAPI.h>
+#pragma comment(lib,"setupapi.lib")
+
+#include <NetCon.h>
+#include <locale>
+#include <comutil.h>
+#include <Rpc.h>
+
+#pragma comment(lib,"Rpcrt4.lib")//GUID
+#pragma comment(lib,"ole32.lib")//CoCreateInstance函数需要
+
+const int DEFAULTFAILITEMINDEX = 99999;
+
+CNetWorkConnect::CNetWorkConnect(void)
+    :m_netwkCnt(0),
+    m_netwkfailCnt(0),
+    m_bInmodel(FALSE),
+    m_bIndobleAdapt(FALSE),
+    m_nknumber(0),
+    m_forbitnumber(0)
+{
+   InitData();
+}
+
+CNetWorkConnect::~CNetWorkConnect(void)
+{
+    InitData();
+}
+
+int CNetWorkConnect::GetDataFromDB(wchar_t *dirpath, char *userid, char* usertype, char *currdata, char *millisecond, char *weekday)
+{
+    int ret = HP_DB_OPENFAIL;
+    try
+    {
+        if (HP_openDB(dirpath) == HP_DB_OPENFAIL)
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_NETWORK, LOGLOCATION, "打开数据库失败");
+            return ret;
+        }
+        else
+        {
+            InitData();
+
+            char sql[HP_C_SQLDATA]={'0'}; 
+            char sqlReal[HP_C_SQLDATA]={'0'};
+            char **pszResult='\0';
+            CHAR *szErrMsg='\0';
+            INT nRow = 0;
+            INT nCloumn = 0;
+
+            sprintf_s(sql,HP_C_SQLDATA,"SELECT spolicyaction,ipriority,spromptinfo,warningcont,connectinmodem,connectdoubleadapt,exceptadapt,"
+                "warninglevel,srcevent FROM  %s a WHERE  (a.iuserid=\'%s\') AND (usertype=\'%s\') AND (dstartdate<=\'%s\') AND (denddate>=\'%s\') "
+                "AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority ASC",HP_NETWORK_TABLE,
+                userid,usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));
+
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "查询网络连接状态检查策略的SQL语句:", sql);
+
+            Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+	//		EnterCriticalSection(&g_opdbcs);
+            if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+            {
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_NETWORK, LOGLOCATION, "sql=",sql);
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_NETWORK, LOGLOCATION, "sqlite3_get_table Fail,errMsg为",szErrMsg);
+		//		LeaveCriticalSection(&g_opdbcs);
+                sqlite3_free_table(pszResult);
+                ret = sqlite3_close(g_db);
+                g_db = NULL;
+                return HP_DB_GETTABLEFAIL;
+            }
+            if ((nRow>0) && (nCloumn>0))
+            {	
+
+                for (int i=0;i<nRow;i++)
+                {
+                    XMLNETWORKEXEC  netwktempdata;
+                    memset(&netwktempdata,0,sizeof(XMLNETWORKEXEC));
+                    memset(&netwktempdata.nkexterndata.attriinfodbnetwork,0,sizeof(safecheckattr));
+                    memset(&netwktempdata.nkexterndata.attriinfoinmode,0,sizeof(safecheckattr));
+
+                    memset(netwktempdata.nkexterndata.attriinfodbnetwork.spolicyaction,'\0',sizeof(netwktempdata.nkexterndata.attriinfodbnetwork.spolicyaction));
+                    memset(netwktempdata.nkexterndata.attriinfoinmode.spolicyaction,'\0',sizeof(netwktempdata.nkexterndata.attriinfoinmode.spolicyaction));
+
+                    for (int j=0;j<nCloumn;j++)
+                    {
+                        if(strcmp(pszResult[j],"ipriority")==0)
+                        {		
+                            memset(netwktempdata.attriinfo.ipriority,'\0',sizeof(netwktempdata.attriinfo.ipriority));
+                            Convert(pszResult[(i+1)*nCloumn+j],netwktempdata.attriinfo.ipriority,sizeof(netwktempdata.attriinfo.ipriority),CP_UTF8,CP_ACP);			
+                            memset(netwktempdata.nkexterndata.attriinfodbnetwork.ipriority,'\0',sizeof(netwktempdata.nkexterndata.attriinfodbnetwork.ipriority));
+                            memcpy(netwktempdata.nkexterndata.attriinfodbnetwork.ipriority,netwktempdata.attriinfo.ipriority,strlen(netwktempdata.attriinfo.ipriority));
+                            memset(netwktempdata.nkexterndata.attriinfoinmode.ipriority,'\0',sizeof(netwktempdata.nkexterndata.attriinfoinmode.ipriority));
+                            memcpy(netwktempdata.nkexterndata.attriinfoinmode.ipriority,netwktempdata.attriinfo.ipriority,strlen(netwktempdata.attriinfo.ipriority));
+                        }
+                        else if(strcmp(pszResult[j],"spolicyaction")==0)
+                        {			
+                            memset(netwktempdata.attriinfo.spolicyaction,'\0',sizeof(netwktempdata.attriinfo.spolicyaction));
+                            Convert(pszResult[(i+1)*nCloumn+j],netwktempdata.attriinfo.spolicyaction,sizeof(netwktempdata.attriinfo.spolicyaction),CP_UTF8,CP_ACP);				
+                        }
+                        else if(strcmp(pszResult[j],"spromptinfo")==0)
+                        {
+                            memset(netwktempdata.attriinfo.spromptinfo,'\0',sizeof(netwktempdata.attriinfo.spromptinfo));
+                            Convert(pszResult[(i+1)*nCloumn+j],netwktempdata.attriinfo.spromptinfo,sizeof(netwktempdata.attriinfo.spromptinfo),CP_UTF8,CP_ACP);				
+                            memset(netwktempdata.nkexterndata.attriinfodbnetwork.spromptinfo,'\0',sizeof(netwktempdata.nkexterndata.attriinfodbnetwork.spromptinfo));
+                            memcpy(netwktempdata.nkexterndata.attriinfodbnetwork.spromptinfo,netwktempdata.attriinfo.spromptinfo,strlen(netwktempdata.attriinfo.spromptinfo));
+                            memset(netwktempdata.nkexterndata.attriinfoinmode.spromptinfo,'\0',sizeof(netwktempdata.nkexterndata.attriinfoinmode.spromptinfo));
+                            memcpy(netwktempdata.nkexterndata.attriinfoinmode.spromptinfo,netwktempdata.attriinfo.spromptinfo,strlen(netwktempdata.attriinfo.spromptinfo));
+                        }
+                        else if(strcmp(pszResult[j],"warningcont")==0)
+                        {			
+                            memset(netwktempdata.attriinfo.warningcont,'\0',sizeof(netwktempdata.attriinfo.warningcont));
+                            Convert(pszResult[(i+1)*nCloumn+j],netwktempdata.attriinfo.warningcont,sizeof(netwktempdata.attriinfo.warningcont),CP_UTF8,CP_ACP);		
+                            memset(netwktempdata.nkexterndata.attriinfodbnetwork.warningcont,'\0',sizeof(netwktempdata.nkexterndata.attriinfodbnetwork.warningcont));
+                            memcpy(netwktempdata.nkexterndata.attriinfodbnetwork.warningcont,netwktempdata.attriinfo.warningcont,strlen(netwktempdata.attriinfo.warningcont));
+                            memset(netwktempdata.nkexterndata.attriinfoinmode.warningcont,'\0',sizeof(netwktempdata.nkexterndata.attriinfoinmode.warningcont));
+                            memcpy(netwktempdata.nkexterndata.attriinfoinmode.warningcont,netwktempdata.attriinfo.warningcont,strlen(netwktempdata.attriinfo.warningcont));
+                        }
+                        else if(strcmp(pszResult[j],"warninglevel")==0)
+                        {
+                            memset(netwktempdata.attriinfo.warninglevel,'\0',sizeof(netwktempdata.attriinfo.warninglevel));
+                            Convert(pszResult[(i+1)*nCloumn+j],netwktempdata.attriinfo.warninglevel,sizeof(netwktempdata.attriinfo.warninglevel),CP_UTF8,CP_ACP);		
+                            memset(netwktempdata.nkexterndata.attriinfodbnetwork.warninglevel,'\0',sizeof(netwktempdata.nkexterndata.attriinfodbnetwork.warninglevel));
+                            memcpy(netwktempdata.nkexterndata.attriinfodbnetwork.warninglevel,netwktempdata.attriinfo.warninglevel,strlen(netwktempdata.attriinfo.warninglevel));
+                            memset(netwktempdata.nkexterndata.attriinfoinmode.warninglevel,'\0',sizeof(netwktempdata.nkexterndata.attriinfoinmode.warninglevel));
+                            memcpy(netwktempdata.nkexterndata.attriinfoinmode.warninglevel,netwktempdata.attriinfo.warninglevel,strlen(netwktempdata.attriinfo.warninglevel));
+                        }
+                        else if(strcmp(pszResult[j],"srcevent")==0)
+                        {
+                            memset(netwktempdata.attriinfo.srcevent,'\0',sizeof(netwktempdata.attriinfo.srcevent));
+                            Convert(pszResult[(i+1)*nCloumn+j],netwktempdata.attriinfo.srcevent,sizeof(netwktempdata.attriinfo.srcevent),CP_UTF8,CP_ACP);	
+                            memset(netwktempdata.nkexterndata.attriinfodbnetwork.srcevent,'\0',sizeof(netwktempdata.nkexterndata.attriinfodbnetwork.srcevent));
+                            memcpy(netwktempdata.nkexterndata.attriinfodbnetwork.srcevent,netwktempdata.attriinfo.srcevent,strlen(netwktempdata.attriinfo.srcevent));
+                            memset(netwktempdata.nkexterndata.attriinfoinmode.srcevent,'\0',sizeof(netwktempdata.nkexterndata.attriinfoinmode.srcevent));
+                            memcpy(netwktempdata.nkexterndata.attriinfoinmode.srcevent,netwktempdata.attriinfo.srcevent,strlen(netwktempdata.attriinfo.srcevent));
+                        }
+                        else if(strcmp(pszResult[j],"connectdoubleadapt")==0)
+                        {
+                            memset(netwktempdata.nkexterndata.connectdoubleadapt,0,sizeof(netwktempdata.nkexterndata.connectdoubleadapt));
+                            Convert(pszResult[(i+1)*nCloumn+j],netwktempdata.nkexterndata.connectdoubleadapt,sizeof(netwktempdata.nkexterndata.connectdoubleadapt),CP_UTF8,CP_ACP);					
+                        }
+                        else if(strcmp(pszResult[j],"connectinmodem")==0)
+                        {
+                            memset(netwktempdata.nkexterndata.connectinmodem,'\0',sizeof(netwktempdata.nkexterndata.connectinmodem));
+                            Convert(pszResult[(i+1)*nCloumn+j], netwktempdata.nkexterndata.connectinmodem,sizeof(netwktempdata.nkexterndata.connectinmodem),CP_UTF8,CP_ACP);					
+                        }
+                        else if(strcmp(pszResult[j],"exceptadapt")==0)
+                        {
+                            memset(netwktempdata.nkexterndata.exceptadapt, '\0', sizeof(netwktempdata.nkexterndata.exceptadapt));
+                            Convert(pszResult[(i+1)*nCloumn+j], netwktempdata.nkexterndata.exceptadapt,sizeof(netwktempdata.nkexterndata.exceptadapt),CP_UTF8,CP_ACP);					
+                        }
+                    }//for (int j=0;j<nCloumn;j++)
+
+                    m_networkdbdata.push_back(netwktempdata);
+                }// for (int i=0;i<nRow;i++)
+
+                //合并继承策略
+                list<XMLNETWORKEXEC>::iterator   dbinfoiter;
+                dbinfoiter=m_networkdbdata.begin();
+                m_netwkinfo = *dbinfoiter;
+                dbinfoiter++;
+
+                bool benbleinmode = FALSE;
+                bool benbledoublecnt = FALSE;
+
+                //1表示开启了该项安检项
+                if ( (strcmp(m_netwkinfo.nkexterndata.connectinmodem,"1") ==0) )
+                {
+                    benbleinmode = TRUE;
+                    m_netwkinfo.nkexterndata.attriinfoinmode = m_netwkinfo.attriinfo;
+                }
+                if ( (strcmp(m_netwkinfo.nkexterndata.connectdoubleadapt,"1") ==0) )
+                {
+                    benbledoublecnt = TRUE;
+                     m_netwkinfo.nkexterndata.attriinfodbnetwork = m_netwkinfo.attriinfo;
+                }
+
+                for(;dbinfoiter!= m_networkdbdata.end();++dbinfoiter)
+                {
+
+                    XMLNETWORKEXEC  tmpdbdata;
+                    memset(&tmpdbdata,0,sizeof(XMLNETWORKEXEC));
+                    tmpdbdata = *dbinfoiter;
+
+                    if ( (strcmp(tmpdbdata.nkexterndata.connectinmodem,"1") ==0) )
+                    {
+                        if ( !benbleinmode )
+                        {
+                            m_netwkinfo.nkexterndata.attriinfoinmode= tmpdbdata.attriinfo;
+                            benbleinmode = TRUE;
+                        }
+                    }
+                    if ( (strcmp(tmpdbdata.nkexterndata.connectdoubleadapt,"1") ==0) )
+                    {
+                        if ( !benbledoublecnt )
+                        {
+                            m_netwkinfo.nkexterndata.attriinfodbnetwork = tmpdbdata.attriinfo;
+                            benbledoublecnt = TRUE;
+                        }
+                         
+                        //合并例外网卡
+                        if ( strcmp(tmpdbdata.attriinfo.spolicyaction,m_netwkinfo.nkexterndata.attriinfodbnetwork.spolicyaction) ==0 )
+                        {
+                            if ( strcmp(m_netwkinfo.nkexterndata.exceptadapt,"") != 0 )
+                            {
+                                strcat_s(m_netwkinfo.nkexterndata.exceptadapt,MAX_PATH,"|");
+                            }
+                            strcat_s(m_netwkinfo.nkexterndata.exceptadapt,MAX_PATH,tmpdbdata.nkexterndata.exceptadapt);
+                        }
+                    }
+                }//for(;dbinfoiter!= m_networkdbdata.end();++dbinfoiter)
+                if ( !benbleinmode && !benbledoublecnt )
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"没有网络连接状态的安检项");
+                }
+                else
+                {
+                    m_netwkCnt++;
+                }
+
+            }//if ((nRow>0) && (nCloumn>0))
+            else
+            {
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"没有网络连接状态的安检项");
+            }
+            sqlite3_free_table(pszResult);
+		//	LeaveCriticalSection(&g_opdbcs);
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+		MessageBox(NULL,L"CNetWorkConnect GetDataFromDB Exception",L"Msg",0);
+#endif
+       WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CNetWorkConnect GetDataFromDB Exception");
+        return ret;
+    }
+    return HP_SUCCESS;
+}
+
+
+string CNetWorkConnect::ExecNetWorkItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsnetworkSuccess)
+{
+    char tempheader[MAX_PATH*2]={"0"};
+    sprintf_s(tempheader,MAX_PATH*2,"%s;%s;%d;%d;1;%d;%s;",servertime,g_deviceid.c_str(),totalitem,
+        curritem,nextitem,mac);
+    //拼接向服务器发送的xml
+    string xmlstring;
+	string failxmlmsg;
+    char *failInfo= new char[MAX_PATH*4+1]();
+    memset(failInfo,0,MAX_PATH*4+1);
+    bool bIsSucces = true;
+
+    try
+    {
+        if (m_netwkCnt>0)
+        {
+            //判断是否有拨号上网行为
+            int modemstat = ConnectInModemState();
+            //判断是否是双网卡行为
+            int doubleadaptstat = ConnectDoubleState();
+
+            char modedes[HP_C_USERCONTENTLEN] = {0};
+            char dbnetwkdes[HP_C_USERCONTENTLEN] = {0};
+
+            if ( atoi(m_netwkinfo.nkexterndata.attriinfoinmode.spolicyaction)== REFUSE )
+            {
+                if ( modemstat == HP_SUCCESS )
+                {
+                    m_inmodefail++;
+                    memcpy(modedes,"计算机使用了拨号上网",strlen("计算机使用了拨号上网"));
+                    m_netwkfailCnt++;
+                }
+                if ( HP_NETWORK_INPROXY ==modemstat )
+                {
+                    m_inmodefail++;
+                    memcpy(modedes,"计算机使用了代理上网",strlen("计算机使用了代理上网"));
+                    m_netwkfailCnt++;
+                }
+            }
+
+            if ( atoi(m_netwkinfo.nkexterndata.attriinfoinmode.spolicyaction)== ALLOW )
+            {
+                if ( modemstat == HP_NETWORK_NOTINMODEM )
+                {
+                    m_inmodefail++;
+                    memcpy(modedes,"计算机需要开启拨号上网",strlen("计算机需要开启拨号上网"));
+                    m_netwkfailCnt++;
+                }
+            }
+
+            if ( atoi(m_netwkinfo.nkexterndata.attriinfodbnetwork.spolicyaction) == REFUSE )
+            {
+                if ( doubleadaptstat == HP_SUCCESS )
+                {
+                    m_indbnkfail++;
+                    memcpy(dbnetwkdes,"开启了网卡",strlen("开启了网卡"));
+                    m_netwkfailCnt++;
+                }
+            }
+			if ( atoi(m_netwkinfo.nkexterndata.attriinfodbnetwork.spolicyaction) == ALLOW )
+			{
+				if (m_forbitnumber>0)
+				{
+					m_indbnkfail++;
+					memcpy(dbnetwkdes,"计算机存在禁用的网卡",strlen("计算机存在禁用的网卡"));
+					m_netwkfailCnt++;
+				}
+			}
+
+            if ( (m_inmodefail==0) && (m_indbnkfail==0) )
+            {
+                bIsSucces = true;
+            }
+            else
+            {
+                 bIsSucces = false;
+
+                 if ( m_inmodefail )
+                 {
+					 failxmlmsg +=  "<subitem checkItemId=\"";
+					 failxmlmsg += "0";
+					 failxmlmsg += "\" checkItemAction=\"";
+					 failxmlmsg += m_netwkinfo.attriinfo.spolicyaction;
+					 failxmlmsg += "\" checktype=\"0\" networkCard=\"0\"  mac=\"0\" ip=\"0\" faildes=\"";
+					 failxmlmsg += modedes;
+					 failxmlmsg += "\" name=\"";
+					 failxmlmsg += "网络状态检查";
+					 failxmlmsg += "\" swarnname=\"";
+					 failxmlmsg += m_netwkinfo.nkexterndata.attriinfoinmode.warningcont;
+					 failxmlmsg += "\" iwarnlevel=\"";
+					 failxmlmsg += m_netwkinfo.nkexterndata.attriinfoinmode.warninglevel;
+					 failxmlmsg += "\" ilogrecord=\"";
+					 failxmlmsg += m_netwkinfo.nkexterndata.attriinfoinmode.srcevent;
+					 failxmlmsg += "\">"; 
+					 failxmlmsg += "</subitem>";
+                 }
+                 if (m_indbnkfail)
+                 {
+					 NETWORKDATA statedata = {0};
+					 list<NETWORKDATA>::iterator tmpiter;
+					 if (atoi(m_netwkinfo.nkexterndata.attriinfodbnetwork.spolicyaction) == REFUSE )
+					 {
+						 int failindex = 0;
+						 for (tmpiter = m_failiteminfo.begin();tmpiter!= m_failiteminfo.end();++tmpiter)
+						 {
+							 statedata = *tmpiter;
+							 if (statedata.failindex != DEFAULTFAILITEMINDEX )
+							 {
+								 failxmlmsg +=  "<subitem checkItemId=\"";
+								 failxmlmsg += to_string((_LONGLONG)failindex);
+								 failxmlmsg += "\" checkItemAction=\"";
+								 failxmlmsg += m_netwkinfo.attriinfo.spolicyaction;
+								 failxmlmsg += "\" checktype=\"";
+								 failxmlmsg += "1";
+								 failxmlmsg += "\" networkCard=\"";
+								 failxmlmsg += statedata.description;
+								 failxmlmsg += "\" mac=\"";
+								 failxmlmsg += statedata.mac;
+								 failxmlmsg += "\" ip=\"";
+								 failxmlmsg += statedata.ip;
+								 failxmlmsg += "\" faildes=\"";
+								 failxmlmsg += dbnetwkdes;
+								 failxmlmsg += statedata.description;
+								 failxmlmsg += "\" name=\"";
+								 failxmlmsg += "网络状态检查";
+								 failxmlmsg += "\" swarnname=\"";
+								 failxmlmsg += m_netwkinfo.nkexterndata.attriinfoinmode.warningcont;
+								 failxmlmsg += "\" iwarnlevel=\"";
+								 failxmlmsg += m_netwkinfo.nkexterndata.attriinfoinmode.warninglevel;
+								 failxmlmsg += "\" ilogrecord=\"";
+								 failxmlmsg += m_netwkinfo.nkexterndata.attriinfoinmode.srcevent;
+								 failxmlmsg += "\">"; 
+								 failxmlmsg += "</subitem>";
+								 failindex++;
+							 }
+						 }
+					 }
+					 else
+					 {
+						 int failindex = 0;
+						 for (tmpiter = m_netwkstatedata.begin();tmpiter!= m_netwkstatedata.end();++tmpiter)
+						 {
+							 statedata = *tmpiter;
+							 if ( (atoi(statedata.state) == 0)&&(statedata.failindex != DEFAULTFAILITEMINDEX) )
+							 {
+								 failxmlmsg +=  "<subitem checkItemId=\"";
+								 failxmlmsg += to_string((_LONGLONG)failindex);
+								 failxmlmsg += "\" checkItemAction=\"";
+								 failxmlmsg += m_netwkinfo.attriinfo.spolicyaction;
+								 failxmlmsg += "\" checktype=\"";
+								 failxmlmsg += "1";
+								 failxmlmsg += "\" networkCard=\"";
+								 failxmlmsg += statedata.description;
+								 failxmlmsg += "\" mac=\"";
+								 failxmlmsg += statedata.mac;
+								 failxmlmsg += "\" ip=\"";
+								 failxmlmsg += statedata.ip;
+								 failxmlmsg += "\" faildes=\"";
+								 failxmlmsg += dbnetwkdes;
+								 failxmlmsg += statedata.description;
+								 failxmlmsg += "\" name=\"";
+								 failxmlmsg += "网络状态检查";
+								 failxmlmsg += "\" swarnname=\"";
+								 failxmlmsg += m_netwkinfo.nkexterndata.attriinfoinmode.warningcont;
+								 failxmlmsg += "\" iwarnlevel=\"";
+								 failxmlmsg += m_netwkinfo.nkexterndata.attriinfoinmode.warninglevel;
+								 failxmlmsg += "\" ilogrecord=\"";
+								 failxmlmsg += m_netwkinfo.nkexterndata.attriinfoinmode.srcevent;
+								 failxmlmsg += "\">"; 
+								 failxmlmsg += "</subitem>";
+								 failindex++;
+							 }
+						 }
+					 }
+								 
+                 }
+            }
+        }
+        if(bIsSucces)
+        {
+			IsnetworkSuccess[NETWORKSTATE] = HP_SUCCESS;
+            xmlstring =SendSingleItemSafeCheckSuccess(tempheader);
+        }
+        else
+        {
+			IsnetworkSuccess[NETWORKSTATE] = HP_NETWORK_SAFECHECKFAIL;
+            string Sendtmpheader =tempheader;
+            string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac><iman succflag =\"0\">";
+            string  xmltail ="</iman></nac>";
+            xmlstring = Sendtmpheader+xmlHeader+failxmlmsg+xmltail;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+		MessageBox(NULL,L"ExecNetWorkItem Fail",L"error",MB_OK);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"ExecNetWorkItem Fail");
+    }
+    delete[] failInfo;
+    return xmlstring;
+}
+
+
+int CNetWorkConnect::RestoreFailItem()
+{
+    if (m_netwkfailCnt>0)
+    {
+        if (atoi(m_netwkinfo.nkexterndata.attriinfoinmode.spolicyaction) == REFUSE )
+        {
+              //关闭拨号连接
+            TerminateConnectInModem();
+        }
+        if (atoi(m_netwkinfo.nkexterndata.attriinfodbnetwork.spolicyaction) == REFUSE )
+        {
+            //结束当前使用之外除例外进程的所有网卡
+            TerminateConnectDoubleAdapt();
+        }
+        if ( atoi(m_netwkinfo.nkexterndata.attriinfodbnetwork.spolicyaction) == ALLOW )
+        {
+             EnableForbitNetWorkAdapter();
+        }
+      
+    }
+    return -1;
+}
+
+
+void CNetWorkConnect::InitData()
+{
+     m_netwkCnt = 0;
+     m_netwkfailCnt = 0;
+    memset(&m_netwkinfo,0,sizeof(XMLNETWORKEXEC));
+
+    memset(m_netwkinfo.attriinfo.ipriority,'\0',sizeof(m_netwkinfo.attriinfo.ipriority));
+    memset(m_netwkinfo.attriinfo.spolicyaction,'\0',sizeof(m_netwkinfo.attriinfo.spolicyaction));
+    memset(m_netwkinfo.attriinfo.spromptinfo,'\0',sizeof(m_netwkinfo.attriinfo.spromptinfo));
+    memset(m_netwkinfo.attriinfo.srcevent,'\0',sizeof(m_netwkinfo.attriinfo.srcevent));
+    memset(m_netwkinfo.attriinfo.warningcont,'\0',sizeof(m_netwkinfo.attriinfo.warningcont));
+    memset(m_netwkinfo.attriinfo.warninglevel,'\0',sizeof(m_netwkinfo.attriinfo.warninglevel));
+
+    memset(m_netwkinfo.nkexterndata.connectdoubleadapt,'\0',sizeof(m_netwkinfo.nkexterndata.connectdoubleadapt));
+    memset(m_netwkinfo.nkexterndata.connectinmodem,'\0',sizeof(m_netwkinfo.nkexterndata.connectinmodem));
+    memset(m_netwkinfo.nkexterndata.exceptadapt,'\0',sizeof(m_netwkinfo.nkexterndata.exceptadapt));
+
+    m_bInmodel = FALSE;
+   m_bIndobleAdapt = FALSE;
+   m_nknumber = 0;
+   m_forbitnumber = 0;
+
+   list<NETWORKDATA>::iterator iter;
+   for ( iter = m_netwkstatedata.begin();iter != m_netwkstatedata.end(); )
+   {
+       m_netwkstatedata.erase(iter++);
+   }
+   for ( iter = m_failiteminfo.begin();iter != m_failiteminfo.end(); )
+   {
+	   m_failiteminfo.erase(iter++);
+   }
+
+    list<XMLNETWORKEXEC>::iterator execiter;
+    for ( execiter = m_networkdbdata.begin();execiter != m_networkdbdata.end();)
+    {
+        m_networkdbdata.erase(execiter++);
+    }
+
+     m_inmodefail = 0;
+
+    //双网卡链接失败
+     m_indbnkfail = 0;
+}
+
+
+/*************************************************
+Function Name: 拨号上网的连接状态
+Description: 判断本地电脑是否在使用拨号连接上网
+Input and output:  
+Return:
+    HP_NETWORK_INMODEMFAIL:获取拨号上网失败
+    HP_NETWORK_NOTINMODEM:没有使用拨号上网
+    HP_NETWORK_INPROXY:使用了代理上网
+    HP_SUCCESS:使用了拨号上网
+**************************************************/
+int CNetWorkConnect::ConnectInModemState()
+{
+    int res = HP_NETWORK_INMODEMFAIL;  
+    //#define INTERNET_CONNECTION_MODEM           1  
+    //#define INTERNET_CONNECTION_LAN             2  
+    //#define INTERNET_CONNECTION_PROXY           4  
+    //#define INTERNET_CONNECTION_MODEM_BUSY      8  
+    DWORD   flags;//上网方式   
+    BOOL   m_bOnline=TRUE;//是否在线    
+
+    m_bOnline=InternetGetConnectedState(&flags,0);     
+    if(m_bOnline)//在线     
+    {     
+        res = HP_NETWORK_NOTINMODEM;
+
+        if ((flags & INTERNET_CONNECTION_MODEM) == INTERNET_CONNECTION_MODEM)  
+        {  
+            res = HP_SUCCESS;
+
+            m_bInmodel = FALSE;
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"INTERNET_CONNECTION_MODEM");
+        }  
+        if ((flags & INTERNET_CONNECTION_LAN) == INTERNET_CONNECTION_LAN)  
+        {  
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"INTERNET_CONNECTION_LAN");
+        }  
+        if ((flags & INTERNET_CONNECTION_PROXY) == INTERNET_CONNECTION_PROXY)  
+        {  
+            res = HP_NETWORK_INPROXY;
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"INTERNET_CONNECTION_LAN");
+        }  
+        if ((flags & INTERNET_CONNECTION_MODEM_BUSY) ==INTERNET_CONNECTION_MODEM_BUSY)  
+        {  
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"INTERNET_CONNECTION_MODEM_BUSY");
+        }  
+    }  
+    else  
+    {
+        res = HP_NETWORK_NOTINMODEM;
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"InternetGetConnectedState 返回 FALSE,不在线");
+    }
+
+    return res;
+}
+
+/*************************************************
+Function Name: 双网卡的连接状态
+Description: 判断本地的网卡是否有双网卡行为,排除例外网卡的信息
+Input and output:  
+Return:
+    HP_NETWORK_GETADAPTERFAIL:获取网卡信息失败
+    HP_NETWORK_NOTDOUBLEADAPT:没有使用双网卡
+    HP_SUCCESS:使用了双网卡
+**************************************************/
+int CNetWorkConnect::ConnectDoubleState()
+{
+    int res = HP_NETWORK_GETADAPTERFAIL;
+
+    res = EnumNetwork();
+    if (res != HP_SUCCESS)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"EnumNetwork Fail");
+    }
+
+    PIP_ADAPTER_INFO pIpAdapterInfo = new IP_ADAPTER_INFO();
+    unsigned long stSize = sizeof(IP_ADAPTER_INFO);
+    //调用GetAdaptersInfo函数,填充pIpAdapterInfo指针变量;其中stSize参数既是一个输入量也是一个输出量
+    int nRel = GetAdaptersInfo(pIpAdapterInfo,&stSize);
+    if (ERROR_BUFFER_OVERFLOW == nRel)
+    {
+        delete pIpAdapterInfo;
+        //重新申请内存空间用来存储所有网卡信息
+        pIpAdapterInfo = (PIP_ADAPTER_INFO)new BYTE[stSize];
+        nRel=GetAdaptersInfo(pIpAdapterInfo,&stSize);    
+    }
+    if (ERROR_SUCCESS == nRel)
+    {
+        //输出网卡信息
+        //可能有多网卡,因此通过循环去判断
+        while (pIpAdapterInfo)
+        {
+            char macvalue[HP_C_MACLEN] = {0};
+
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"网卡名称:",pIpAdapterInfo->AdapterName);
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"网卡名称:",pIpAdapterInfo->Description);
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"网卡Index:",pIpAdapterInfo->Index);
+
+            for (DWORD i = 0; i < pIpAdapterInfo->AddressLength; i++)
+            {
+                char macunit[HP_C_MACLEN] = {0};
+                sprintf_s(macunit,HP_C_MACLEN,"%02X",pIpAdapterInfo->Address[i]);
+                if (i < pIpAdapterInfo->AddressLength-1)
+                {
+                    strcat_s(macvalue,HP_C_MACLEN,macunit);
+                    strcat_s(macvalue,HP_C_MACLEN,":");
+                }
+                else
+                {
+                    strcat_s(macvalue,HP_C_MACLEN,macunit);
+                }
+            }
+              WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"mac value",macvalue);
+          
+             list<NETWORKDATA>::iterator tmpiter;
+             for (tmpiter = m_netwkstatedata.begin();tmpiter!= m_netwkstatedata.end();++tmpiter)
+             {
+                 NETWORKDATA statedata = *tmpiter;
+                 if ( _strnicmp(statedata.guid,pIpAdapterInfo->AdapterName,MAX_PATH)==0 )
+                 {
+					 statedata.mac = macvalue;
+					 IP_ADDR_STRING *pIpAddrString =&(pIpAdapterInfo->IpAddressList);
+					 statedata.ip=pIpAddrString->IpAddress.String;
+
+                     if (atoi(statedata.state) == 1)
+                     {
+                         if ( !IsInExcept(statedata.description,macvalue ))
+                         {
+							 statedata.failindex=m_nknumber;
+							 m_failiteminfo.push_back(statedata);
+                             m_nknumber++;
+                         }
+                     }
+                 }
+             }
+                pIpAdapterInfo = pIpAdapterInfo->Next;
+        }
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"GetAdaptersInfo Fail");
+    }
+    //释放内存空间
+    if (pIpAdapterInfo)
+    {
+        delete pIpAdapterInfo;
+    }
+
+    if (m_nknumber == 1)
+    {
+        res = HP_NETWORK_NOTDOUBLEADAPT;
+    }
+    else if (m_nknumber > 1)
+    {
+        m_bIndobleAdapt = TRUE;
+        res = HP_SUCCESS;
+    }
+    else
+        res = HP_NETWORK_GETADAPTERFAIL;
+    return res;
+}
+
+
+/*************************************************
+Function Name: TerminateConnectInModem
+Description: 禁用拨号上网
+Input: 
+Output:HP_SUCCESS禁用拨号上网成功
+               HP_NETWORK_TERMINATEMODEMFAIL表示禁用拨号上网失败
+**************************************************/
+int CNetWorkConnect::TerminateConnectInModem()
+{
+   int res = HP_NETWORK_TERMINATEMODEMFAIL;
+   int index;                 // An integer index
+   TCHAR szError[MAX_PATH] = {_T("0")};        // Buffer for error codes 
+   DWORD dwError,             // Error code from a function call 
+       dwRasConnSize,       // Size of RasConn in bytes
+       dwNumConnections;    // Number of connections found 
+   RASCONN RasConn[20] = {0};       // Buffer for connection state data 
+   // Assume the maximum number of entries is 
+   // 20. 
+
+   // Assume no more than 20 connections.
+   RasConn[0].dwSize = sizeof (RASCONN);
+   dwRasConnSize = 20 * sizeof (RASCONN);
+
+   // Find all connections.
+   if (dwError = RasEnumConnections (RasConn, &dwRasConnSize, 
+       &dwNumConnections))
+   {
+       wsprintf (szError, TEXT("RasEnumConnections Error: %ld"), dwError);
+       WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,szError);
+       return res;
+   }
+
+   // If there are no connections, return zero.
+   if (!dwNumConnections)
+   {
+       wsprintf (szError, TEXT("No open RAS connections"));
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,szError);
+       return HP_SUCCESS;
+   }
+
+   // Terminate all of the remote access connections.
+   for (index = 0; index < (int)dwNumConnections; ++index)
+   {
+       if (dwError = RasHangUp (RasConn[index].hrasconn))
+       {
+           wsprintf (szError, TEXT("RasHangUp Error: %ld"), dwError);
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,szError);
+          res = HP_NETWORK_TERMINATEMODEMFAIL;
+          break;
+       }
+   }
+  return res;
+}
+
+/*************************************************
+Function Name: TerminateConnectDoubleAdapt
+Description: 禁用双网卡
+Input: 
+Output:HP_SUCCESS禁用双网卡成功
+               HP_NETWORK_TERMINATEMODEMFAIL表示禁用拨号上网失败
+**************************************************/
+int CNetWorkConnect::TerminateConnectDoubleAdapt()
+{
+    int res = HP_NETWORK_TERMINATEDOUBLEADAPTFAIL;
+
+    res = EnumNetwork();
+    if (res != HP_SUCCESS)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"EnumNetwork Fail");
+    }
+
+    //例外掉当前正在使用的网卡
+    struct in_addr SourceIpAddr;
+    struct in_addr DesIpAddr;
+    char sour[MAX_PATH] = {0};
+    char showMac[MAX_PATH] = {0};
+
+    int Res=GetCurrentUsingIp(&DesIpAddr,&SourceIpAddr);
+    if ( Res == HP_SUCCESS )
+    {
+        BYTE MacAddr[12] = {0};
+        DWORD phyLength = 12;
+
+        sprintf_s(sour,MAX_PATH,"%s", inet_ntoa(SourceIpAddr));
+        IPAddr ipaddrsour = inet_addr(sour);
+
+        SendARP(ipaddrsour, NULL, MacAddr, &phyLength);
+        sprintf_s(showMac, MAX_PATH, "%02X:%02X:%02X:%02X:%02X:%02X", MacAddr[0], MacAddr[1], MacAddr[2], MacAddr[3], MacAddr[4], MacAddr[5]);
+
+        //PIP_ADAPTER_INFO结构体指针存储本机网卡信息
+        PIP_ADAPTER_INFO pIpAdapterInfo = new IP_ADAPTER_INFO();
+        //得到结构体大小,用于GetAdaptersInfo参数
+        unsigned long stSize = sizeof(IP_ADAPTER_INFO);
+        //调用GetAdaptersInfo函数,填充pIpAdapterInfo指针变量;其中stSize参数既是一个输入量也是一个输出量
+        int nRel = GetAdaptersInfo(pIpAdapterInfo,&stSize);
+        if (ERROR_BUFFER_OVERFLOW == nRel)
+        {
+            //如果函数返回的是ERROR_BUFFER_OVERFLOW
+            //则说明GetAdaptersInfo参数传递的内存空间不够,同时其传出stSize,表示需要的空间大小
+            //这也是说明为什么stSize既是一个输入量也是一个输出量
+            //释放原来的内存空间
+            delete pIpAdapterInfo;
+            //重新申请内存空间用来存储所有网卡信息
+            pIpAdapterInfo = (PIP_ADAPTER_INFO)new BYTE[stSize];
+            //再次调用GetAdaptersInfo函数,填充pIpAdapterInfo指针变量
+            nRel=GetAdaptersInfo(pIpAdapterInfo,&stSize);    
+        }
+        if (ERROR_SUCCESS == nRel)
+        {
+            //输出网卡信息
+            //可能有多网卡,因此通过循环去判断
+            while (pIpAdapterInfo)
+            {
+                char macvalue[HP_C_MACLEN] = {0};
+
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"网卡名称:", pIpAdapterInfo->AdapterName);
+                int nkdeslen = strlen(pIpAdapterInfo->Description);
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"网卡描述长度:",nkdeslen);
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"网卡描述:", pIpAdapterInfo->Description);
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"网卡Index:", pIpAdapterInfo->Index);
+
+                for (DWORD i = 0; i < pIpAdapterInfo->AddressLength; i++)
+                {
+                    char macunit[HP_C_MACLEN] = {0};
+                    sprintf_s(macunit,HP_C_MACLEN,"%02X",pIpAdapterInfo->Address[i]);
+                    if (i < pIpAdapterInfo->AddressLength-1)
+                    {
+                        strcat_s(macvalue,HP_C_MACLEN,macunit);
+                        strcat_s(macvalue,HP_C_MACLEN,":");
+                    }
+                    else
+                    {
+                        strcat_s(macvalue,HP_C_MACLEN,macunit);
+                    }
+                }
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"mac value",macvalue);
+
+                if (_strnicmp(showMac,macvalue,HP_C_MACLEN) != 0)//表示不是我们要例外的网卡
+                {
+                    list<NETWORKDATA>::iterator tmpiter;
+                    for (tmpiter = m_netwkstatedata.begin();tmpiter!= m_netwkstatedata.end();++tmpiter)
+                    {
+                        NETWORKDATA statedata = *tmpiter;
+                        if ( _strnicmp(statedata.guid,pIpAdapterInfo->AdapterName,MAX_PATH)==0 )
+                        {
+                            if (atoi(statedata.state) == 1)
+                            {
+                                if ( !IsInExcept(statedata.description,macvalue ))
+                                {
+                                    res = ForbitNetWorkAdapter(statedata.guid,FALSE);
+                                }
+                            }
+                        }
+                    }
+                }
+                pIpAdapterInfo = pIpAdapterInfo->Next;
+            }
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"GetAdaptersInfo Fail");
+        }
+        //释放内存空间
+        if (pIpAdapterInfo)
+        {
+            delete pIpAdapterInfo;
+        }
+    }
+    else
+    {
+          WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"结束网卡异常");
+    }
+    return res;
+}
+
+
+int CNetWorkConnect::RestoreFailItemByIndex(int failindex,BOOL bDoubleNet)
+{
+	if (bDoubleNet)
+	{
+		list<NETWORKDATA>::iterator iter;
+		if (atoi(m_netwkinfo.nkexterndata.attriinfodbnetwork.spolicyaction) == REFUSE)
+		{
+			for ( iter = m_failiteminfo.begin();iter != m_failiteminfo.end(); ++iter)
+			{
+				NETWORKDATA statedata = *iter;
+				if (statedata.failindex == failindex )
+				{
+					ForbitNetWorkAdapter(statedata.guid,FALSE);
+					break;
+				}
+			}
+		}
+		else
+		{
+			int index = 0;
+			for ( iter = m_netwkstatedata.begin();iter != m_netwkstatedata.end(); ++iter)
+			{
+				NETWORKDATA statedata = *iter;
+				if ( (atoi(statedata.state) == 0) &&(statedata.failindex != DEFAULTFAILITEMINDEX) )
+				{
+					if ( index == failindex )
+					{
+						ForbitNetWorkAdapter(statedata.guid,TRUE);
+					}
+					index++;
+				}
+			}
+		}
+	}
+	else
+	{
+		if (atoi(m_netwkinfo.nkexterndata.attriinfoinmode.spolicyaction) == REFUSE )
+		{
+			//关闭拨号连接
+			TerminateConnectInModem();
+		}
+	}
+	return 0;
+}
+
+/*************************************************
+Function Name: IsInExcept
+Description: 判断是否为例外网卡
+Input: 
+Output:TRUE为属于例外网卡
+               FALSE为不属于例外网卡
+**************************************************/
+BOOL CNetWorkConnect::IsInExcept(char* adaptername,char* mac)
+{
+	BOOL Res = FALSE;
+	string exceptstr = m_netwkinfo.nkexterndata.exceptadapt;
+
+	int  exceptstrlen = exceptstr.length();
+	if (exceptstrlen<=0)
+	{
+		return Res;
+	}
+
+	vector<string> exceptVec;
+	exceptVec = split(exceptstr,"|");
+	int execptnum = exceptVec.size();
+	for(int i=0;i<execptnum;i++)
+	{
+		if((stricmp(exceptVec[i].c_str(),adaptername)==0)||
+			(stricmp(exceptVec[i].c_str(),mac)==0))
+		{
+			Res = TRUE;
+			break;
+		}
+	}
+	return Res;
+}
+
+
+BOOL CNetWorkConnect::IsInExcept(char* adaptername)
+{
+   BOOL Res = FALSE;
+	string exceptstr = m_netwkinfo.nkexterndata.exceptadapt;
+
+	int  exceptstrlen = exceptstr.length();
+	if (exceptstrlen<=0)
+	{
+		return Res;
+	}
+
+	vector<string> exceptVec;
+	exceptVec = split(exceptstr,"|");
+	int execptnum = exceptVec.size();
+	for(int i=0;i<execptnum;i++)
+	{
+		if(stricmp(exceptVec[i].c_str(),adaptername)==0)
+		{
+			Res = TRUE;
+			break;
+		}
+	}
+	return Res;
+}
+
+
+/*************************************************
+Function Name: ErrorCOMToWin32
+Description: COM组件错误码
+Input: 
+         hr: COM组件的返回值
+Output:调用者得到的返回的HRESULT值
+**************************************************/
+DWORD CNetWorkConnect::ErrorCOMToWin32(HRESULT hr)
+{
+    HRESULT hrfac = HRESULT_FACILITY(hr);
+    if((hrfac==FACILITY_WINDOWS)||(hrfac==FACILITY_WIN32))
+        return HRESULT_CODE(hr);
+    else
+        return hr;
+}
+
+/*************************************************
+Function Name: EnableConnection
+Description: 禁用或者启用网络
+Input: 
+         guidId: 
+         bEnable: 
+                        TRUE:表示启用网卡
+                        FALSE:表示禁用网卡
+Output:成功返回TRUE
+              失败返回FALSE
+**************************************************/
+bool CNetWorkConnect::EnableConnection(GUID guidId, bool bEnable) 
+{ 
+    bool ret = false; 
+    typedef void (__stdcall *LPNCFREENETCONPROPERTIES) (NETCON_PROPERTIES* pProps); 
+    HMODULE hNSModule = LoadLibrary(L"netshell.dll"); 
+    if (hNSModule) 
+    {		
+        LPNCFREENETCONPROPERTIES NcFreeNetconProperties = 
+            (LPNCFREENETCONPROPERTIES)GetProcAddress(hNSModule, "NcFreeNetconProperties"); 
+        if (NcFreeNetconProperties) 
+        {
+            CoInitialize(0); 
+            INetConnectionManager* pConnMan = 0; 
+            HRESULT hr = CoCreateInstance(CLSID_ConnectionManager, 0,CLSCTX_ALL, 
+                __uuidof(INetConnectionManager), (void**)&pConnMan); 
+            if(SUCCEEDED(hr)) 
+            { 
+                IEnumNetConnection* pEnum = 0; 
+                HRESULT hr = pConnMan->EnumConnections(NCME_DEFAULT, &pEnum); 
+                if(SUCCEEDED(hr)) 
+                { 
+                    INetConnection* pCon = 0; 
+                    ULONG count; 
+                    bool bDone = false; 
+                    while (pEnum->Next(1, &pCon, &count) == S_OK && !bDone) 
+                    { 
+                        NETCON_PROPERTIES* pProps = 0; 
+                        hr = pCon->GetProperties(&pProps); 
+                        if(SUCCEEDED(hr)) 
+                        { 		
+                            if(IsEqualGUID(guidId, pProps->guidId) == TRUE)
+                            { 
+                                int nRetry = 3;
+                                if (bEnable) 
+                                {									
+                                    do
+                                    {
+                                        ret = ((hr = pCon->Connect()) == S_OK);											
+                                    }
+                                    while(!ret && --nRetry && (ErrorCOMToWin32(hr) == ERROR_RETRY));
+                                }
+                                else 
+                                {									
+                                    do
+                                    {
+                                        ret = ((hr = pCon->Disconnect()) == S_OK);										
+                                    }
+                                    while(!ret && --nRetry && (ErrorCOMToWin32(hr) == ERROR_RETRY));
+                                }							
+
+                                bDone = true; 
+                            } 
+                            NcFreeNetconProperties(pProps); 
+                        } 
+                        pCon->Release(); 
+                    } 
+                    pEnum->Release(); 
+                } 
+                pConnMan->Release(); 				
+            } 			
+            CoUninitialize(); 
+        }		
+        FreeLibrary(hNSModule); 
+    }
+    return ret; 
+}
+
+/*************************************************
+Function Name: ForbitNetWorkAdapter
+Description: 禁用网卡设备
+Input: 
+            adapterdec:要禁用的网卡的名称
+           Enable:TRUE启动网卡，FALSE关闭网卡
+Output:HP_SUCCESS禁用成功
+              HP_NET_FORBITDEVICE 禁用失败
+**************************************************/
+int CNetWorkConnect::ForbitNetWorkAdapter(char*  adaptername,BOOL Enable)
+{
+    GUID guidId;
+    char guidstr[MAX_PATH]={0};
+    memcpy(guidstr, adaptername, strlen(adaptername));
+    int nLen = strlen(guidstr);
+
+    for(int i=0; i<nLen; i++)
+    {
+        if(guidstr[i]=='{'||guidstr[i]=='}')
+        {
+            for(int j=i;j<nLen;j++)
+                guidstr[j] = guidstr[j+1];
+        }
+    }
+
+    BSTR bstr = _com_util::ConvertStringToBSTR(guidstr);
+    UuidFromStringW((unsigned short*)bstr,&guidId);
+    SysFreeString(bstr);
+    bool res = EnableConnection(guidId, Enable);
+    if (res)
+    {
+        return HP_SUCCESS;
+    }
+    else 
+    {
+        return HP_NETWORK_GETFBDNKFAIL;
+    }
+}
+
+
+/*************************************************
+Function Name: EnableForbitNetWorkAdapter
+Description: 启动被禁用的网卡设备
+Input: 
+            adapterdec:要启动的网卡的名称
+       
+Output:HP_SUCCESS启用成功
+              HP_NETWORK_ENBLENETWORKFAIL 启用网卡失败
+**************************************************/
+int CNetWorkConnect::EnableForbitNetWorkAdapter()
+{
+    int res = HP_NETWORK_ENBLENETWORKFAIL;
+    INetConnectionManager *pManager=NULL;
+    INetConnection *pConnection=NULL;
+    IEnumNetConnection *pEnum=NULL;
+    ULONG           celt;
+    INetSharingManager *pNetSharingManager=NULL;
+    INetSharingConfiguration *pConfiguration=NULL;
+    NETCON_PROPERTIES*   Nproperties=NULL;
+
+    CoInitialize(NULL);//初始化COM库
+
+    CoCreateInstance(CLSID_ConnectionManager, NULL, CLSCTX_SERVER, IID_INetConnectionManager, (void**)&pManager);//创建一个com对象
+    //CLSID_ConnectionManager是创建的Com对象的类标识符(CLSID)
+    //IID_INetConnectionManager是创建的Com对象的接口标识符
+    //最后一个参数是用来接收指向Com对象接口地址的指针变量
+
+    if(pManager == NULL)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"产生异常，创建失败，Error:%d",GetLastError());
+        return res;
+    }
+    /*
+    virtual HRESULT STDMETHODCALLTYPE EnumConnections( 
+    [in]  NETCONMGR_ENUM_FLAGS Flags,
+    [out]  __RPC__deref_out_opt IEnumNetConnection **ppEnum)
+    其中：  第一个参数可以有以下的参数选择、
+    NCME_DEFAULT = 0,
+    NCME_HIDDEN = 0x1*/
+    pManager->EnumConnections(NCME_DEFAULT, &pEnum);//开始枚举网卡
+
+    while(  pEnum->Next(1, &pConnection, &celt) == S_OK )
+    {  
+        /*
+        条件会返回2个值，分别是S_OK，S_FALSE
+        #define S_OK                                   ((HRESULT)0L)
+        #define S_FALSE                                ((HRESULT)1L)
+        */
+
+        pConnection->GetProperties(&Nproperties);
+
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,L"网卡的名称:",Nproperties->pszwDeviceName);
+
+        if((Nproperties->Status == NCS_DISCONNECTING)||(Nproperties->Status == NCS_DISCONNECTED))
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"已经断开连接");
+            char devicename[MAX_PATH] = {0};
+            ConvertW2A(Nproperties->pszwDeviceName,devicename,MAX_PATH);
+            if ( !IsInExcept(devicename))
+            {
+                char guidname[HP_C_USERCONTENTLEN] = {0};
+                sprintf_s(guidname,sizeof(guidname),"{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+                    Nproperties->guidId.Data1,Nproperties->guidId.Data2,Nproperties->guidId.Data3,
+                    Nproperties->guidId.Data4[0],Nproperties->guidId.Data4[1],Nproperties->guidId.Data4[2],
+                    Nproperties->guidId.Data4[3],Nproperties->guidId.Data4[4],Nproperties->guidId.Data4[5],
+                    Nproperties->guidId.Data4[6],Nproperties->guidId.Data4[7]);
+                 ForbitNetWorkAdapter(guidname,TRUE);
+            }
+        }
+       
+    }
+
+    if(pManager) 
+        pManager->Release();
+    if(pConnection) 
+        pConnection->Release();
+    if(pEnum)
+        pEnum->Release();
+    if(pNetSharingManager) 
+        pNetSharingManager->Release();
+    if(pConfiguration) 
+        pConfiguration->Release();
+    CoUninitialize();
+
+    return HP_SUCCESS;
+}
+
+
+int CNetWorkConnect::EnumNetwork()
+{
+    INetConnectionManager *pManager=NULL;
+    INetConnection *pConnection=NULL;
+    IEnumNetConnection *pEnum=NULL;
+    ULONG           celt;
+    INetSharingManager *pNetSharingManager=NULL;
+    INetSharingConfiguration *pConfiguration=NULL;
+    NETCON_PROPERTIES*   Nproperties=NULL;
+
+    CoInitialize(NULL);//初始化COM库
+    //扩展知识：用来告诉 Windows以单线程的方式创建com对象，CoInitialize和CoUninitialize必须成对使用。
+    CoCreateInstance(CLSID_ConnectionManager, NULL, CLSCTX_SERVER, IID_INetConnectionManager, (void**)&pManager);//创建一个com对象
+    //CLSID_ConnectionManager是创建的Com对象的类标识符(CLSID)
+    //IID_INetConnectionManager是创建的Com对象的接口标识符
+    //最后一个参数是用来接收指向Com对象接口地址的指针变量
+    if(pManager == NULL)
+    {
+        char errmsg[MAX_PATH] = {0};
+        sprintf_s(errmsg,MAX_PATH,"产生异常，创建失败，Error:%d\n",GetLastError());
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_NETWORK,LOGLOCATION,errmsg);
+        return -1;
+    }
+
+    list<NETWORKDATA>::iterator iter;
+    for ( iter = m_netwkstatedata.begin();iter != m_netwkstatedata.end(); )
+    {
+        m_netwkstatedata.erase(iter++);
+    }
+	for ( iter = m_failiteminfo.begin();iter != m_failiteminfo.end(); )
+	{
+		m_failiteminfo.erase(iter++);
+	}
+	m_forbitnumber = 0;
+	/*
+	virtual HRESULT STDMETHODCALLTYPE EnumConnections( 
+	[in]  NETCONMGR_ENUM_FLAGS Flags,
+	[out]  __RPC__deref_out_opt IEnumNetConnection **ppEnum)
+	其中：  第一个参数可以有以下的参数选择、
+	NCME_DEFAULT = 0,
+	NCME_HIDDEN = 0x1
+
+	*/
+	NETWORKDATA statetmp;
+	memset(&statetmp,0,sizeof(NETWORKDATA));
+	statetmp.failindex = DEFAULTFAILITEMINDEX;
+
+	pManager->EnumConnections(NCME_DEFAULT, &pEnum);//开始枚举网卡
+
+	while(  pEnum->Next(1, &pConnection, &celt) == S_OK )
+	{  
+		/*
+		条件会返回2个值，分别是S_OK，S_FALSE
+		#define S_OK                                   ((HRESULT)0L)
+		#define S_FALSE                                ((HRESULT)1L)
+		*/
+
+		pConnection->GetProperties(&Nproperties);
+
+		memset(statetmp.guid,0,sizeof(statetmp.guid));
+		sprintf_s(statetmp.guid,sizeof(statetmp.guid),"{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+			Nproperties->guidId.Data1,Nproperties->guidId.Data2,Nproperties->guidId.Data3,
+			Nproperties->guidId.Data4[0],Nproperties->guidId.Data4[1],Nproperties->guidId.Data4[2],
+			Nproperties->guidId.Data4[3],Nproperties->guidId.Data4[4],Nproperties->guidId.Data4[5],
+			Nproperties->guidId.Data4[6],Nproperties->guidId.Data4[7]);
+
+		int len = WideCharToMultiByte(CP_ACP,0,Nproperties->pszwDeviceName,-1,NULL,0,NULL,NULL);
+		char *ascstr = new char[len+1];
+		WideCharToMultiByte(CP_ACP,0,Nproperties->pszwDeviceName,-1,ascstr,len,NULL,NULL);
+		ascstr[len]='\0';
+
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_NETWORK,LOGLOCATION,"网卡描述:",ascstr);
+		memset(statetmp.description,0,sizeof(statetmp.description));
+		memcpy(statetmp.description,ascstr,len);
+		statetmp.description[len]='\0';
+		delete[] ascstr;
+
+		memset(statetmp.state,0,sizeof(statetmp.state));
+		if(Nproperties->Status == NCS_CONNECTED)//查询连接状态的网卡
+		{
+			sprintf_s(statetmp.state,"%d",1);
+		}
+		else if(Nproperties->Status == NCS_DISCONNECTING)//查询断开连接状态的网卡
+		{
+			sprintf_s(statetmp.state,"%d",0);
+		}
+		else if(Nproperties->Status == NCS_DISCONNECTED)//查询断开连接状态的网卡
+		{
+			sprintf_s(statetmp.state,"%d",0);
+		}
+		else if(Nproperties->Status == NCS_CONNECTING)//查询断开连接状态的网卡
+		{
+			sprintf_s(statetmp.state,"%d",1);
+		}
+		else
+			sprintf_s(statetmp.state,"%d",2);
+		/*
+		其中状态值有下面的值：
+		NCS_DISCONNECTED = 0,
+		NCS_CONNECTING = ( NCS_DISCONNECTED + 1 ) ,
+		NCS_CONNECTED = ( NCS_CONNECTING + 1 ) ,
+		NCS_DISCONNECTING = ( NCS_CONNECTED + 1 ) ,
+		NCS_HARDWARE_NOT_PRESENT = ( NCS_DISCONNECTING + 1 ) ,
+		NCS_HARDWARE_DISABLED = ( NCS_HARDWARE_NOT_PRESENT + 1 ) ,
+		NCS_HARDWARE_MALFUNCTION = ( NCS_HARDWARE_DISABLED + 1 ) ,
+		NCS_MEDIA_DISCONNECTED = ( NCS_HARDWARE_MALFUNCTION + 1 ) ,
+		NCS_AUTHENTICATING = ( NCS_MEDIA_DISCONNECTED + 1 ) ,
+		NCS_AUTHENTICATION_SUCCEEDED = ( NCS_AUTHENTICATING + 1 ) ,
+		NCS_AUTHENTICATION_FAILED = ( NCS_AUTHENTICATION_SUCCEEDED + 1 ) ,
+		NCS_INVALID_ADDRESS = ( NCS_AUTHENTICATION_FAILED + 1 ) ,
+		NCS_CREDENTIALS_REQUIRED = ( NCS_INVALID_ADDRESS + 1 ) 
+		NETCON_STATUS;
+		*/
+		if(strcmp(statetmp.state,"0")==0)
+		{
+			char devicename[MAX_PATH] = {0};
+			ConvertW2A(Nproperties->pszwDeviceName,devicename,MAX_PATH);
+			if ( !IsInExcept(devicename))
+			{
+				statetmp.failindex = m_forbitnumber;
+				m_forbitnumber++;
+			}
+			else
+			{
+				statetmp.failindex = DEFAULTFAILITEMINDEX;
+			}
+		}
+		
+		m_netwkstatedata.push_back(statetmp);
+	}
+
+    if(pManager) pManager->Release();
+    if(pConnection) pConnection->Release();
+    if(pEnum) pEnum->Release();
+    if(pNetSharingManager) pNetSharingManager->Release();
+    if(pConfiguration) pConfiguration->Release();
+    CoUninitialize();
+    return HP_SUCCESS;
+}

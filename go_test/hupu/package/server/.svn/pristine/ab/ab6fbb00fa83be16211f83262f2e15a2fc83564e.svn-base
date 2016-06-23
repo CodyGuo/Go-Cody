@@ -1,0 +1,716 @@
+// LogOn.cpp : implementation file
+#include "StdAfx.h"
+#include "LogOn.h"
+#include "ControlName.h"
+#include "GlobalFunction.h"
+
+
+
+const TCHAR MENU_LOGIN_TITLE[] = {_T("MENU_LOGIN_TITLE")};
+const TCHAR MENU_LOGIN_CLOSEBTN[] = {_T("MENU_LOGIN_CLOSEBTN")};
+const TCHAR MENU_LOGIN_ACCOUNTLABEL[] = {_T("MENU_LOGIN_ACCOUNTLABEL")};
+const TCHAR MENU_LOGIN_ACCOUNTEDIT[] = {_T("MENU_LOGIN_ACCOUNTEDIT")};
+const TCHAR MENU_LOGIN_PWDLABEL[] = {_T("MENU_LOGIN_PWDLABEL")};
+const TCHAR MENU_LOGIN_PWDEDIT[] = {_T("MENU_LOGIN_PWDEDIT")};
+const TCHAR MENU_LOGIN_DOMAINLABEL[] = {_T("MENU_LOGIN_DOMAINLABEL")};
+const TCHAR MENU_LOGIN_DOMAINEDIT[] = {_T("MENU_LOGIN_DOMAINEDIT")};
+const TCHAR MENU_LOGIN_DOMAINECOMBO[] = {_T("MENU_LOGIN_DOMAINECOMBO")};
+const TCHAR MENU_LOGIN_DOMAINDEFAULT[] = {_T("MENU_LOGIN_DOMAINDEFAULT")};
+const TCHAR MENU_LOGIN_LOGINBTN[] = {_T("MENU_LOGIN_LOGINBTN")};
+const TCHAR MENU_LOGIN_OPTIONREMPWD[] = {_T("MENU_LOGIN_OPTIONREMPWD")};
+const TCHAR MENU_LOGIN_OPTIONAUTOLOGIN[] = {_T("MENU_LOGIN_OPTIONAUTOLOGIN")};
+const TCHAR MENU_LOGIN_OPTIONUSERTYPE[] = {_T("MENU_LOGIN_OPTIONUSERTYPE")};
+const TCHAR MENU_LOGIN_OPTIONUSER[] = {_T("MENU_LOGIN_OPTIONUSER")};
+const TCHAR MENU_LOGIN_OPTIONGUEST[] = {_T("MENU_LOGIN_OPTIONGUEST")};
+
+const TCHAR DEFAULTPWD[] = {_T("61ce45382bbd")};
+
+CLogOn::CLogOn()
+{
+	 m_benableDomain =FALSE;
+	 m_benableUser = FALSE;
+	 m_benableGuest =FALSE;
+	 m_bShowDefalt = FALSE;
+	 m_bShowServName= FALSE;
+	 m_lang = ENGLISH;
+	 memset(m_dbpwd,0,sizeof(m_dbpwd));
+	memset(m_langinipath,0,sizeof(m_langinipath));
+	
+	list<SERVERADDOMAIN>::iterator  addomainiter;
+	for (addomainiter = m_addomainlist.begin( ); addomainiter != m_addomainlist.end( );  )
+	{
+		m_addomainlist.erase(addomainiter++);
+	}
+	ZeroMemory(&m_guisetting,sizeof(GUISETTING));
+}
+
+LPCTSTR CLogOn::GetWindowClassName() const
+{ 
+	return MenuLogin; 
+}
+
+UINT CLogOn::GetClassStyle() const
+{
+	return UI_CLASSSTYLE_DIALOG; 
+};
+
+void CLogOn::OnFinalMessage(HWND /*hWnd*/) 
+{ 
+	m_pm.RemovePreMessageFilter(this);
+	delete this; 
+};
+
+void CLogOn::Init(wchar_t *xmlpath,LANGUAGETYPE lang,BOOL enableuser,BOOL enableguest,BOOL enabledomain,BOOL bShowDefault,
+	BOOL bShowServName,list<SERVERADDOMAIN> servadlist) 
+{
+	if (xmlpath != NULL)
+	{
+		m_xmlpath=xmlpath;
+	}
+	m_benableUser = enableuser;
+	m_benableGuest = enableguest;
+	m_benableDomain = enabledomain;
+	m_bShowDefalt = bShowDefault;
+	m_bShowServName = bShowServName;
+	memset(m_langinipath,0,sizeof(m_langinipath));
+	wchar_t  dirptahW[MAX_PATH] = {L"0"};
+	ConvertA2W(g_nacdirpath,dirptahW,sizeof(dirptahW));
+	wsprintf(m_langinipath,L"%s\\lang\\%s.ini",dirptahW,LANGUAGECONFIG[lang]);
+	if (m_benableDomain)
+	{
+		m_addomainlist = servadlist;
+	}
+}
+
+void CLogOn::Notify(TNotifyUI& msg)
+{
+	if( msg.sType == _T("click") ) {
+		if( msg.pSender->GetName() == MENU_LOGIN_CLOSEBTN )
+		{
+			Close();
+			return; 
+		}	
+		else if (msg.pSender->GetName() == MENU_LOGIN_LOGINBTN)
+		{
+			CEditUI* pEdit = static_cast<CEditUI*>(m_pm.FindControl(MENU_LOGIN_ACCOUNTEDIT));
+			if( !pEdit->GetText().IsEmpty() ) 
+			{
+				LogInUserFromMenuLogInDlg();
+				Close();
+			}
+			return;
+		}
+		else if( msg.pSender->GetName() == MENU_LOGIN_OPTIONUSER) 
+		{
+			if (m_benableUser)
+			{
+				if (m_benableDomain)
+				{
+					pdomainlabel->SetVisible(true);
+					pcombodomain->SetVisible(true);
+				}
+			}
+			return;
+		}
+		else if (msg.pSender->GetName() == MENU_LOGIN_OPTIONGUEST)
+		{
+			pdomainlabel->SetVisible(false);
+			pcombodomain->SetVisible(false);
+			return;
+		}
+	}
+	else if (msg.sType == _T("itemselect"))
+	{
+		
+	}
+}
+
+LRESULT CLogOn::OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	LONG styleValue = ::GetWindowLong(*this, GWL_STYLE);
+	styleValue &= ~WS_CAPTION;
+	::SetWindowLong(*this, GWL_STYLE, styleValue | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);
+
+	m_pm.Init(m_hWnd);
+	m_pm.AddPreMessageFilter(this);
+	CDialogBuilder builder;
+	CControlUI* pRoot = builder.Create(m_xmlpath.GetData(), (UINT)0,(UINT)0, &m_pm);
+	ASSERT(pRoot && "Failed to parse XML");
+	if (pRoot == NULL )
+	{
+		MessageBox(NULL,L"CLogOnpRoot==NULL",L"error",0);
+		return 0;
+	}
+	if (GetGuiSizeAndFontSize(FALSE,&m_guisetting))
+	{
+		m_pm.SetInitSize(m_guisetting.xsize,m_guisetting.ysize);
+		m_pm.SetDefaultFont(L"微软雅黑",m_guisetting.fontsize,FALSE,FALSE,FALSE);
+	}
+
+	m_pm.AttachDialog(pRoot);
+	m_pm.AddNotifier(this);
+	RECT rcDlg;
+	::GetClientRect(*this, &rcDlg);
+	RECT rcParent;
+	HWND hWndParent = GetDesktopWindow();
+	SystemParametersInfo(SPI_GETWORKAREA, 0, (PVOID)&rcParent, 0);
+	POINT ptParentInScreen;
+	ptParentInScreen.x = rcParent.left;
+	ptParentInScreen.y = rcParent.top;
+	::ClientToScreen(hWndParent, (LPPOINT)&ptParentInScreen);
+	SetWindowPos(*this, NULL,  ptParentInScreen.x+((rcParent.right - rcParent.left)- (rcDlg.right - rcDlg.left))/2 , 
+		ptParentInScreen.y+((rcParent.bottom - rcParent.top)- (rcDlg.bottom - rcDlg.top))/2 , 0, 0,  
+		SWP_NOZORDER | SWP_NOSIZE);
+	InitControlText();
+	GetDbUserInfo();
+	return 0;
+}
+
+LRESULT CLogOn::OnNcActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	if( ::IsIconic(*this) ) bHandled = FALSE;
+	return (wParam == 0) ? TRUE : FALSE;
+}
+
+LRESULT CLogOn::OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	return 0;
+}
+
+LRESULT CLogOn::OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	return 0;
+}
+
+LRESULT CLogOn::OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	POINT pt; pt.x = GET_X_LPARAM(lParam); pt.y = GET_Y_LPARAM(lParam);
+	::ScreenToClient(*this, &pt);
+
+	RECT rcClient;
+	::GetClientRect(*this, &rcClient);
+
+	RECT rcCaption = m_pm.GetCaptionRect();
+	if( pt.x >= rcClient.left + rcCaption.left && pt.x < rcClient.right - rcCaption.right \
+		&& pt.y >= rcCaption.top && pt.y < rcCaption.bottom ) {
+			CControlUI* pControl = static_cast<CControlUI*>(m_pm.FindControl(pt));
+			if( pControl && _tcscmp(pControl->GetClass(), _T("ButtonUI")) != 0 )
+				return HTCAPTION;
+	}
+
+	return HTCLIENT;
+}
+
+LRESULT CLogOn::OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	SIZE szRoundCorner = m_pm.GetRoundCorner();
+	if( !::IsIconic(*this) && (szRoundCorner.cx != 0 || szRoundCorner.cy != 0) ) {
+		DuiLib::CRect rcWnd;
+		::GetWindowRect(*this, &rcWnd);
+		rcWnd.Offset(-rcWnd.left, -rcWnd.top);
+		rcWnd.right++; rcWnd.bottom++;
+		HRGN hRgn = ::CreateRoundRectRgn(rcWnd.left, rcWnd.top, rcWnd.right, rcWnd.bottom, szRoundCorner.cx, szRoundCorner.cy);
+		::SetWindowRgn(*this, hRgn, TRUE);
+		::DeleteObject(hRgn);
+	}
+
+	bHandled = FALSE;
+	return 0;
+}
+
+LRESULT CLogOn::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	LRESULT lRes = 0;
+	BOOL bHandled = TRUE;
+	switch( uMsg ) {
+	case WM_CREATE:        lRes = OnCreate(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCACTIVATE:    lRes = OnNcActivate(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCCALCSIZE:    lRes = OnNcCalcSize(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCPAINT:       lRes = OnNcPaint(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCHITTEST:     lRes = OnNcHitTest(uMsg, wParam, lParam, bHandled); break;
+	case WM_SIZE:          lRes = OnSize(uMsg, wParam, lParam, bHandled); break;
+	case WM_LANGCHANGE:lRes=0;Close();break;
+	default:
+		bHandled = FALSE;
+	}
+	if( bHandled ) return lRes;
+	if( m_pm.MessageHandler(uMsg, wParam, lParam, lRes) ) return lRes;
+	return CWindowWnd::HandleMessage(uMsg, wParam, lParam);
+}
+
+LRESULT CLogOn::MessageHandler(UINT uMsg, WPARAM wParam, LPARAM lParam, bool& bHandled)
+{
+	if( uMsg == WM_KEYDOWN ) {
+		if( wParam == VK_RETURN ) {
+			CEditUI* pEdit = static_cast<CEditUI*>(m_pm.FindControl(MENU_LOGIN_ACCOUNTEDIT));
+			if( pEdit->GetText().IsEmpty() ) pEdit->SetFocus();
+			else {
+				pEdit = static_cast<CEditUI*>(m_pm.FindControl(MENU_LOGIN_PWDEDIT));
+				if( pEdit->GetText().IsEmpty() )
+					pEdit->SetFocus();
+				else
+				{
+					LogInUserFromMenuLogInDlg();
+					Close();
+				}
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
+void  CLogOn::InitControlText()
+{
+	CLabelUI  *ptitle = static_cast<CLabelUI*>(m_pm.FindControl(MENU_LOGIN_TITLE));
+	if (ptitle)
+	{
+		wchar_t titlenanme[MAX_PATH] = {L"0"};
+		GetPrivateProfileString(MenuLogin,MENU_LOGIN_TITLE,MENU_LOGIN_TITLE,titlenanme,sizeof(titlenanme),m_langinipath);
+		ptitle->SetText(titlenanme);
+		if (m_guisetting.xsize != 0 )
+		{
+			ptitle->SetAttribute(L"width",m_guisetting.lefttextwidth);
+		}
+	}
+
+	CLabelUI  *pusertypelabel = static_cast<CLabelUI*>(m_pm.FindControl(MENU_LOGIN_OPTIONUSERTYPE));
+	if (pusertypelabel)
+	{
+		wchar_t usetype[MAX_PATH] = {L"0"};
+		GetPrivateProfileString(MenuLogin,MENU_LOGIN_OPTIONUSERTYPE,MENU_LOGIN_OPTIONUSERTYPE,usetype,sizeof(usetype),m_langinipath);
+		pusertypelabel->SetText(usetype);
+		if (m_guisetting.xsize != 0 )
+		{
+			pusertypelabel->SetAttribute(L"width",m_guisetting.lefttextwidth);
+		}
+	}
+
+	CLabelUI  *paccountlabel = static_cast<CLabelUI*>(m_pm.FindControl(MENU_LOGIN_ACCOUNTLABEL));
+	if (pusertypelabel)
+	{
+		wchar_t account[MAX_PATH] = {L"0"};
+		GetPrivateProfileString(MenuLogin,MENU_LOGIN_ACCOUNTLABEL,MENU_LOGIN_ACCOUNTLABEL,account,sizeof(account),m_langinipath);
+		paccountlabel->SetText(account);
+		if (m_guisetting.xsize != 0 )
+		{
+			paccountlabel->SetAttribute(L"width",m_guisetting.lefttextwidth);
+		}
+	}
+
+	CLabelUI  *ppwdlabel = static_cast<CLabelUI*>(m_pm.FindControl(MENU_LOGIN_PWDLABEL));
+	if (ppwdlabel)
+	{
+		wchar_t pwdlabel[MAX_PATH] = {L"0"};
+		GetPrivateProfileString(MenuLogin,MENU_LOGIN_PWDLABEL,MENU_LOGIN_PWDLABEL,pwdlabel,sizeof(pwdlabel),m_langinipath);
+		ppwdlabel->SetText(pwdlabel);
+		if (m_guisetting.xsize != 0 )
+		{
+			ppwdlabel->SetAttribute(L"width",m_guisetting.lefttextwidth);
+		}
+	}
+
+	CButtonUI *pbuttontext = static_cast<CButtonUI*>(m_pm.FindControl(MENU_LOGIN_LOGINBTN));
+	if (pbuttontext)
+	{
+		wchar_t ploginlabel[MAX_PATH] = {L"0"};
+		GetPrivateProfileString(MenuLogin,MENU_LOGIN_LOGINBTN,MENU_LOGIN_LOGINBTN,ploginlabel,sizeof(ploginlabel),m_langinipath);
+		pbuttontext->SetText(ploginlabel);
+		if (m_guisetting.xsize != 0 )
+		{
+			pbuttontext->SetAttribute(L"width",m_guisetting.lefttextwidth);
+		}
+	}
+
+	poptionuser  = static_cast<COptionUI*>(m_pm.FindControl(MENU_LOGIN_OPTIONUSER));
+	if (poptionuser)
+	{
+		wchar_t optionuser[MAX_PATH] = {L"0"};
+		GetPrivateProfileString(MenuLogin,MENU_LOGIN_OPTIONUSER,MENU_LOGIN_OPTIONUSER,optionuser,sizeof(optionuser),m_langinipath);
+		poptionuser->SetText(optionuser);     
+		if (m_guisetting.xsize != 0 )
+		{
+			poptionuser->SetAttribute(L"width",m_guisetting.lefttextwidth);
+		}
+		if (m_benableUser)
+		{
+			poptionuser->SetEnabled(true);
+			poptionuser->Selected(true);
+		}
+		else
+		{
+			poptionuser->SetEnabled(false);
+			poptionuser->Selected(false);
+		}
+	}
+
+	poptionguest = static_cast<COptionUI*>(m_pm.FindControl(MENU_LOGIN_OPTIONGUEST));
+	if (poptionguest)
+	{
+		wchar_t optionguest[MAX_PATH] = {L"0"};
+		GetPrivateProfileString(MenuLogin,MENU_LOGIN_OPTIONGUEST,MENU_LOGIN_OPTIONGUEST,optionguest,sizeof(optionguest),m_langinipath);
+		poptionguest->SetText(optionguest);  
+		if (m_guisetting.xsize != 0 )
+		{
+			poptionguest->SetAttribute(L"width",m_guisetting.lefttextwidth);
+		}
+		if (m_benableGuest)
+		{
+			poptionguest->SetEnabled(true);
+			if (!m_benableUser)
+			{
+				poptionguest->Selected(true);
+			}
+		}
+		else
+		{
+			poptionguest->SetEnabled(false);
+			poptionguest->Selected(false);
+		}
+	}
+
+	poptionrmbpwd = static_cast<COptionUI*>(m_pm.FindControl(MENU_LOGIN_OPTIONREMPWD));
+	if (poptionrmbpwd)
+	{
+		wchar_t optionrmbpwd[MAX_PATH] = {L"0"};
+		GetPrivateProfileString(MenuLogin,MENU_LOGIN_OPTIONREMPWD,MENU_LOGIN_OPTIONREMPWD,optionrmbpwd,sizeof(optionrmbpwd),m_langinipath);
+		poptionrmbpwd->SetText(optionrmbpwd);       
+		if (m_guisetting.xsize != 0 )
+		{
+			poptionrmbpwd->SetAttribute(L"width",m_guisetting.lefttextwidth);
+		}
+		poptionrmbpwd->SetAttribute(L"selected",L"false");
+	}
+
+	poptionautologin = static_cast<COptionUI*>(m_pm.FindControl(MENU_LOGIN_OPTIONAUTOLOGIN));
+	if (poptionautologin)
+	{
+		wchar_t optionlogin[MAX_PATH] = {L"0"};
+		GetPrivateProfileString(MenuLogin,MENU_LOGIN_OPTIONAUTOLOGIN,MENU_LOGIN_OPTIONAUTOLOGIN,optionlogin,sizeof(optionlogin),m_langinipath);
+		poptionautologin->SetText(optionlogin);       
+		if (m_guisetting.xsize != 0 )
+		{
+			poptionautologin->SetAttribute(L"width",m_guisetting.lefttextwidth);
+		}
+		poptionautologin->SetAttribute(L"selected",L"false");
+	}
+
+	pdomainlabel = static_cast<CLabelUI*>(m_pm.FindControl(MENU_LOGIN_DOMAINLABEL));
+	if (pdomainlabel)
+	{
+		if (m_benableUser && m_benableDomain)
+		{
+			wchar_t pdomaintext[MAX_PATH] = {L"0"};
+			GetPrivateProfileString(MenuLogin,MENU_LOGIN_DOMAINLABEL,MENU_LOGIN_DOMAINLABEL,pdomaintext,sizeof(pdomaintext),m_langinipath);
+			pdomainlabel->SetText(pdomaintext);
+			if (m_guisetting.xsize != 0 )
+			{
+				pdomainlabel->SetAttribute(L"width",m_guisetting.lefttextwidth);
+			}
+		}
+		else
+		{
+			pdomainlabel->SetVisible(false);
+		}
+	}
+
+		pcombodomain = static_cast<CComboUI*>(m_pm.FindControl(MENU_LOGIN_DOMAINECOMBO));
+		if (pcombodomain)
+		{
+			if (m_benableUser && m_benableDomain)
+			{
+			    if (m_bShowDefalt ||(m_addomainlist.size()==0))
+			    {
+					CListLabelElementUI *pLabel = new CListLabelElementUI;        
+					wchar_t defaultdomain[MAX_PATH] = {L"0"};
+					GetPrivateProfileString(MenuLogin,MENU_LOGIN_DOMAINDEFAULT,MENU_LOGIN_DOMAINDEFAULT,defaultdomain,sizeof(defaultdomain),m_langinipath);
+					pLabel->SetAttribute(_T("text"),defaultdomain);      
+					pcombodomain->Add(pLabel);   
+			    }
+				if (m_addomainlist.size()>0)
+				{
+					list<SERVERADDOMAIN>::iterator  addomainiter;
+					for (addomainiter = m_addomainlist.begin( ); addomainiter != m_addomainlist.end( );  ++addomainiter)
+					{
+						SERVERADDOMAIN domainvalue = *addomainiter;
+
+						wchar_t domainName[MAX_PATH] = {L"0"};
+						if (m_bShowServName)
+							ConvertA2UTF8W(domainvalue.domainservname.c_str(),domainName,sizeof(domainName));
+						else
+							ConvertA2UTF8W(domainvalue.domainname.c_str(),domainName,sizeof(domainName));
+						CListLabelElementUI *pLabel = new CListLabelElementUI;        
+						pLabel->SetAttribute(_T("text"),domainName );      
+						pcombodomain->Add(pLabel);           
+					}
+				}
+
+				pcombodomain->SelectItem(0);
+			}
+			else
+			{
+				pcombodomain->SetVisible(false);
+			}
+		}
+
+	paccountedit = static_cast<CEditUI*>(m_pm.FindControl(MENU_LOGIN_ACCOUNTEDIT));
+	if (paccountedit)
+	{
+		paccountedit->SetFocus();
+	}
+
+	ppwdedit = static_cast<CEditUI*>(m_pm.FindControl(MENU_LOGIN_PWDEDIT));
+
+}
+
+ void CLogOn::GetDbUserInfo()
+ {
+	 wstring wstrDbPath = L"";
+
+	 wstrDbPath = AnsiToWChar(g_nacdirpath);
+	 wstrDbPath += L"\\nacdata.db";
+
+	 SERVREGISTERUSERTYPE servusertype =  ENABLENOOEN;
+	 if (m_benableUser && (!m_benableGuest))
+	 {
+		 servusertype = ENABLEUSER;
+	 }
+	 else if ((!m_benableUser) && m_benableGuest)
+	 {
+		 servusertype = ENABLEGUEST;
+	 }
+	 else
+	 {
+		 servusertype = ENABLETOTLE;
+	 }
+
+	 USERINFO dbuserinfo;
+	 memset(&dbuserinfo,0,sizeof(USERINFO));
+
+	 CUserInfo getdbuser;
+	 if(HP_SUCCESS ==getdbuser.GetUserNameAndPassWordFromDB(const_cast<wchar_t*>(wstrDbPath.c_str()), 0,servusertype, &dbuserinfo))
+	 {
+		 int userindex = dbuserinfo.userid;
+		 if(userindex>0)
+		 {
+			 wstring wstrUserName = L"";
+
+			 wstrUserName = AnsiToWChar(dbuserinfo.username.c_str());
+
+			 if (dbuserinfo.usertype == USER)
+			 {
+				 if (poptionuser)
+				 {
+					 poptionuser->SetAttribute(L"selected",L"true");
+				 }
+			 }
+			 if ( dbuserinfo.usertype == GUESTUSER )
+			 {
+				 if (poptionguest)
+				 {
+					 poptionguest->SetAttribute(L"selected",L"true");
+				 }
+			 }
+			 if (paccountedit)
+			 {
+				 paccountedit->SetText(wstrUserName.c_str());
+			 }
+			 if (ppwdedit)
+			 {
+				 if ((dbuserinfo.remberpwd)||(dbuserinfo.autologon))
+				 {
+					 ppwdedit->SetText(DEFAULTPWD);
+					 sprintf_s(m_dbpwd,sizeof(m_dbpwd),"%s",dbuserinfo.userpwd.c_str());
+				 }
+			 }
+			 if (poptionrmbpwd)
+			 {
+				 if (dbuserinfo.remberpwd)
+				 {
+					 poptionrmbpwd->SetAttribute(L"selected",L"true");
+				 }
+				 else
+				 {
+				    poptionrmbpwd->SetAttribute(L"selected",L"false");
+				 }
+			 }
+			 if (poptionautologin)
+			 {
+				 if (dbuserinfo.autologon)
+				 {
+					 poptionautologin->SetAttribute(L"selected",L"true");
+					 //只要是自动登录的用户一定会记住密码
+					  poptionrmbpwd->SetAttribute(L"selected",L"true");
+				 }
+				 else
+				 {
+					 poptionautologin->SetAttribute(L"selected",L"false");
+				 }
+			 }
+
+			 if (dbuserinfo.usertype == GUESTUSER)
+			 {
+				 pdomainlabel->SetVisible(false);
+				 pcombodomain->SetVisible(false);
+			 }
+			 else
+			 {
+				 if (dbuserinfo.userdomain == "0")
+				 {
+					 pcombodomain->SelectItem(0);
+				 }
+				 else
+				 {
+					 int comboxid = 0;
+					 if (GetComboxIndex(atoi(dbuserinfo.userdomain.c_str()),&comboxid))
+					 {
+						 pcombodomain->SelectItem(comboxid);
+					 }
+					 else
+					 {
+						 pcombodomain->SelectItem(0);
+					 }
+				 }
+			 }
+		 }
+		 else
+		 {
+			 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "当前没有用户");
+		 }
+	 }
+ }
+
+BOOL CLogOn::GetComboxIndex(int servindexid,int* comboId)
+{
+	int Index=0;
+	if ((m_bShowDefalt) && (servindexid == 0))
+	{
+		*comboId = 0;
+		return TRUE;
+	}
+	else if ((m_bShowDefalt)&&(servindexid != 0))
+	{
+		Index=1;
+	}
+	else
+	{
+		Index=0;
+	}
+	list<SERVERADDOMAIN>::iterator  addomainiter;
+	for (addomainiter = m_addomainlist.begin( ); addomainiter != m_addomainlist.end( );  ++addomainiter)
+	{
+		SERVERADDOMAIN domainvalue = *addomainiter;
+		if (domainvalue.domainid == servindexid)
+		{
+			*comboId = Index;
+			return TRUE;
+		}
+		else
+		{
+			Index++;
+		}
+	}
+	return FALSE;
+}
+
+ BOOL CLogOn::GetDomainIdFromCombox(int comboid,int *servindex)
+ {
+	 int Index=0;
+	 if ((m_bShowDefalt)&&(comboid == 0 ))//第一个是默认
+	 {
+		*servindex = 0;
+		return TRUE;
+	 }
+	 if (m_bShowDefalt)
+	 {
+		 Index = 1;
+	 }
+	 list<SERVERADDOMAIN>::iterator  addomainiter;
+	 for (addomainiter = m_addomainlist.begin( ); addomainiter != m_addomainlist.end( );  ++addomainiter)
+	 {
+		 SERVERADDOMAIN domainvalue = *addomainiter;
+		 if (Index == comboid )
+		 {
+			 *servindex = domainvalue.domainid;
+			 return TRUE;
+		 }
+		 else
+		 {
+			 Index++;
+		 }
+	 }
+	 return FALSE;
+ }
+
+ void CLogOn::LogInUserFromMenuLogInDlg()
+ {
+	 USERINFO *loginuser = new USERINFO;
+	 memset(loginuser,0,sizeof(USERINFO)); 
+
+	 BOOL bUsertype = 0;
+	 if (poptionuser)
+	 { 
+		  bUsertype=poptionuser->IsSelected();
+		  if (bUsertype)
+		  {
+			   loginuser->usertype =USER;
+		  }
+		  else
+		  {
+			  loginuser->usertype = GUESTUSER;
+		  }
+	 }
+	
+	 if (paccountedit)
+	 {
+		 char username[MAX_PATH] = {"0"};
+		 ConvertW2A(paccountedit->GetText(),username,sizeof(username));
+		 loginuser->username = username;
+	 }
+	if (ppwdedit)
+	{
+		if(wcscmp(ppwdedit->GetText(),DEFAULTPWD))
+		{
+			char userpwd[MAX_PATH] = {"0"};
+			ConvertW2A(ppwdedit->GetText(),userpwd,sizeof(userpwd));
+			loginuser->userpwd = userpwd;
+		}
+		else
+		{
+			loginuser->userpwd = m_dbpwd;
+		}
+	}
+	if (poptionrmbpwd)
+	{
+		bool bSel= poptionrmbpwd->IsSelected();
+		if (bSel)
+		{
+			loginuser->remberpwd = 1;
+		}
+	}
+	if (poptionautologin)
+	{
+		bool bSel= poptionautologin->IsSelected();
+		if (bSel)
+		{
+			loginuser->autologon = 1;
+		}
+	}
+
+	if (pcombodomain)
+	{
+		int selindex = pcombodomain->GetCurSel();
+		int adservid = 0;
+		if (GetDomainIdFromCombox(selindex,&adservid))
+		{
+			char adservstr[HP_C_USERCONTENTLEN] = {"0"};
+			sprintf_s(adservstr,sizeof(adservstr),"%d",adservid);
+			loginuser->userdomain=adservstr;
+		}
+		else
+		{
+			loginuser->userdomain="0";
+		}
+	}
+	::PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd, WM_LOCALUSERLOGIN, (WPARAM)loginuser, (LPARAM)L"1");
+ }

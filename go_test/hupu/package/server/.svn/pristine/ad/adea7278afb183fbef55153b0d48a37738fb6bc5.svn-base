@@ -1,0 +1,139 @@
+#pragma once
+
+#include "..\DuilibConfig.h"
+
+#include  "..\resource.h"
+#include "afxwin.h"
+
+const int DEFAULTTIMEOUT = 3*60*1000;
+
+#include <string>
+#include <list>
+using namespace std;
+
+#include "..\GlobalDate.h"
+#include "..\GUISetting.h"
+
+////域服务器名称及域ip
+typedef struct _ADSERVERNAMEIP
+{
+	int domainid;
+
+	//域服务器名称
+	string serverName;
+
+	//域服务器ip,可能有多个，即存在备用ip，中间使用,分割
+	string serverIp;
+
+	bool operator < (_ADSERVERNAMEIP & b) {
+		return domainid < b.domainid;
+	}
+
+}ADSERVERNAMEIP;
+
+// CDomainIdentydlg dialog
+typedef enum DOMAINUSERIDENTIFYRESULT
+{
+	DOMAINIDENTSUCCESS = 1,//域用户验证成功
+	DOMAINIDENTFAIL,//域用户验证失败
+	DOMAINIDENTTIMEOUT,//域用户验证超时
+	DOMAINIDENTCANCEL,
+};
+
+class CDomainIdentydlg : public CWindowWnd, public INotifyUI, public IMessageFilterUI
+{
+public:
+	CDomainIdentydlg();
+
+	LPCTSTR GetWindowClassName() const ;
+	UINT GetClassStyle() const ;
+	void OnFinalMessage(HWND /*hWnd*/);
+
+	void Init(wchar_t *xmlpath,LANGUAGETYPE lang,BOOL bDomadol,unsigned long  timeoutValue,list<ADSERVERNAMEIP>&  domainserverlist);
+
+	void Notify(TNotifyUI& msg);
+
+	LRESULT OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT OnLButtonClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+
+	LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+	LRESULT MessageHandler(UINT uMsg, WPARAM wParam, LPARAM lParam, bool& bHandled);
+
+	void  InitControlText();
+
+	char m_identifyUserName[MAX_PATH];
+
+	char m_identifyDomainName[MAX_PATH];
+
+public:
+	CPaintManagerUI m_pm;
+	//域用户验证结果
+	int   m_bidentifyResult;
+
+private:
+	CStdString m_xmlpath;
+	LANGUAGETYPE m_lang;
+	wchar_t m_langinipath[MAX_PATH];
+
+	CComboUI *pcombodomain;
+	CEditUI *paccountedit;
+	CEditUI *ppwdedit;
+	CLabelUI *pperrtip;
+	CButtonUI *pidenbtn;
+
+	//服务器超时时间
+	unsigned long m_timeouttime;
+
+	//线程句柄
+	HANDLE m_timeoutHandle;
+
+	//验证域用户线程
+	HANDLE m_identifyHandle;
+
+	//对话框可以退出的标志
+	BOOL  m_bexit;
+
+	//是否为模式对话框
+	BOOL m_bDomadol;
+
+	BOOL m_benablebtn;
+
+	GUISETTING  m_guisetting;
+
+	//域用户列表信息
+	list<ADSERVERNAMEIP> m_domainservlist;
+
+	//验证是否是域用户登录
+	BOOL identifyDomainUserLogon();
+
+	//域用户验证超时时间处理
+	static UINT WINAPI dlgTimeoutThread(LPVOID  pParam);
+
+	BOOL identifyDomainUser();
+
+	//验证域用户信息
+	static UINT WINAPI dlgIdentifyThread(LPVOID  pParam);
+
+	//使用当前用户信息验证域用户
+	BOOL IdentifyDomainUseCurrentUser(wchar_t *exepath,wchar_t* paraminfo,int timeout);
+
+	//释放资源
+	void freedlgResource();
+
+	void SendMainDlgMessage();
+
+	void SetForegroundWindowInternal(HWND hWnd);
+
+};

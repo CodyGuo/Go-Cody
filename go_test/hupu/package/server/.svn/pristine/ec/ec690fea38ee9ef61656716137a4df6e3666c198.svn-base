@@ -1,0 +1,233 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#include "stdafx.h"
+#include <Windows.h>
+#include <winsvc.h>
+#include "CheckService.h"
+#include "CommData.h"
+#include "..\GetLangValue.h"
+
+string CheckServiceIsExist(IN const char* pServiceName, 
+							IN int iCheckCondition, 
+							IN LANGUAGETYPE language,
+							IN int iTrigger, 
+							OUT string& strTrigrSucc)
+{
+	string strRet = "";
+	SC_HANDLE hScMgr = NULL;
+	SC_HANDLE hService = NULL;
+	vector<string> vectStr;
+
+	vectStr.push_back((string)pServiceName);
+	hScMgr = OpenSCManager( NULL, NULL, SC_MANAGER_ALL_ACCESS );
+
+	if( hScMgr != NULL )  
+	{
+		hService = ::OpenServiceA(hScMgr, pServiceName, SERVICE_QUERY_STATUS);
+		if (hService != NULL)
+		{
+			::CloseServiceHandle(hService);
+			hService = NULL;
+			if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+			{
+				strRet = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_SERVICE_EXIST],
+					pSfCustomKeyStr[SF_SERVICE_EXIST],
+					MAX_BUF_LEN,
+					2,
+					vectStr);
+			}
+			else if (iTrigger == CHECK_TRIGGER_VOILATION)
+			{
+				strTrigrSucc = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_SERVICE_EXIST],
+					pSfCustomKeyStr[SF_SERVICE_EXIST],
+					MAX_BUF_LEN,
+					2,
+					vectStr);
+			}
+		}
+		else
+		{
+			if (iCheckCondition == CHECK_EXIST_FLAG)
+			{
+				strRet = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_SERVICE_NOT_EXIST],
+					pSfCustomKeyStr[SF_SERVICE_NOT_EXIST],
+					MAX_BUF_LEN,
+					2,
+					vectStr);
+			}
+			else if (iTrigger == CHECK_TRIGGER_VOILATION)
+			{
+				strTrigrSucc = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_SERVICE_NOT_EXIST],
+					pSfCustomKeyStr[SF_SERVICE_NOT_EXIST],
+					MAX_BUF_LEN,
+					2,
+					vectStr);
+			}
+		}
+		::CloseServiceHandle(hScMgr);
+		hScMgr = NULL;
+	}		
+
+	return strRet;
+}
+
+string CheckServiceStatus(IN const char* pServiceName, 
+						IN int iCheckCondition, 
+						IN LANGUAGETYPE language, 
+						IN int iTrigger, 
+						OUT string& strTrigrSucc)
+{
+	string strRet = "";
+	SC_HANDLE hScMgr = NULL;
+	SC_HANDLE hService = NULL;
+	SERVICE_STATUS service_status;
+	vector<string> vectStr;
+
+	vectStr.push_back((string)pServiceName);
+	hScMgr = OpenSCManager( NULL, NULL, SC_MANAGER_ALL_ACCESS );
+
+	if( hScMgr != NULL )  
+	{
+		hService = ::OpenServiceA(hScMgr, pServiceName, SERVICE_QUERY_STATUS);
+		if (hService != NULL)
+		{
+			if (QueryServiceStatus(hService, &service_status))
+			{
+				if ( service_status.dwCurrentState == SERVICE_RUNNING || 
+					service_status.dwCurrentState == SERVICE_START_PENDING)
+				{
+					if (iCheckCondition == CHECK_NOT_RUNNING_FLAG)
+					{
+						strRet = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_SERVICE_RUN],
+							pSfCustomKeyStr[SF_SERVICE_RUN],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+					else if (iTrigger == CHECK_TRIGGER_VOILATION)
+					{
+						strTrigrSucc = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_SERVICE_RUN],
+							pSfCustomKeyStr[SF_SERVICE_RUN],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+				}
+				else
+				{
+					if (iCheckCondition == CHECK_RUNNING_FLAG)
+					{
+						strRet = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_SERVICE_NOT_RUN],
+							pSfCustomKeyStr[SF_SERVICE_NOT_RUN],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+					else if (iTrigger == CHECK_TRIGGER_VOILATION)
+					{
+						strTrigrSucc = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_SERVICE_NOT_RUN],
+							pSfCustomKeyStr[SF_SERVICE_NOT_RUN],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+					}
+				}
+			}
+			else
+			{
+				printf("QueryServiceStatus failed[ret:%d]\n", GetLastError());
+			}
+			::CloseServiceHandle(hService);
+			hService = NULL;		
+		}
+		else
+		{
+			if (iCheckCondition == CHECK_RUNNING_FLAG)
+			{
+				strRet = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_SERVICE_NOT_EXIST],
+					pSfCustomKeyStr[SF_SERVICE_NOT_EXIST],
+					MAX_BUF_LEN,
+					2,
+					vectStr);
+			}
+			else if (iTrigger == CHECK_TRIGGER_VOILATION)
+			{
+				strTrigrSucc = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_SERVICE_NOT_EXIST],
+					pSfCustomKeyStr[SF_SERVICE_NOT_EXIST],
+					MAX_BUF_LEN,
+					2,
+					vectStr);
+			}
+		}
+		::CloseServiceHandle(hScMgr);
+		hScMgr = NULL;
+	}		
+
+	return strRet;
+}
+
+LONG StartOrShutdownService(IN const char* pServiceName, IN int iSetFlag)
+{
+	LONG lRet =FALSE;
+	SC_HANDLE hScMgr = NULL;
+	SC_HANDLE hService = NULL;
+
+	hScMgr = OpenSCManager( NULL, NULL, SC_MANAGER_ALL_ACCESS );
+
+	if( hScMgr != NULL )  
+	{
+		hService = ::OpenServiceA(hScMgr, pServiceName, SERVICE_START|SERVICE_STOP);
+		if (hService != NULL)
+		{
+			if (iSetFlag == START_SERVICE_FLAG)
+			{
+				lRet = StartService( hService, NULL, NULL );  
+				if( lRet )  
+				{  
+					lRet = TRUE;
+				}	
+			}
+			else if (iSetFlag == STOP_SERVICE_FLAG)
+			{
+				SERVICE_STATUS SvrSta;
+
+				lRet = ControlService( hService, SERVICE_CONTROL_STOP, &SvrSta ); 
+				if( lRet )  
+				{  
+					lRet = TRUE;
+				}	
+			}
+			::CloseServiceHandle(hService);
+			hService = NULL;		
+		}
+		::CloseServiceHandle(hScMgr);
+		hScMgr = NULL;
+	}		
+
+	return lRet;
+}

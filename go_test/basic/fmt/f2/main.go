@@ -15,5 +15,5 @@ func even(a int) (array []int) {
 }
 
 func main() {
-	fmt.Printf("0~n之间的偶数: %v\n", even(100))
+	fmt.Printf("0~n之间的偶数: %v\n", even(1000))
 }

@@ -1,0 +1,183 @@
+
+// hpidmnac.cpp : Defines the class behaviors for the application.
+//
+
+#include "stdafx.h"
+#include "hpidmnac.h"
+#include "hpidmnacDlg.h"
+
+#include "DebugInfo.h"
+#include "mdump.h" 
+#include "GlobalFunction.h"
+
+#ifdef _DEBUG
+#define new DEBUG_NEW
+#endif
+
+#define WSA_VERSION  MAKEWORD(2,0)
+#define MAX_HOSTNAME 256
+#define MAX_HOSTADDR 40
+
+// ChpidmnacApp
+
+BEGIN_MESSAGE_MAP(ChpidmnacApp, CWinApp)
+	ON_COMMAND(ID_HELP, &CWinApp::OnHelp)
+END_MESSAGE_MAP()
+
+// ChpidmnacApp construction
+
+ChpidmnacApp::ChpidmnacApp()
+{
+	// support Restart Manager
+	m_dwRestartManagerSupportFlags = AFX_RESTART_MANAGER_SUPPORT_RESTART;
+
+	// TODO: add construction code here,
+	// Place all significant initialization in InitInstance
+}
+
+// The one and only ChpidmnacApp object
+
+ChpidmnacApp theApp;
+
+void MyInvalidParameterHandler(
+	const wchar_t* expression,
+	const wchar_t* function, 
+	const wchar_t* file, 
+	unsigned int line, 
+	uintptr_t pReserved)
+{
+	UNREFERENCED_PARAMETER(line);
+	UNREFERENCED_PARAMETER(pReserved);
+
+	wstring wstrError = L"";
+
+	wstrError = L"Invalid parameter detected in function ";
+	wstrError += function;
+	wstrError += L" File: ";
+	wstrError += file;
+	wstrError += L" Expression: ";
+	wstrError += expression;
+
+
+	OutputDebugString(wstrError.c_str());
+
+	throw 1;
+}
+
+void MyPurecallHandler(void)
+{
+	throw 1;
+}
+// ChpidmnacApp initialization
+
+BOOL ChpidmnacApp::InitInstance()
+{
+    try
+    {
+        // InitCommonControlsEx() is required on Windows XP if an application
+        // manifest specifies use of ComCtl32.dll version 6 or later to enable
+        // visual styles.  Otherwise, any window creation will fail.
+
+        INITCOMMONCONTROLSEX InitCtrls;
+
+        InitCtrls.dwSize = sizeof(InitCtrls);
+
+        // Set this to include all the common control classes you want to use
+        // in your application.
+        InitCtrls.dwICC = ICC_WIN95_CLASSES;
+        InitCommonControlsEx(&InitCtrls);
+
+        CWinApp::InitInstance();
+
+		_invalid_parameter_handler oldHandler;
+		_purecall_handler old_pure_handle;
+
+		oldHandler = _set_invalid_parameter_handler(MyInvalidParameterHandler);
+		old_pure_handle = _set_purecall_handler(MyPurecallHandler);
+     
+        if (!AfxSocketInit())
+        {
+            AfxMessageBox(IDP_SOCKETS_INIT_FAILED);
+            return FALSE;
+        }
+
+        WSADATA WSAData = { 0 };
+        if ( 0 != WSAStartup( WSA_VERSION, &WSAData ) )
+        {
+            // Tell the user that we could not find a usable
+            // WinSock DLL.
+            if ( LOBYTE( WSAData.wVersion ) != LOBYTE(WSA_VERSION) ||
+                HIBYTE( WSAData.wVersion ) != HIBYTE(WSA_VERSION) )
+			{
+#ifdef _DEBUG
+				::MessageBox(NULL, _T("Incorrect version of WS2_32.dll found"), _T("Error"), MB_OK);
+#endif
+			}
+            WSACleanup();
+            return FALSE;
+        }
+
+	   
+        AfxEnableControlContainer();
+
+        // Create the shell manager, in case the dialog contains
+        // any shell tree view or shell list view controls.
+        CShellManager *pShellManager = new CShellManager;
+
+        // Standard initialization
+        // If you are not using these features and wish to reduce the size
+        // of your final executable, you should remove from the following
+        // the specific initialization routines you do not need
+        // Change the registry key under which our settings are stored
+        // TODO: You should modify this string to be something appropriate
+        // such as the name of your company or organization
+        SetRegistryKey(_T("Local AppWizard-Generated Applications"));
+		BOOL nResponse = FALSE;
+		
+		CoInitialize(NULL);
+
+			//隐藏初始化的界面窗口 ，初始化界面窗口Visible = FALSE
+			ChpidmnacDlg *dlg = new ChpidmnacDlg;
+			m_pMainWnd = dlg;
+
+			 nResponse = dlg->Create(IDD_HPIDMNAC_DIALOG);
+
+			// Delete the shell manager created above.
+			if (pShellManager != NULL)
+				delete pShellManager;
+		
+        return nResponse;
+
+        if (nResponse == IDOK)
+        {
+            // TODO: Place code here to handle when the dialog is
+            //  dismissed with OK
+        }
+        else if (nResponse == IDCANCEL)
+        {
+            // TODO: Place code here to handle when the dialog is
+            //  dismissed with Cancel
+        }
+
+        // Delete the shell manager created above.
+        if (pShellManager != NULL)
+        {
+            delete pShellManager;
+        }
+
+		CoUninitialize();
+
+        // Since the dialog has been closed, return FALSE so that we exit the
+        //  application, rather than start the application's message pump.
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+		::MessageBox(NULL, L"InitInstance Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "InitInstance Exception");
+    }
+
+	return FALSE;
+}
+

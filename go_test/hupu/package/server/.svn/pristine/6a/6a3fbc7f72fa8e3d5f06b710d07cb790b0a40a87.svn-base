@@ -1,0 +1,29 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _8021XCOMMUNICATE_H
+#define _8021XCOMMUNICATE_H 1
+
+#include "Global.h"
+
+typedef struct _GLOBAL_DATA
+{
+	HWND hWnd ;
+	USERDATA m_UserData;
+	
+}GLOBAL_DATA, *PGLOBAL_DATA;
+
+extern GLOBAL_DATA m_global_data;
+extern BOOL bThreadRunFlag;
+extern BOOL m_connect_status;
+
+void CloseAdapter();
+void Connect();
+void DisConnect();
+
+#endif

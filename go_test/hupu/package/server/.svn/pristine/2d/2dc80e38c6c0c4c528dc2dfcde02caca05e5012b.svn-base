@@ -1,0 +1,13 @@
+#pragma once
+
+
+class Guest
+{
+public:
+	Guest(void);
+	~Guest(void);
+
+    int GetGuestState(DWORD &dFlag);
+    BOOL SetGuestState(int iflag);       
+};
+

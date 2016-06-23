@@ -1,0 +1,297 @@
+#include "StdAfx.h"
+#include "NetworkChangeInfo.h"
+
+#include <afxctl.h>
+
+#include "..\DebugInfo.h"
+
+#include <Winsvc.h>
+#pragma  comment(lib,"Advapi32.lib")
+
+const wchar_t  NLAServiceName[] = {L"NlaSvc"};
+
+ PFCALLBACK  gCallBack = NULL;
+
+
+CNetworkChangeInfo::CNetworkChangeInfo(void):
+      m_ostype(WINERROR)
+{
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CNetworkChangeInfo");
+	m_ostype=GetOSVersion();
+
+	m_pcpcont = NULL;
+	m_icp=NULL;
+	m_pNLM=NULL;
+	m_pSink=NULL;
+	 m_pUnkSink=NULL;
+}
+
+
+CNetworkChangeInfo::~CNetworkChangeInfo(void)
+{
+	CoUninitialize();
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"~CNetworkChangeInfo");
+}
+
+BOOL CNetworkChangeInfo::StartGetNetWorkChange(PFCALLBACK  pcallback)
+{
+	StartNLAService();
+
+	BOOL bRet = FALSE;
+	gCallBack = pcallback;
+	if (m_ostype == WINERROR )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"未知操作系统类型");
+		return bRet;
+	}
+	else if (m_ostype ==  WINVISTABLOW)
+	{
+		CNLANetwork *ptrNetworkAvailabilityCheck = CNLANetwork::GetNetworkAvailability();
+		if(!ptrNetworkAvailabilityCheck)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"ptrNetworkAvailabilityCheck=NULL");
+			return bRet;
+		}
+		ptrNetworkAvailabilityCheck->SetNotificationType(APCNotification);
+
+		ptrNetworkAvailabilityCheck->RegisterAPCNotification(APCInvoked,(void*)"1,1");
+
+		ptrNetworkAvailabilityCheck->LookForConnectionChange(/*false*/);
+
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"LookForConnectionChange");
+
+		bRet = TRUE;
+	}
+	else
+	{
+		CoInitialize( NULL ); 
+
+		HRESULT Result = CoCreateInstance(CLSID_NetworkListManager, NULL, CLSCTX_ALL, 
+			IID_IUnknown, (void **)&m_pUnkSink);
+		if (SUCCEEDED(Result))
+		{
+			Result = m_pUnkSink->QueryInterface(IID_INetworkListManager, (void **)&m_pNLM);
+			if (SUCCEEDED(Result))
+			{
+				VARIANT_BOOL IsConnect = VARIANT_FALSE;
+				Result = m_pNLM->get_IsConnectedToInternet(&IsConnect);
+				if (SUCCEEDED(Result))
+				{
+					WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"IsConnect Result ", IsConnect);	
+				}
+
+				Result = m_pNLM->QueryInterface(IID_IConnectionPointContainer, (void **)&m_pcpcont);
+				if (SUCCEEDED(Result))
+				{
+					Result = m_pcpcont->FindConnectionPoint(IID_INetworkListManagerEvents, &m_icp);
+					if(SUCCEEDED(Result))
+					{
+						 m_pSink = new CNLMNetwork;
+						Result = m_icp->Advise((IUnknown *)m_pSink, &m_dwCookie);
+						if (SUCCEEDED(Result))
+						{
+							WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"Advise Success");	
+						}
+					}
+					else
+					{
+						WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"FindConnectionPoint Fail");	
+					}
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"QueryInterface Fail");	
+				}
+			}
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CoCreateInstance Fail");	
+		}
+			
+	}
+	return bRet;
+}
+
+ void CNetworkChangeInfo::APCInvoked(void *ptrNotificationContext)
+{
+	UNREFERENCED_PARAMETER(ptrNotificationContext);
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"APCInvoked");
+	gCallBack(1,1);
+}
+
+ BOOL CNetworkChangeInfo::StopNetWorkChange()
+ {	
+	 BOOL bRet = TRUE;
+	 if (m_ostype == WINERROR )
+	 {
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"不支持的操作系统");
+		 return bRet;
+	 }
+	 else if (m_ostype ==  WINVISTABLOW)
+	 {
+		 CNLANetwork *ptrNetworkAvailabilityCheck = CNLANetwork::GetNetworkAvailability();
+		 if(!ptrNetworkAvailabilityCheck)
+		 {
+			 //couldn't get network availability check instance
+			 WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"ptrNetworkAvailabilityCheck=NULL");
+			 return FALSE;
+		 }
+
+		 //Step-4 : Stops notification
+		 ptrNetworkAvailabilityCheck->StopLookForConnectionChange();
+		 bRet = TRUE;
+	 }
+	 else
+	 {
+		 if (m_icp)
+		 {
+			  m_icp->Unadvise(m_dwCookie);
+		 }
+		if (m_pcpcont)
+		{
+			m_pcpcont->Release();
+			m_pcpcont = NULL;
+		}
+		if (m_pNLM)
+		{
+			m_pNLM->Release();
+			m_pNLM =NULL;
+		}
+		if (m_pUnkSink)
+		{
+			m_pUnkSink->Release();
+			m_pUnkSink = NULL;
+		}
+	 }
+	 return bRet;
+ }
+
+ BOOL CNetworkChangeInfo::GetNtVersion(DWORD& dwMajorVer, DWORD& dwMinorVer,DWORD& dwBuildNumber)
+ {
+	 try
+	 {
+		 BOOL  bRet= FALSE;
+		 HMODULE hModNtdll= NULL;
+		 if (hModNtdll= ::LoadLibraryW(L"ntdll.dll"))
+		 {
+			 typedef void (WINAPI *pfRTLGETNTVERSIONNUMBERS)(DWORD*,DWORD*, DWORD*);
+			 pfRTLGETNTVERSIONNUMBERS pfRtlGetNtVersionNumbers;
+			 pfRtlGetNtVersionNumbers = (pfRTLGETNTVERSIONNUMBERS)::GetProcAddress(hModNtdll, "RtlGetNtVersionNumbers");
+			 if (pfRtlGetNtVersionNumbers)
+			 {
+				 pfRtlGetNtVersionNumbers(&dwMajorVer, &dwMinorVer,&dwBuildNumber);
+				 dwBuildNumber&= 0x0ffff;
+				 bRet = TRUE;
+			 }
+			 else
+			 {
+				 WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"pfRtlGetNtVersionNumbers=NULL");
+			 }
+			 ::FreeLibrary(hModNtdll);
+			 hModNtdll = NULL;
+		 }
+		 return bRet;
+	 }
+	 catch (...)
+	 {
+		 return FALSE;
+	 }
+ }
+
+
+ OPSYSTEMTYPE  CNetworkChangeInfo::GetOSVersion()
+ {
+	 OPSYSTEMTYPE ostype = WINERROR;
+
+	 DWORD MajorInfo = 0;
+	 DWORD MinorInfo = 0;
+	 DWORD BuildInfo = 0;
+
+	 BOOL bOsVersionInfoEx = GetNtVersion(MajorInfo,MinorInfo,BuildInfo);
+	 if ( !bOsVersionInfoEx)
+	 {
+		 WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"bOsVersionInfoEx FAIL");
+		 return ostype;
+	 }
+	 //下面根据版本信息判断操作系统名称
+	 switch(MajorInfo)//主版本号
+	 {
+	 case 4:
+		 {
+			 ostype = WINERROR;
+		 }
+		 break;
+	 case 5:
+		 {
+			 switch(MinorInfo)
+			 {
+			 case 0:
+				 {
+					 ostype = WINVISTABLOW;
+				 }
+				 break;
+			 case 1:
+			 case 2:
+				 {
+					 ostype = WINVISTABLOW;
+				 }
+				 break;
+			 }
+		 }
+		 break;
+	 case 6:
+		 {
+			 ostype = WINVISTATOWIN8;
+		 }
+		 break;
+	 case 10:
+		 {
+			 ostype = WIN10ORHIGH;
+		 }
+	 default :
+		 ostype = WIN10ORHIGH;
+		 break;
+	 }
+	 return ostype;
+ }
+
+ BOOL CNetworkChangeInfo::StartNLAService()
+ {
+	 SC_HANDLE schSCManager;
+	 SC_HANDLE schService;
+	 schSCManager = OpenSCManager(NULL, NULL,SC_MANAGER_ALL_ACCESS);
+	 if (NULL == schSCManager)
+	 {
+		 WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"OpenSCManager failed (%d)",GetLastError());
+		 return FALSE;
+	 }
+	 // Get a handle to the service.
+	 schService = OpenService(schSCManager,NLAServiceName, SERVICE_START | SERVICE_QUERY_STATUS | SERVICE_STOP); 
+	 if (schService == NULL)
+	 {
+		 WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"OpenService failed (%d)",GetLastError());
+		 CloseServiceHandle(schSCManager);
+		 return FALSE;
+	 }
+	 SERVICE_STATUS status;   
+	 if( ::QueryServiceStatus( schService, &status) == FALSE)   
+	 {   
+		 ::CloseServiceHandle( schService);   
+		 ::CloseServiceHandle( schSCManager);   
+		 return FALSE;   
+	 }   
+	 if(status.dwCurrentState == SERVICE_RUNNING)   
+	 {   
+		 ::CloseServiceHandle( schService);   
+		 ::CloseServiceHandle( schSCManager);   
+		 return TRUE;   
+	 }   
+	 if (status.dwCheckPoint == SERVICE_STOP)
+	 {
+		 StartService(schService, 0, NULL);
+	 }
+	 CloseServiceHandle(schService);
+	 CloseServiceHandle(schSCManager);
+	 return TRUE;
+ }

@@ -1,0 +1,59 @@
+#pragma once
+#include "afxcmn.h"
+#include "afxwin.h"
+#include "SymbolEdit.h"
+
+// CSystemLog dialog
+
+class CSystemLog : public CDialogEx
+{
+	DECLARE_DYNAMIC(CSystemLog)
+
+public:
+	CSystemLog(CWnd* pParent = NULL);   // standard constructor
+	virtual ~CSystemLog();
+
+// Dialog Data
+	enum { IDD = IDD_SYSTEMLOG };
+
+protected:
+
+    virtual BOOL OnInitDialog();
+    virtual BOOL PreTranslateMessage(MSG* pMsg);
+
+	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
+
+	DECLARE_MESSAGE_MAP()
+public:
+    CListCtrl m_syslogView;
+    CSymbolEdit m_serach;
+
+    CBitmap m_bmp;
+    ::CSize   m_size;
+
+    afx_msg void OnSize(UINT nType, int cx, int cy);
+
+   void DeleteLogInfo(wchar_t* dirpath);
+
+  void showDbSystemLog(char* searchcont=NULL);
+
+  void saveDbSystemLog();
+
+  afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
+
+  afx_msg void OnStnClickedLogexport();
+  afx_msg void OnStnDblclickLogexport();
+
+  bool getLogExportPath(bool isSystem,CString &filePathName);
+
+  //判断当前程序是否SYSTEM权限
+  bool IsSystemPrivilege();
+
+  //模拟当前用户登录
+  bool ImpersonateLoggedOnUserFun(wchar_t *desktopPath);
+
+
+  CStatic m_export;
+  CFont m_font;
+  HANDLE m_userToken;
+};

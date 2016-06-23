@@ -1,0 +1,867 @@
+#include "StdAfx.h"
+#include "DebugInfo.h"
+#include "EstablishSocket.h"
+#include "SafeCheckFuntion.h"
+#include "OpStgClass.h"
+#include "JobThread/HandleJob1.h"
+#include "xml\tinyxml.h"
+#include "GetLangValue.h"
+#include "GlobalFunction.h"
+
+/************************************************************
+ Description: 处理认证策略
+ input: 
+ Return: NULL
+*************************************************************/
+void CEstablishSocket::HandleCertificationStg(char *certistg)
+{
+	try
+	{
+		int res = m_cstg.parseCertificationXml(certistg);
+
+		if (res == HP_SUCCESS)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "解析成功认证流程");
+			SetSilentConfigAndWriteInIniFile();
+			char currUserId[HP_C_USERCONTENTLEN] = {"0"};
+			m_cstg.GetUserId(currUserId,sizeof(currUserId));
+			int stgusertype = m_cstg.GetUserType();
+			if ((atoi(currUserId)==0)&&(stgusertype == TEMPUSER))//表示为根用户
+			{
+				m_enableautologin = m_cstg.GetAutoRegisterOnline();
+				m_servusertype = rightMenuUserType();
+			}
+
+			int statflag = GetPrivateProfileIntA("Param", "state", STATELESS, m_inifilepath.c_str());
+
+			if (DeviceForbitTip(statflag))
+			{
+				return;
+			}
+			if ( statflag == LOGOFF )//身份为未认证
+			{
+				if (ShowWebbrowserWithUserRigister(m_servusertype) || ShowWebbrowserWithWebConfig())
+				{
+					return;
+				}
+
+				if(m_userinfo.usercomfrom != USERAUTOLOGON)
+				{
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "用户类型不是自动认证的类型");
+					return;
+				}
+				
+				if (m_cstg.Getinstallhelp() || m_cstg.Getsystemsafecheck())
+				{
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "需要安装小助手");
+
+					if (m_cstg.Getsystemsafecheck())
+					{
+						if( (((stgusertype == TEMPUSER) && (atoi(currUserId) == 0))||  //表示为根用户
+							(atoi(currUserId)>0)) &&
+							(m_enableautologin))
+						{
+							//拉取用户策略,并且执行一遍安检策略,根据安检结果请求上下线  
+							m_iStgUserId = m_userinfo.userid;
+							m_iStgUserType = m_userinfo.usertype;
+
+							GetAllStagInfo(m_userinfo.userid,m_userinfo.usertype);
+							HandleJob1  safecheckontimer;
+							char reqtimetype[HP_C_USERCONTENTLEN] = {0};
+
+							sprintf_s(reqtimetype,HP_C_USERCONTENTLEN,"%d",AUTOLOGONTIME);
+							safecheckontimer.InitParam(g_EstliSocket.m_hComm,CLIENT_GET_TIMESTAMP_FLAG, reqtimetype);
+							safecheckontimer.execute();
+						}					
+					}
+					//没有系统安检，直接用户请求上线
+					else
+					{
+						if( (((stgusertype == TEMPUSER) && (atoi(currUserId) == 0)) ||  //表示为根用户
+							(atoi(currUserId)>0)) &&
+							(m_enableautologin))
+						{
+							WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "没有系统安检");
+
+							char autoregSucc[MAX_PATH] = {"0"};
+							GetLangValueByKeyA((LANGUAGETYPE)m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_AUTOREDISTER],
+								SOCKTIPKEYSTR[SOCK_TIP_AUTOREDISTER],autoregSucc,sizeof(autoregSucc));
+
+							SendServerOfflineOrOnlineInfo(LOGON,autoregSucc);
+						}					
+					}
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "不需要安装小助手");
+				}
+
+			}
+			else //身份为已认证
+			{
+				//首先判断是否存在用户认证
+				if (m_servusertype != ENABLENOOEN/*(m_cstg.Getusercertification())||(m_cstg.Getguestcertification())*/)//表示开启了员工或者来宾认证
+				{
+					if ((m_userinfo.userid == atoi(currUserId)) &&(m_userinfo.usertype == stgusertype))
+					{
+						//判断是否需要开启定时安检
+						if ( (statflag == LOGON) || (statflag == LOGONISOLATION) ||(statflag == KEYISOLATION))
+						{
+							if(m_cstg.Getsystemsafecheck())//请求一遍流量控制策略
+							{
+								GetSubItemStgInfo(m_userinfo.userid, m_userinfo.usertype, NETMON);
+							}
+							if (m_cstg.Getfrequency())
+							{
+								m_esFCbFn(ONLINEUSERSTARTSFOMTIMER, "1", strlen("1"));
+							}
+						}
+					}
+					else
+					{
+						GetRegisterStgInfo( m_userinfo.userid, m_userinfo.usertype );
+					}
+				}
+				else
+				{
+						if ((stgusertype == TEMPUSER)&&(atoi(currUserId) == 0))
+						{
+							//判断是否需要开启定时安检
+							if ( (statflag == LOGON) || (statflag == LOGONISOLATION) ||(statflag == KEYISOLATION))
+							{
+								if (m_cstg.Getfrequency())
+								{
+									m_esFCbFn(ONLINEUSERSTARTSFOMTIMER, "1", strlen("1"));
+								}
+								if(m_cstg.Getsystemsafecheck())//请求一遍流量控制策略
+								{
+									GetSubItemStgInfo(m_userinfo.userid, m_userinfo.usertype, NETMON);
+								}
+							}
+						}
+				}
+			}
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "没有解析成功认证流程");
+		}
+	}
+	catch (...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleCertificationStg Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleCertificationStg Exception", L"Msg", 0);
+#endif
+	}
+}
+
+
+//设置静默模式,并记录值到ini中
+void CEstablishSocket::SetSilentConfigAndWriteInIniFile()
+{
+    try
+    {
+        m_iTipMsgSilence = m_cstg.GetSilenceConfig();
+        char tipMsgConfig[HP_C_USERCONTENTLEN] = {0};
+        sprintf_s(tipMsgConfig,sizeof(tipMsgConfig),"%d",m_iTipMsgSilence);
+        WritePrivateProfileStringA("TipMsg", "Silence", tipMsgConfig, m_inifilepath.c_str());
+
+		m_noUninstallCode = m_cstg.GetUninstallCodeConfig();
+		char uninstallcodeStr[HP_C_USERCONTENTLEN] = {"0"};
+		sprintf_s(uninstallcodeStr,sizeof(uninstallcodeStr),"%d",m_noUninstallCode);
+		WritePrivateProfileStringA("TipMsg", "UninstallCode", tipMsgConfig, m_inifilepath.c_str());
+
+        m_esFCbFn(GETSILENCECONFIG, tipMsgConfig, strlen(tipMsgConfig));
+    }
+    catch (...)
+    {
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SetSilentConfigAndWriteInIniFile Exception");
+#ifdef _DEBUG
+        MessageBox(NULL, L"SetSilentConfigAndWriteInIniFile Exception", L"Msg", 0);
+#endif
+    }
+}
+
+//保存通讯日志信息
+int  CEstablishSocket::SaveSocketDataInDb(wchar_t* installpath, char* lpBuffer, int dwCount)
+{
+    char currtime[HP_C_USERCONTENTLEN] = {0};
+    SYSTEMTIME st;
+
+    GetLocalTime(&st);
+    sprintf_s(  currtime, sizeof(currtime),  "%04d-%02d-%02d %02d:%02d:%02d", st.wYear,st.wMonth,st.wDay,st.wHour,st.wMinute,st.wSecond);
+
+    char sql[HP_C_SQLDATA]={0};
+    if ( dwCount < 512)//256是数据库中的表字段
+    {
+        sprintf_s(sql,HP_C_SQLDATA,"INSERT INTO systemlog(logtype,writetime,loginfo) VALUES(1,\"%s\",\"%s\")",currtime,lpBuffer);	
+    }
+    else
+    {
+       return -1;//不保存数据
+    }
+       OpStgClass opstg;
+    return opstg.SaveLogInDb(installpath,sql,strlen(sql));
+}
+
+
+//查看身份认证界面是否已经打开：已经打开则放回成功，没有打开则返回失败
+BOOL CEstablishSocket::bAlreadyOpenWebRegister()
+{
+	wstring webDes = L"Authentication";
+	return bFindWindowsTitle(webDes,FALSE,NULL);
+}
+
+BOOL CEstablishSocket::safeCheckAndSendResultToServer(IN SFSAFECHECKTYPE sfchecktype, IN LANGUAGETYPE language,IN char* timestamp,
+	IN BOOL bSendResToServer,OUT int* safeCheckIndex,OUT int* safeCheckRes)
+{
+	if ( !GetStgTotalCount())
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "拉取用户的安检策略");
+		m_iStgUserId = m_userinfo.userid;
+		m_iStgUserType = m_userinfo.usertype;
+		GetAllStagInfo(m_userinfo.userid, m_userinfo.usertype);
+	}
+	BOOL bTotalSFStg = FALSE;
+	DWORD  sfstarttime = GetTickCount();
+	while ( GetTickCount()-sfstarttime < SAFECHECKTIMEOUT )
+	{
+		if ( GetStgTotalCount())
+		{
+			bTotalSFStg = TRUE;
+			break;
+		}
+		else//如果服务器先通知了客户端安检，然后通知用户名和密码的情况，导致客户端没有新的用户的
+			//安检策略
+		{
+			 if(!((m_iStgUserId == m_userinfo.userid) &&(m_iStgUserType == m_userinfo.usertype)))
+			{
+				m_iStgUserId = m_userinfo.userid;
+				m_iStgUserType = m_userinfo.usertype;
+				GetAllStagInfo(m_userinfo.userid, m_userinfo.usertype);
+			}
+		}
+		Sleep(100);
+	}
+	if ( !bTotalSFStg)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "开始系统安检时获取安检信息超时");
+		SendSuccessSafeCheckResultToServ(timestamp,TRUE);
+		return FALSE;
+	}
+
+    int currsafechecknum = 0;//当前开始的整个系统安检的下标
+    int i = 0;
+
+    for ( i=0; i<SAFECHECKSAMETIMENUM; i++)
+    {
+        if (strcmp(m_sfmake[i].timeval,DEFAULTTIMESTAMP) == 0 )
+        {
+            currsafechecknum = i;
+            *safeCheckIndex = i;
+            break;
+        }
+    }
+    if ( i == SAFECHECKSAMETIMENUM )
+    {
+        //客户端已经不支持同时这么多安检项,清空前四项数据重新填值
+		 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "当前可以使用的安检项已经用完");
+		 //给第一项赋值
+         currsafechecknum = 0;
+		 memset(m_sfmake[currsafechecknum].timeval,0,sizeof(m_sfmake[currsafechecknum].timeval));
+		 memcpy(m_sfmake[currsafechecknum].timeval,timestamp,strlen(timestamp));
+		 //清空后三项数据
+		 int izeronum = min(SAFECHECKMAXZERONUM,SAFECHECKSAMETIMENUM);
+		 for (int j=1;j<izeronum;j++)
+		 {
+			 memset(m_sfmake[j].timeval,0,sizeof(m_sfmake[j].timeval));
+			 memcpy(m_sfmake[j].timeval,DEFAULTTIMESTAMP,strlen(DEFAULTTIMESTAMP));
+		 }
+    }
+    else
+    {
+		char msginfo[MAX_PATH] = {"0"};
+		sprintf_s(msginfo,sizeof(msginfo),"start sfcheck,time=%s",timestamp);
+		 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, msginfo);
+        memset(m_sfmake[currsafechecknum].timeval,0,sizeof(m_sfmake[currsafechecknum].timeval));
+        memcpy(m_sfmake[currsafechecknum].timeval,timestamp,strlen(timestamp));
+    }
+    char currtimestamp[20] = {0};
+    sprintf_s(currtimestamp,sizeof(currtimestamp),"%s",timestamp);
+    SendTotalItemAndFirstItem(currtimestamp,currsafechecknum,bSendResToServer);
+    *safeCheckRes = SendSafeCheckDetailInfo(sfchecktype,language,currtimestamp,currsafechecknum,bSendResToServer);
+
+    if ( *safeCheckRes == HP_SUCCESS )//该安检数据存储区可以释放
+    {
+        memset(m_sfmake[currsafechecknum].timeval,0,sizeof(m_sfmake[currsafechecknum].timeval));
+        memcpy(m_sfmake[currsafechecknum].timeval,DEFAULTTIMESTAMP,strlen(DEFAULTTIMESTAMP));
+    }
+    return TRUE;
+}
+
+void CEstablishSocket::SendSuccessSafeCheckResultToServ(char* servtimeval, BOOL bSendResToServer)
+{
+    char sendbuffer[MAX_PATH]={0};
+    sprintf_s(sendbuffer,MAX_PATH,"%s;0;-1",servtimeval);
+	HandleJob1 totalsafeitem;
+	totalsafeitem.InitParam(g_EstliSocket.m_hComm,SERVER_NOTICE_CLIENT_START_CHECK_FLAG, sendbuffer);
+    totalsafeitem.execute();
+
+    char showMac[MACADDRESSLEN] = {0};
+    m_result.Hide();
+    GetLocalMac(showMac);
+    if (bSendResToServer)
+    {
+        NoSafeCheckItemToServer(servtimeval, showMac);
+    }
+}
+
+//记录socket连接的客户端ip地址
+BOOL CEstablishSocket::WriteSocketConnectIp(char* sockconnip)
+{
+	try
+	{
+		string strIniFilePath = "";
+		char socketMac[MACADDRESSLEN] = {0};
+
+		strIniFilePath = g_nacdirpath;
+		strIniFilePath += "\\data\\VersAndLog_config.ini";
+
+		BYTE MacAddr[MACADDRESSBYTE] = {0};
+		DWORD phyLength = MACADDRESSBYTE;
+		IPAddr ipaddrsour = inet_addr(sockconnip);
+		SendARP(ipaddrsour, NULL, MacAddr, &phyLength);
+		sprintf_s(socketMac, MACADDRESSLEN, "%02X-%02X-%02X-%02X-%02X-%02X", MacAddr[0], MacAddr[1], MacAddr[2], MacAddr[3], MacAddr[4], MacAddr[5]);
+		WritePrivateProfileStringA("Device", "SOCKETIP", sockconnip, strIniFilePath.c_str());
+		WritePrivateProfileStringA("Device", "SOCKETMAC", socketMac, strIniFilePath.c_str());
+		return TRUE;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL,L"WriteSocketConnectIp exception",L"err",0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"WriteSocketConnectIp exception");
+		return FALSE;
+	}
+	return TRUE;
+}
+
+
+//实时监测的线程处理
+UINT WINAPI CEstablishSocket::startRealtimeThread(LPVOID pParam)
+{
+	CEstablishSocket* pThis = reinterpret_cast<CEstablishSocket*>(pParam);
+	_ASSERTE(pThis != NULL);
+
+	try
+	{
+		memset(pThis->m_syncServtime,0,sizeof(pThis->m_syncServtime));
+
+		HandleJob1  safecheckontimer;
+		char reqtimetype[HP_C_USERCONTENTLEN] = {0};
+		sprintf_s(reqtimetype,HP_C_USERCONTENTLEN,"%d",REALTIMESAFECHECKTIME);
+		safecheckontimer.InitParam(g_EstliSocket.m_hComm,CLIENT_GET_TIMESTAMP_FLAG, reqtimetype);
+		safecheckontimer.execute();
+
+		//等待30s服务器回传当前的时间戳
+		const int waitservtime = 30000;
+		BOOL bRet = FALSE;
+		 DWORD dwstarttime = GetTickCount();
+		 while ((GetTickCount()-dwstarttime) <waitservtime )
+		 {
+			 if (strcmp(pThis->m_syncServtime,""))
+			 {
+				 bRet = TRUE;
+				 pThis->m_sfrealTime.setExitFlag(TRUE);
+				 pThis->m_sfrealTime.stopThread();
+				 pThis->m_sfrealTime.init(pThis->m_syncServtime,pThis->m_userinfo.userid,pThis->m_userinfo.usertype);
+				 pThis->m_sfrealTime.execSafeCheckRealtime();
+				 break;
+			 }
+			 Sleep(100);
+		 }
+	    if ( !bRet)
+	    {
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "开始实时安检时没有获取到服务器时间");
+	    }
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"startRealtimeThread Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "startRealtimeThread Exception");
+	}
+
+	return 1L;
+}
+
+//开启违规外联的安检项的检测
+void CEstablishSocket::startIllegalInternetSafeCheck(BOOL bStart)
+{
+	if ( m_hsfrealtime != NULL )
+	{
+		m_sfrealTime.setExitFlag(TRUE);
+		m_sfrealTime.stopThread();
+		CloseHandle(m_hsfrealtime);
+		m_hsfrealtime = NULL;
+	}
+
+	if (bStart)
+	{
+		UINT uiThreadId = 0;
+
+		m_hsfrealtime = (HANDLE)_beginthreadex(NULL, 
+			0,   
+			startRealtimeThread,  
+			this,   
+			CREATE_SUSPENDED,   
+			&uiThreadId);  
+		if (NULL!=m_hsfrealtime)
+		{
+			ResumeThread(m_hsfrealtime);
+		}
+	}
+	else
+	{
+		m_sfrealTime.Canceillinternetsafecheck();
+	}
+}
+
+SERVREGISTERUSERTYPE  CEstablishSocket::rightMenuUserType()
+{
+	SERVREGISTERUSERTYPE servusertype = ENABLENOOEN;
+	int enableuser = m_cstg.Getusercertification();
+	int enableguest = m_cstg.Getguestcertification();
+	int enabledomainreg = m_cstg.GetStartdomainregist();
+	if (enableuser && !enableguest)
+	{
+		servusertype = ENABLEUSER;
+	}
+	else if (!enableuser && enableguest)
+	{
+		servusertype = ENABLEGUEST;
+	}
+	else if (enableuser && enableguest)
+	{
+		servusertype = ENABLETOTLE;
+	}
+	else
+	{
+		servusertype = ENABLENOOEN;
+	}
+	char userAndGuestIndex[HP_C_USERCONTENTLEN]={"0"};
+	sprintf_s(userAndGuestIndex,sizeof(userAndGuestIndex),"%d;%d;%d;%d;%d",enableuser,enableguest,
+		enabledomainreg,m_cstg.GetShowDefaultInFDomain(),m_cstg.GetShowDomainServerName());
+	m_esFCbFn(ROOTCERTIFICATION, userAndGuestIndex, strlen(userAndGuestIndex));//将是否开启来宾和用户认证数据传递到dlg类
+	return servusertype;
+}
+
+ //在设备不在线的时设备禁止入网：若设备禁止入网则返回TRUE,否则返回FALSE
+BOOL CEstablishSocket::DeviceForbitTip(int devicestat)
+{
+	 m_enableDeviceRegister = m_cstg.GetEnableDeviceToregisterConfig();
+	if ( devicestat == LOGOFF )//身份为未认证
+	{
+		if (m_enableDeviceRegister)
+		{
+			m_enableDeviceRegister = LOGOFFWITHENBLEDEVICE;
+		}
+		else
+		{
+			m_enableDeviceRegister = LOGOFFWITHNOENBLEDEVICE;
+			//服务器禁用设备入网,直接返回
+			if (AfxGetApp()->GetMainWnd()->m_hWnd != NULL )
+			{
+				PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd,UM_DEVICEFORBIT,(WPARAM)L"1",(LPARAM)L"1");
+			}
+			return TRUE;
+		}
+	}
+	else
+	{
+		if (m_enableDeviceRegister)
+		{
+			m_enableDeviceRegister = LOGONWITHENBLEDEVICE;
+		}
+		else
+		{
+			m_enableDeviceRegister = LOGONWITHNOENBLEDEVICE;
+		}
+	}
+	return FALSE;
+}
+
+
+ BOOL  CEstablishSocket::ShowWebbrowserWithUserRigister(SERVREGISTERUSERTYPE servusertype)
+ {
+	  if ( m_cstg.Getusercertification() || m_cstg.Getguestcertification())
+	  {
+		  if(m_userinfo.usercomfrom == USERFROMDEVICESTATE )
+		  {
+			  //判断是否开启了本地用户认证
+			  if (m_enableautologin)
+			  {
+				  WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "本地用户登陆");
+				  if ( !UserLogOnData(servusertype) )
+				  {
+					  if ( !bAlreadyOpenWebRegister() )
+					  {
+						  WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "打开web页面进行用户登录");
+						  m_esFCbFn(SHOWWEBPAGE, "1", strlen("1"));
+					  }
+					   return  TRUE;
+				  }
+				  else
+				  {
+					  return TRUE;//查询到用户，本地用户进行登录
+				  }
+			  }
+		  }
+	  }
+	  return FALSE;
+ }
+
+  BOOL CEstablishSocket::ShowWebbrowserWithWebConfig()
+   {
+	   char netappset[MAX_PATH] = {0};
+	   if (m_cstg.Getuserdynamicform()||m_cstg.Getdevicedynamicforms()||(m_cstg.GetapplicationAuthen())||
+		   m_cstg.GetNetAPPcheck(netappset,sizeof(netappset)))
+	   {
+		   if ( !bAlreadyOpenWebRegister() )
+		   {
+			   m_esFCbFn(SHOWWEBPAGE, "1", strlen("1"));
+		   }
+		    return TRUE;
+	   }
+	   return FALSE;
+   }
+
+
+ int CEstablishSocket::GetServerADDomainInfo(IN char* addomainmsg,IN int totallen)
+  {
+	   UNREFERENCED_PARAMETER(totallen);
+
+		  if ( strcmp(addomainmsg,"0") == 0 )
+		  {
+			  list<SERVERADDOMAIN>::iterator  addomainiter;
+			  for (addomainiter = m_addomainlist.begin( ); addomainiter != m_addomainlist.end( );  )
+			  {
+				  m_addomainlist.erase(addomainiter++);
+			  }
+			   WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "服务器没有配置域服务器");
+			   m_esFCbFn(CLIENT_GET_ADDOMAININFO,"1",strlen("1"));
+			   return HP_SUCCESS;
+		  }
+
+		  try
+		  {
+
+		  TiXmlDocument* myDocument = new TiXmlDocument();
+		  if (myDocument==NULL)
+		  {
+			  WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "new TiXmlDocument Fail");
+			   m_esFCbFn(CLIENT_GET_ADDOMAININFO,"1",strlen("1"));
+			  return HP_XML_LOADXMLFAILED;
+		  }
+
+		  myDocument->Parse(addomainmsg);
+		  if (myDocument->Error())
+		  {
+			   m_esFCbFn(CLIENT_GET_ADDOMAININFO,"1",strlen("1"));
+			  WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "new TiXmlDocument Fail");
+			  delete myDocument;
+			  return HP_XML_LOADXMLFAILED;
+		  }
+		  TiXmlElement *rootElement = myDocument->RootElement();//<nac>
+		  if (rootElement==NULL)
+		  {
+			   m_esFCbFn(CLIENT_GET_ADDOMAININFO,"1",strlen("1"));
+			  WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION,"RootElement Fail");
+			  delete myDocument;
+			  return HP_XML_LOADXMLFAILED;
+		  }
+		  TiXmlElement *imanElement = rootElement->FirstChildElement();
+		  if (imanElement==NULL)
+		  {
+			   m_esFCbFn(CLIENT_GET_ADDOMAININFO,"1",strlen("1"));
+			  WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION,"FirstChildElement Fail");
+			  delete myDocument;
+			  return HP_XML_LOADXMLFAILED;
+		  }
+
+		  list<SERVERADDOMAIN>::iterator  addomainiter;
+		  for (addomainiter = m_addomainlist.begin( ); addomainiter != m_addomainlist.end( );  )
+		  {
+			  m_addomainlist.erase(addomainiter++);
+		  }
+
+		  while(imanElement)
+		  {
+			  TiXmlElement *subitemElement = imanElement->FirstChildElement();//<domain>
+			  if (subitemElement==NULL)
+			  {
+				  WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "get domain node fail");
+			  }
+
+			  SERVERADDOMAIN tmpaddomain;
+			  memset(&tmpaddomain,0,sizeof(SERVERADDOMAIN));
+
+			  while(subitemElement)
+			  {
+				  if (strcmp((char*)subitemElement->Value(),"iadid")==0)
+				  {
+					  tmpaddomain.domainid = atoi((char*)subitemElement->GetText());
+				  }
+				  else if (strcmp((char*)subitemElement->Value(),"sserverdomain")==0)
+				  {
+					 tmpaddomain.domainname = (char*)subitemElement->GetText();
+				  }
+				  else if (strcmp((char*)subitemElement->Value(),"sservername")==0)
+				  {
+					  tmpaddomain.domainservname = (char*)subitemElement->GetText();
+				  }
+				  subitemElement=subitemElement->NextSiblingElement();
+			  }//while(subitemElement)
+
+			  m_addomainlist.push_back(tmpaddomain);
+
+			  imanElement = imanElement->NextSiblingElement();
+		  }//while(imanElement)
+
+		  delete myDocument;
+		   m_esFCbFn(CLIENT_GET_ADDOMAININFO,"1",strlen("1"));
+		  return HP_SUCCESS;
+	  }
+	  catch (...)
+	  {
+#ifdef _DEBUG
+		  ::MessageBox(NULL, L"GetServerADDomainInfo Exception", L"Msg", 0);
+#endif
+		  WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetServerADDomainInfo Exception");
+		   m_esFCbFn(CLIENT_GET_ADDOMAININFO,"1",strlen("1"));
+		  return HP_XML_LOADXMLFAILED;
+	  }
+  }
+
+ void CEstablishSocket::SendServerLanguageInfoRes(IN char* msg,IN int totallen)
+  {
+	  UNREFERENCED_PARAMETER(totallen);
+
+	  if ( stricmp(msg,SERVER_SUCCESS_STR) == 0 )
+	  {
+		  WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "server get local language success");
+	  }
+	  else
+	  {
+		   WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "server get local language fail");
+	  }
+  }
+
+ //执行域用户延时下线
+ BOOL CEstablishSocket::AsynDelayOfflineDomainSafeCheck(char* servtimeval)
+ {
+	 GetSubItemStgInfo(m_userinfo.userid, m_userinfo.usertype, SFDOMAIN);
+
+	 //获取一下现在的域用户检查的策略
+	 DWORD  dwCurrTime = GetTickCount();
+	 while (!m_bidenDomainStg)
+	 {
+		 if ((GetTickCount()-dwCurrTime)>HP_C_SELECTMODETIMEOUT)
+		 {
+			 break;
+		 }
+		 Sleep(100);
+	 }
+
+	 char macvalue[MACADDRESSLEN] ={"0"};
+	 GetLocalMac(macvalue);
+	 //上次有未执行完的验证，重新进行域用户验证
+	 char userid[HP_C_USERCONTENTLEN] = {"0"};
+	 sprintf_s(userid,sizeof(userid),"%d",m_userinfo.userid);
+	 char usertype[HP_C_USERCONTENTLEN] = {"0"};
+	 sprintf_s(usertype,sizeof(usertype),"%d",m_userinfo.usertype);
+	 char currdate[HP_C_USERCONTENTLEN] = {"0"};
+	 char millisec[HP_C_USERCONTENTLEN] = {"0"};
+	 char weektime[HP_C_USERCONTENTLEN] = {"0"};
+	 GetDetailDataInfo(servtimeval,currdate,millisec,weektime);
+	 m_identifyDomain.GetDataFromDB(m_ExeDirPath,userid,usertype,currdate,millisec,weektime);
+	 if (m_identifyDomain.m_domainCnt)
+	 {
+		 int iDomainSucc = HP_SF_SAFECHECKFAIL;
+		 m_identifyDomain.ExecDomainItem(CLIENTONTIMERSFCHECK,(LANGUAGETYPE)m_sflangtype,
+			 servtimeval,macvalue,1,13,-1,&iDomainSucc);
+		 return TRUE;
+	 }
+	 else
+	 {
+		 return FALSE;
+	 }
+	  WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "AsynDelayOfflineDomainSafeCheck");
+ }
+
+
+ BOOL CEstablishSocket::ParseRepaireXml(IN char* failitemmsg,OUT int *whichSafeCheck,OUT string &timestamp,OUT list<int>& sfitemid,string &otherinfo)
+ {
+	 try
+	 {
+		 TiXmlDocument* myDocument = new TiXmlDocument();
+		 if (myDocument==NULL)
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "new TiXmlDocument Fail");
+			 return   FALSE;//调试
+		 }
+
+		 myDocument->Parse(failitemmsg);
+		 if (myDocument->Error())
+		 {
+			 delete myDocument;
+			 return FALSE;
+		 }
+		 TiXmlElement *rootElement = myDocument->RootElement();//<nac>
+		 if (rootElement==NULL)
+		 {
+			 delete myDocument;
+			 return FALSE;
+		 }
+		 TiXmlElement *imanElement = rootElement->FirstChildElement();
+		 if (imanElement==NULL)
+		 {
+			 delete myDocument;
+			 return FALSE;
+		 }
+		 while(imanElement)
+		 {
+			 TiXmlAttribute *attributeOfiman = imanElement->FirstAttribute();
+			 while (attributeOfiman)
+			 {
+				 if (!stricmp((char*)attributeOfiman->Name(),"timestamp"))
+				 {
+					timestamp=(char*)attributeOfiman->Value();
+				 }
+				 else if (!stricmp((char*)attributeOfiman->Name(),"policytype"))
+				 {
+					 *whichSafeCheck = atoi((char*)attributeOfiman->Value());
+				 }
+				 else if (!stricmp((char*)attributeOfiman->Name(),"iuserid"))
+				 {
+					 //暂时不需要处理
+				 }
+				 else if (!stricmp((char*)attributeOfiman->Name(),"usertype"))
+				 {
+					 //暂时不需要处理
+				 }
+				 attributeOfiman = attributeOfiman->Next();
+			 }
+
+			 TiXmlElement *subitemElement = imanElement->FirstChildElement();
+			 if (subitemElement==NULL)
+			 {
+				 WriteDebugInfomation(LEVEL_RELEASE, MODULE_OPDB, LOGLOCATION, "get domain node fail");
+			 }
+
+			 while(subitemElement)
+			 {
+				 TiXmlAttribute *attributeOfsubitem = subitemElement->FirstAttribute();
+				 while (attributeOfsubitem)
+				 {
+					 if ( strcmp("checkItemId",(char*)attributeOfsubitem->Name())==0 )
+					 {
+						 int failitemid = atoi((char*)attributeOfsubitem->Value());
+						 sfitemid.push_back(failitemid);
+					 }
+					 else
+					 {
+						 char othermsg[MAX_PATH] = {"0"};
+						 Convert((char*)attributeOfsubitem->Value(),othermsg,sizeof(othermsg),CP_UTF8,CP_ACP);
+						 otherinfo = othermsg;
+					 }
+					 attributeOfsubitem = attributeOfsubitem->Next();
+				 }
+				 subitemElement=subitemElement->NextSiblingElement();
+			 }//while(subitemElement)
+			 imanElement = imanElement->NextSiblingElement();
+		 }//while(imanElement)
+
+		 delete myDocument;
+		
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 ::MessageBox(NULL, L"GetServerADDomainInfo Exception", L"Msg", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "RepaireFailItemByIndex Exception");
+		 return FALSE;
+	 }
+	  return TRUE;
+ }
+
+
+ void CEstablishSocket::RepaireFailItemByIndex(IN char* failitemmsg)
+ {
+	 string timevalstr;
+	 int servSFindex = 0;
+	 list<int>  failitemlist;
+	 failitemlist.clear();
+	 string otherinfo;
+	 if (ParseRepaireXml(failitemmsg,&servSFindex,timevalstr,failitemlist,otherinfo))
+	 {
+		 int memmoryindex = 0;
+		 for ( memmoryindex=0; memmoryindex<SAFECHECKSAMETIMENUM; memmoryindex++)
+		 {
+			 if (stricmp(m_sfmake[memmoryindex].timeval,timevalstr.c_str()) == 0 )
+			 {
+				 break;
+			 }
+		 }
+		 if ( memmoryindex == SAFECHECKSAMETIMENUM )
+		 {
+			  WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "没有找到对应时间戳的安检失败的项",const_cast<char*>(timevalstr.c_str()));
+		 }
+		 else
+		 {
+			 int SFindex  = 0;
+			 for (  SFindex= PROCESS; SFindex< LASTNUMBER; SFindex++)
+			 {    
+				 if (SFindex == servSFindex)
+				 {
+					 break;
+				 }
+			 }
+			 if ( SFindex== LASTNUMBER)
+			 {
+				 WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "没有找到对应的安检项");
+			 }
+			 else
+			 {
+				 list<int>::iterator   itemiditer;
+				 for(itemiditer=failitemlist.begin();itemiditer != failitemlist.end();)
+				 {
+					  int index = *itemiditer;
+					  if ((SFindex ==COMPUTERNAME) ||
+						  (SFindex ==WEAKPWD) ||
+						  (SFindex ==NETWORKSTATE))
+					  {
+						  if (otherinfo.size()==0)
+						  {
+							  otherinfo="";
+						  }
+						 m_singleserver[memmoryindex][SFindex].RestoreSpecialFailItem(SFindex,index,otherinfo,otherinfo);
+					  }
+					  else
+					  {
+						  m_singleserver[memmoryindex][SFindex].RestoreFailItem(SFindex,index);
+					  }
+					   failitemlist.erase(itemiditer++);
+				 }
+			 }
+		 }
+	 }
+	 else
+	 {
+		 WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ParseRepaireXml fail");
+	 }
+ }

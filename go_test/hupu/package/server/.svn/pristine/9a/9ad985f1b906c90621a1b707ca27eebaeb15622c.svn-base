@@ -1,0 +1,154 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "..\GetLangValue.h"
+#include "..\CustomCheck\CommData.h"
+#include "..\GlobalDate.h"
+#include "CheckSystemTime.h"
+#include "..\GlobalFunction.h"
+#include "..\DebugInfo.h"
+#include "SafeCheckFuntion.h"
+
+/************************************************************
+Description: 检查系统时间是否与服务器一致，并是否修复
+Input: pServerTime[服务器时间];bFixFlag[是否修复];dwTimeError[允许时间误差]
+Return: TRUE[检查与服务器时间不同步或修复成功]；FAlSE[检查与服务器时间同步或修复失败]
+*************************************************************/
+BOOL CheckSystemTime(IN char* pServerTime, IN BOOL bFixFlag, IN DWORD dwTimeError)
+{
+    HINSTANCE hSystemCheckDll = NULL;
+    char systemCheckDllPath[MAX_PATH] = {0};
+    BOOL ret = TRUE;
+
+    sprintf_s(systemCheckDllPath, "%s\\%s", g_nacdirpath, SYSTEMCHECKDLLNAME);
+    hSystemCheckDll = LoadLibraryA(systemCheckDllPath); 
+
+    if (hSystemCheckDll == NULL)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SystemCheck.Dll文件加载失败");
+        OutputDebugString(L"SystemCheck.Dll文件加载失败\n");
+        return ret;
+    }
+
+    pCheckSystemTime fCheckSystemTime = NULL;
+    fCheckSystemTime = (pCheckSystemTime)GetProcAddress(hSystemCheckDll, "CheckSystemTime");
+    if (fCheckSystemTime == NULL)
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "CheckSystemTime函数加载失败");
+        OutputDebugString(L"CheckSystemTime函数加载失败\n");
+        return ret;
+    }
+
+    ret = fCheckSystemTime(pServerTime, bFixFlag, dwTimeError);
+
+    FreeLibrary(hSystemCheckDll);
+
+    return ret;
+}
+
+/************************************************************
+Description: 检查系统时间是否与服务器一致，并是否修复
+Return: TRUE[修复成功]；FAlSE[失败]
+*************************************************************/
+int SendMsgRepairSystemTime(IN PSYSTEMTIMEPOLICY pSystemTimePolicy )
+{
+    HINSTANCE hSystemCheckDll = NULL;
+    int ret = 0;
+    HWND hwnd = NULL;
+    char systemCheckDllPath[MAX_PATH] = {0};
+
+    if (StartRegExePro(2000))
+    {
+        sprintf_s(systemCheckDllPath, "%s\\%s", g_nacdirpath, SYSTEMCHECKDLLNAME);
+        hSystemCheckDll = LoadLibraryA(systemCheckDllPath); 
+
+        if (hSystemCheckDll == NULL)
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SystemCheck.Dll文件加载失败");
+            OutputDebugStringA("SystemCheck.Dll文件加载失败\n");
+            return ret;
+        }
+
+        pSetSystemTimePolicy fSetSystemTimePolicy = NULL;
+        fSetSystemTimePolicy = (pSetSystemTimePolicy)GetProcAddress(hSystemCheckDll, "SetSystemTimePolicy");
+        if (fSetSystemTimePolicy == NULL)
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SetSystemTimePolicy函数加载失败");
+            return ret;
+        }
+
+        fSetSystemTimePolicy(pSystemTimePolicy);
+
+        hwnd = ::FindWindow(NULL, L"身份认证/安全检测");
+        if (hwnd)
+        {
+            ret = ::SendMessage(hwnd, WM_REPAIRSYSTEMTIME_MSG, 0, 0);
+        }
+    }
+
+    return ret;
+}
+
+bool SystemTimeRetShowMsg(IN int iCheckState, IN safecheckattr checkItem, IN SYSTEMTIMEPOLICY systemTimePolicy, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language)
+{
+	bool ret = true;
+
+	if (iCheckState)
+	{
+		char strSystemTimeName[MAX_BUF_LEN] = {0};
+		vector<string> vecLangMsg;
+		string strLangMsg = "";
+		SYSTEMTIME st;
+		char serverTime[SYSTEMTIMELEN] = {0};
+
+		(*pFailNum)++;
+		ret = false;
+
+		GetLangValueByKeyA(language, 
+			"SF_SYSTEMTIME_MSG", 
+			"SF_SYSTEMTIME_NAME", 
+			"系统时间检查", 
+			strSystemTimeName, 
+			MAX_BUF_LEN);
+
+		if (GetLangVectorByKeyA(language, 
+			"SF_SYSTEMTIME_MSG", 
+			"SF_SYSTEMTIME_LANG_MSG", 
+			"SF_SYSTEMTIME_LANG_MSG", 
+			MAX_BUF_LEN,
+			3,
+			&vecLangMsg))
+		{
+			GetSysTimeFromTimval(systemTimePolicy.serverTime, &st);
+			sprintf_s(serverTime, SYSTEMTIMELEN-1, "%4d-%d-%d %d-%d\n", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute);
+
+			strLangMsg = vecLangMsg[0];
+			if (strlen(serverTime) > 2)
+			{
+				strLangMsg += serverTime;
+			}
+			strLangMsg += vecLangMsg[1];
+			strLangMsg += std::to_string((_ULonglong)systemTimePolicy.dwTimeError);
+			strLangMsg += vecLangMsg[2];
+		}
+
+		sprintf_s(  pMsgBuf, 
+			msgBufLen,
+			"<subitem checkItemId=\"0\" faildes=\"%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+			strLangMsg.c_str(),
+			strSystemTimeName,
+			checkItem.warningcont, 
+			checkItem.warninglevel, 
+			checkItem.srcevent);
+
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_NETSHARE, LOGLOCATION, pMsgBuf);
+	}
+
+	return ret;
+}

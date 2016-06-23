@@ -1,0 +1,95 @@
+	//************************************
+     //版权:上海互普信息技术股份有限公司
+	// 类名称:  SetWallPaper
+	// 类说明:  通过加载dll来设置壁纸
+	// 作者: gochunyan
+	// 日期：2015/11/12
+	//************************************
+
+#include "StdAfx.h"
+#include "WallPaper.h"
+
+#include <shlwapi.h>
+#pragma comment( lib, "shlwapi.lib") 
+
+#include "WriteDebugInfo.h"
+
+typedef const char* (__cdecl *MYPROCDLLVERSION)();
+MYPROCDLLVERSION  myversion;
+
+
+typedef void (__cdecl *PFInitWallPaper)(const char* wallpaperpath,const int wallpaperpathlen,const int position);
+PFInitWallPaper InitWallPaper;
+
+CWallPaper::CWallPaper(void)
+{
+	wchar_t exePath[MAX_PATH] = {L"0"};
+	::GetModuleFileName(NULL,exePath,sizeof(exePath));
+	LPCTSTR pstrSep = _tcsrchr(exePath, '\\');
+	TCHAR  pstrName[MAX_PATH]={_T("0")};
+	TCHAR  pstrPath[MAX_PATH]={_T("0")};
+
+	if( pstrSep != NULL )
+	{
+		::lstrcpy(pstrName, pstrSep + 1);
+		(int)((pstrName - exePath) / sizeof(TCHAR));
+
+		//将第二个字符串中指定的字符复制到第一个字符串
+		::lstrcpyn(pstrPath, exePath, (int)((pstrName - exePath) / sizeof(TCHAR)) + 1);
+
+		//中指定的字符,第三个字符串指定复制的个数。
+		pstrPath[ pstrSep - exePath ] = '\0';
+	}
+	wsprintf(m_DirPath,L"%s",pstrPath);
+
+	wchar_t dllpath[MAX_PATH] = {L"0"};
+	wsprintf(dllpath,L"%s\\getstatchange.dll",pstrPath);
+	if (PathFileExists(dllpath))
+	{
+		m_handle = LoadLibrary(dllpath);
+		if ( m_handle== NULL )
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "LoadLibrary Fail",m_DirPath);
+			return ;
+		}
+
+		myversion = (MYPROCDLLVERSION)GetProcAddress(m_handle, "GetDLLVersion");
+		InitWallPaper = (PFInitWallPaper)GetProcAddress(m_handle, "InitWallPaperParam");
+		if ((myversion== NULL) || (InitWallPaper == NULL))
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, LOGLOCATION, "GetProcAddress Fail",m_DirPath);
+		}
+	}
+}
+
+
+CWallPaper::~CWallPaper(void)
+{
+	if (m_handle != NULL)
+	{
+		FreeLibrary(m_handle);
+		m_handle = NULL;
+	}
+}
+
+//************************************
+// 函数名称:  SetWallPaper
+// 函数说明:  
+// 返回值:   BOOL
+// 参数: wchar_t * wallpaperpath:壁纸路径
+// 参数: int wallpaperstyle:壁纸位置
+// 作者: gaochunyan
+// 日期：2015/11/12
+//************************************
+BOOL CWallPaper::SetWallPaper(wchar_t* wallpaperpath,int wallpaperstyle)
+{
+	BOOL bRes = FALSE;
+	if (InitWallPaper != NULL)
+	{
+		char wallpaperpathA[MAX_PATH] = {"0"};
+		WideCharToMultiByte(CP_ACP,0,wallpaperpath,-1,wallpaperpathA,sizeof(wallpaperpathA),NULL,NULL);
+		InitWallPaper(wallpaperpathA,strlen(wallpaperpathA),wallpaperstyle);
+		bRes = TRUE;
+	}
+	return bRes;
+}

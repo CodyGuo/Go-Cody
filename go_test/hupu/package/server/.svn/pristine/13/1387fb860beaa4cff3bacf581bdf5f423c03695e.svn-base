@@ -1,0 +1,375 @@
+#include "MonitorFunction.h"
+#include <stdio.h>
+#include <string>
+#include "HpImanService.h"
+
+#include <Shlwapi.h>
+#include <tlhelp32.h>
+#include <UserEnv.h>
+#include <WtsApi32.h>
+#include <windef.h>
+
+#pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "Userenv.lib")
+#pragma comment(lib, "Wtsapi32.lib")
+
+using namespace std;
+
+#define NOUNINSTALLFLAG 0
+#define UNINSTALLFLAG 1
+#define RESTARTFLAG 2
+#define USERCHANGEFLAG 3
+
+#define HPIDMNAC_EXE_NAME L"hpidmnac.exe"
+
+/************************************************************
+ Description: char*转wstring
+ input: pszSrc[转换的字符串]
+ Return:  返回转换的wstring
+*************************************************************/
+std::wstring AnsiToWChar(IN const char* pszSrc)
+{
+	try
+	{
+		wchar_t* pwszDst = NULL;
+		std::wstring wstrTemp(L"");
+
+		int nLen = MultiByteToWideChar(CP_ACP, 0, pszSrc, -1, pwszDst, 0);
+
+		if (nLen <= 0) 
+		{
+			return std::wstring(L"");
+		}
+
+		pwszDst = new wchar_t[nLen];
+
+		if (NULL == pwszDst) 
+		{
+			return std::wstring(L"");
+		}
+
+		MultiByteToWideChar(CP_ACP, 0, pszSrc, strlen(pszSrc), pwszDst, nLen);
+
+		pwszDst[nLen -1] = 0;
+
+		wstrTemp = pwszDst;
+
+		delete [] pwszDst;
+
+		return wstrTemp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"AnsiToWChar Exception", L"Msg", 0);
+#endif
+	}
+	return L"";
+}
+
+/************************************************************
+ Description: 获取当前程序所在路径
+ output: pFullPath【当前路径】
+ Return: FALSE【获取失败】，TRUE【获取成功】
+*************************************************************/
+string GetCurrentPath()
+{
+	CHAR szPath[MAX_PATH];
+	CHAR szDrive[_MAX_DRIVE];
+	CHAR szDir[_MAX_DIR];
+	CHAR szFname[_MAX_FNAME];
+	CHAR szExtname[_MAX_EXT];
+	std::string strFullPath = "";
+
+	if(GetModuleFileNameA(NULL, szPath, MAX_PATH))
+	{
+		if(!_splitpath_s(szPath, szDrive, _MAX_DRIVE, szDir, _MAX_DIR, szFname,_MAX_FNAME, szExtname, _MAX_EXT))
+		{
+			strFullPath = szDrive;
+			strFullPath += szDir;
+		}
+	}
+
+	return	strFullPath;
+}
+
+BOOL CurrentSessionCreatePro() 
+{
+	try
+	{
+		PROCESS_INFORMATION pi;
+		STARTUPINFO si;
+		BOOL bResult = FALSE;
+		DWORD winlogonPid;
+		HANDLE hUserTokenDup = NULL, hPToken = NULL, hProcess = NULL;
+		DWORD dwCreationFlags;
+		PWTS_SESSION_INFO  pSessionInfo = 0;  
+		DWORD dwCount = 0;   
+		int iActiveSessionId = 0;
+		PROCESSENTRY32 procEntry;
+		HANDLE hSnap = NULL;
+		TOKEN_PRIVILEGES tp;
+		LUID luid;
+		LPVOID pEnv =NULL;
+		string strHpIdmNacPt = "";   
+		wstring wstrHpIdmNacPt = L""; 
+
+		::WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionInfo, &dwCount);  
+
+		for (DWORD i = 0; i < dwCount; ++i) 
+		{        
+			WTS_SESSION_INFO si = pSessionInfo[i]; 
+
+			if (WTSActive == si.State)    
+			{          
+				iActiveSessionId = si.SessionId;    
+				break;      
+			}  
+		}    
+
+		::WTSFreeMemory(pSessionInfo); 
+		hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+
+		if (hSnap == INVALID_HANDLE_VALUE)
+		{
+			return 1 ;
+		}
+
+		procEntry.dwSize = sizeof(PROCESSENTRY32);
+
+		if (!Process32First(hSnap, &procEntry))
+		{
+			CloseHandle(hSnap);
+			hSnap=NULL;
+			return 1 ;
+		}
+
+		bool explorexist = false;
+		bool winlogonexist = false;
+
+		do
+		{
+			if(_wcsicmp(procEntry.szExeFile, L"winlogon.exe") == 0)
+			{
+				DWORD winlogonSessId = 0;
+
+				if (ProcessIdToSessionId(procEntry.th32ProcessID, &winlogonSessId) && winlogonSessId == iActiveSessionId)
+				{
+					winlogonPid = procEntry.th32ProcessID;
+					winlogonexist = true;
+				}
+			}
+
+			if(_wcsicmp(procEntry.szExeFile, L"explorer.exe") == 0)
+			{
+				explorexist = true;
+			}
+
+			if (winlogonexist && explorexist)
+			{
+				break;
+			}
+		}while(Process32Next(hSnap, &procEntry));
+
+		dwCreationFlags = NORMAL_PRIORITY_CLASS|CREATE_NEW_CONSOLE;
+
+		ZeroMemory(&si, sizeof(STARTUPINFO));
+		si.cb= sizeof(STARTUPINFO);
+		si.lpDesktop = L"winsta0\\default";
+		si.dwFlags = STARTF_USESHOWWINDOW;
+		si.wShowWindow = SW_HIDE;
+
+		ZeroMemory(&pi, sizeof(pi));
+
+		hProcess = OpenProcess(MAXIMUM_ALLOWED, FALSE, winlogonPid);
+
+		if(::OpenProcessToken(hProcess, TOKEN_ALL_ACCESS, &hPToken))
+		{
+			if (LookupPrivilegeValue(NULL,SE_DEBUG_NAME, &luid))
+			{
+				tp.PrivilegeCount = 1;
+				tp.Privileges[0].Luid =luid;
+				tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+				DuplicateTokenEx(hPToken, MAXIMUM_ALLOWED, NULL, SecurityIdentification, TokenPrimary, &hUserTokenDup);
+				SetTokenInformation(hUserTokenDup, TokenSessionId, (void*)iActiveSessionId, sizeof(DWORD));
+				AdjustTokenPrivileges(hUserTokenDup, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), (PTOKEN_PRIVILEGES)NULL, NULL);
+
+				if(CreateEnvironmentBlock(&pEnv, hUserTokenDup, TRUE))
+				{
+					dwCreationFlags |= CREATE_UNICODE_ENVIRONMENT;
+				}
+				else
+					pEnv = NULL;
+
+				strHpIdmNacPt += GetCurrentPath();
+				strHpIdmNacPt += HPUNINSTALL_EXE_NAME;
+				wstrHpIdmNacPt = AnsiToWChar(strHpIdmNacPt.c_str());
+				wstrHpIdmNacPt += L" /run";
+
+				OutputDebugString(wstrHpIdmNacPt.c_str());
+
+				bResult = CreateProcessAsUser(	hUserTokenDup,          
+												NULL,
+												(LPWSTR)wstrHpIdmNacPt.c_str(),   
+												NULL,           
+												NULL,              
+												FALSE,           
+												dwCreationFlags, 
+												pEnv,              
+												NULL,              
+												&si,             
+												&pi);  
+
+				if (!bResult)
+				{
+					char prin[32] = {0};
+
+					sprintf_s(prin, 32, "error[%d], bResult[%d]\n", GetLastError(), bResult);
+					OutputDebugStringA(prin);
+				}	
+			}
+		}
+
+		CloseHandle(hProcess);
+		hProcess=NULL;
+		CloseHandle(hUserTokenDup);
+		hUserTokenDup=NULL;
+		CloseHandle(hPToken);
+		hPToken=NULL;
+		return 0;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"CreateExePro Exception", L"Msg", 0);
+#endif
+	}
+    return FALSE;
+}
+
+void MonitorHpIdmNacProc()
+{
+	bool IsExplorerExist = false;
+	bool IsProcessExist = false;
+	PROCESSENTRY32 pe32;
+	HANDLE hProcessSnap = NULL;
+
+	pe32.dwSize = sizeof(pe32);
+	hProcessSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+
+	if(hProcessSnap != INVALID_HANDLE_VALUE)
+	{
+		BOOL bMore = ::Process32First(hProcessSnap, &pe32);
+
+		while(bMore)
+		{
+			if (_wcsicmp(pe32.szExeFile, L"explorer.exe")==0)
+			{
+				IsExplorerExist = true;
+			}
+			else if (_wcsicmp(pe32.szExeFile, HPIDMNAC_EXE_NAME)==0)
+			{
+				IsProcessExist = true;
+			}
+
+			if (IsExplorerExist && IsProcessExist)
+			{
+				break;
+			}
+			bMore = ::Process32Next(hProcessSnap, &pe32);
+		}
+		CloseHandle(hProcessSnap);
+		hProcessSnap = NULL;
+	}
+
+	if (IsExplorerExist && (!IsProcessExist))
+	{
+		CurrentSessionCreatePro();
+	}
+}
+
+void MonitorSwitchUserEvent(int *piCurrentUserSession, string &strIniFilePath)
+{
+	PWTS_SESSION_INFO  pSessionInfo = 0;  
+	DWORD dwCount = 0;   
+	int iSessionId = 0;  
+
+	::WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionInfo, &dwCount);  
+
+	for (DWORD i = 0; i < dwCount; ++i)  
+	{        
+		WTS_SESSION_INFO si = pSessionInfo[i];   
+
+		if (WTSActive == si.State)    
+		{          
+			iSessionId = si.SessionId;    
+			break;      
+		}  
+	}   
+	::WTSFreeMemory(pSessionInfo); 
+
+	if(*piCurrentUserSession == -1)
+	{
+		*piCurrentUserSession = iSessionId;
+	}
+	else if( *piCurrentUserSession != iSessionId)
+	{
+		WritePrivateProfileStringA("Param", "Uninstall", "3", strIniFilePath.c_str());
+		*piCurrentUserSession = iSessionId;
+	}
+
+	MonitorHpIdmNacProc();
+}
+
+DWORD __stdcall MonitorThread(LPVOID lParameter)
+{
+	DWORD dwRet = FALSE;
+	string strIniFilePath = "";
+	int iCurrActiveSession = -1;
+
+	strIniFilePath = GetCurrentPath();
+	strIniFilePath += "data\\VersAndLog_config.ini";
+
+	OutputDebugStringA(strIniFilePath.c_str());
+
+	 if (PathFileExistsA(strIniFilePath.c_str()))
+	 {
+		 while(TRUE)
+		 {
+			 int iExceptionFlag = 0;
+			 int iUninstallFlag = 0;
+
+			 OutputDebugStringA("@MonitorThread....");
+
+			 iExceptionFlag = GetPrivateProfileIntA("Param", "EXCEPTION", 0, strIniFilePath.c_str());
+			 iUninstallFlag = GetPrivateProfileIntA("Param", "Uninstall",0, strIniFilePath.c_str());
+
+			 if(iExceptionFlag ||  iUninstallFlag == UNINSTALLFLAG )
+			 {
+				 UninstallService();
+			 }
+
+			 MonitorSwitchUserEvent(&iCurrActiveSession, strIniFilePath);
+
+			 Sleep(2000);
+		 }
+	 }
+	 else
+	 {
+		 UninstallService();
+	 }
+
+	return dwRet;
+}
+
+HANDLE CreateMonitorThread()
+{
+	HANDLE hMonitorThread = NULL;
+	DWORD dwMOnitorThreadID = 0;
+
+	hMonitorThread = ::CreateThread(NULL, 0, MonitorThread, NULL, 0, &dwMOnitorThreadID);
+
+	return hMonitorThread;
+
+}

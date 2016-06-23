@@ -1,0 +1,206 @@
+#include "StdAfx.h"
+#include "LspTableFun.h"
+
+
+//
+// Function: PrintProcTable
+//
+// Description
+//    Print the table of function pointers. This can be useful in tracking
+//    down bugs with other LSP being layered over.
+//
+void 
+PrintProcTable(
+    LPWSPPROC_TABLE lpProcTable
+    )
+{
+    #ifdef DBG_PRINTPROCTABLE
+    dbgprint("WSPAccept              = 0x%X", lpProcTable->lpWSPAccept);
+    dbgprint("WSPAddressToString     = 0x%X", lpProcTable->lpWSPAddressToString);
+    dbgprint("WSPAsyncSelect         = 0x%X", lpProcTable->lpWSPAsyncSelect);
+    dbgprint("WSPBind                = 0x%X", lpProcTable->lpWSPBind);
+    dbgprint("WSPCancelBlockingCall  = 0x%X", lpProcTable->lpWSPCancelBlockingCall);
+    dbgprint("WSPCleanup             = 0x%X", lpProcTable->lpWSPCleanup);
+    dbgprint("WSPCloseSocket         = 0x%X", lpProcTable->lpWSPCloseSocket);
+    dbgprint("WSPConnect             = 0x%X", lpProcTable->lpWSPConnect);
+    dbgprint("WSPDuplicateSocket     = 0x%X", lpProcTable->lpWSPDuplicateSocket);
+    dbgprint("WSPEnumNetworkEvents   = 0x%X", lpProcTable->lpWSPEnumNetworkEvents);
+    dbgprint("WSPEventSelect         = 0x%X", lpProcTable->lpWSPEventSelect);
+    dbgprint("WSPGetOverlappedResult = 0x%X", lpProcTable->lpWSPGetOverlappedResult);
+    dbgprint("WSPGetPeerName         = 0x%X", lpProcTable->lpWSPGetPeerName);
+    dbgprint("WSPGetSockOpt          = 0x%X", lpProcTable->lpWSPGetSockOpt);
+    dbgprint("WSPGetSockName         = 0x%X", lpProcTable->lpWSPGetSockName);
+    dbgprint("WSPGetQOSByName        = 0x%X", lpProcTable->lpWSPGetQOSByName);
+    dbgprint("WSPIoctl               = 0x%X", lpProcTable->lpWSPIoctl);
+    dbgprint("WSPJoinLeaf            = 0x%X", lpProcTable->lpWSPJoinLeaf);
+    dbgprint("WSPListen              = 0x%X", lpProcTable->lpWSPListen);
+    dbgprint("WSPRecv                = 0x%X", lpProcTable->lpWSPRecv);
+    dbgprint("WSPRecvDisconnect      = 0x%X", lpProcTable->lpWSPRecvDisconnect);
+    dbgprint("WSPRecvFrom            = 0x%X", lpProcTable->lpWSPRecvFrom);
+    dbgprint("WSPSelect              = 0x%X", lpProcTable->lpWSPSelect);
+    dbgprint("WSPSend                = 0x%X", lpProcTable->lpWSPSend);
+    dbgprint("WSPSendDisconnect      = 0x%X", lpProcTable->lpWSPSendDisconnect);
+    dbgprint("WSPSendTo              = 0x%X", lpProcTable->lpWSPSendTo);
+    dbgprint("WSPSetSockOpt          = 0x%X", lpProcTable->lpWSPSetSockOpt);
+    dbgprint("WSPShutdown            = 0x%X", lpProcTable->lpWSPShutdown);
+    dbgprint("WSPSocket              = 0x%X", lpProcTable->lpWSPSocket);
+    dbgprint("WSPStringToAddress     = 0x%X", lpProcTable->lpWSPStringToAddress);
+    #else
+    UNREFERENCED_PARAMETER( lpProcTable );  // For W4 compliance
+    #endif
+}
+
+
+
+//
+// Function: CopyOffset
+//
+// Description:
+//    Any offset information passed by the application in its OVERLAPPED structure
+//    needs to be copied down to the OVERLAPPED structure the LSP passes to the
+//    lower layer. This function copies the offset fields.
+//
+void 
+CopyOffset(
+    WSAOVERLAPPED  *ProviderOverlapped, 
+    WSAOVERLAPPED  *UserOverlapped
+    )
+{
+    ProviderOverlapped->Offset     = UserOverlapped->Offset;
+    ProviderOverlapped->OffsetHigh = UserOverlapped->OffsetHigh;
+}
+
+//
+// Function: CopyWSABuf
+//
+// Description:
+//    Overlapped send/recv functions pass an array of WSABUF structures to specify
+//    the send/recv buffers and their lengths. The Winsock spec says that providers
+//    must capture all the WSABUF structures and cannot rely on them being persistent.
+//    If we're on NT then we don't have to copy as we immediately call the lower
+//    provider's function (and the lower provider captures the WSABUF array). However
+//    if the LSP is modified to look at the buffers after the operaiton is queued, 
+//    then this routine must ALWAYS copy the WSABUF array.  For Win9x since the 
+//    overlapped operation doesn't immediately execute we have to copy the array.
+//
+WSABUF *
+CopyWSABuf(
+    WSABUF *BufferArray, 
+    DWORD   BufferCount, 
+    int    *lpErrno
+    )
+{
+    WSABUF      *buffercopy = NULL;
+    DWORD        i;
+
+    if ( NULL == gIocp )
+    {
+        //
+        // We're on Win9x -- we need to save off the WSABUF structures
+        // because on Win9x, the overlapped operation does not execute
+        // immediately and the Winsock spec says apps are free to use
+        // stack based WSABUF arrays.
+        //
+        
+        buffercopy = (WSABUF *) LspAlloc(
+                sizeof(WSABUF) * BufferCount,
+                lpErrno
+                );
+        if ( NULL == buffercopy )
+        {
+            dbgprint( "CopyWSABuf: HeapAlloc failed: %d", GetLastError() );
+            return NULL;
+        }
+
+        for(i=0; i < BufferCount ;i++)
+        {
+            buffercopy[i].buf = BufferArray[i].buf;
+            buffercopy[i].len = BufferArray[i].len;
+        }
+
+        return buffercopy;
+    }
+    else
+    {
+        // With completion ports, we post the overlapped operation
+        // immediately to the lower provider which should capture
+        // the WSABUF array members itself. If your LSP needs to
+        // look at the buffers after the operation is initiated,
+        // you'd better always copy the WSABUF array.
+
+        return BufferArray;
+    }
+}
+
+
+void 
+FreeWSABuf(
+    WSABUF *BufferArray
+    )
+{
+    if ( ( NULL == gIocp ) && ( NULL != BufferArray ) )
+    {
+        // If we're on Win9x, the WSABUF array was copied so free it up now
+
+        LspFree( BufferArray );
+    }
+}
+
+void 
+FreeSocketsAndMemory(
+    BOOL processDetach,
+    int *lpErrno
+    )
+{
+    int     ret,
+            i;
+
+    if ( NULL != gBaseInfo )
+    {
+        // Walk through each PROVIDER entry in the array
+        for(i=0; i < gLayerCount ;i++)
+        {
+            if ( NULL != gBaseInfo[i].Module )
+            {
+                //
+                // Close all sockets created from this provider
+                //
+                CloseAndFreeSocketInfo( &gBaseInfo[i], processDetach );
+
+                //
+                // Call the WSPCleanup of the provider's were layered over.
+                //
+
+                if ( ( !processDetach ) || 
+                     ( gBaseInfo[ i ].NextProvider.ProtocolChain.ChainLen == BASE_PROTOCOL ) )
+                {
+                    while( 0 != gBaseInfo[ i ].StartupCount )
+                    {
+                        gBaseInfo[ i ].StartupCount--;
+
+                        if ( gBaseInfo[i].NextProcTable.lpWSPCleanup != NULL )
+                            ret = gBaseInfo[i].NextProcTable.lpWSPCleanup( lpErrno );
+                    }
+                }
+
+                DeleteCriticalSection( &gBaseInfo[i].ProviderCritSec );
+
+                if ( NULL != gBaseInfo[i].Module )
+                    FreeLibrary( gBaseInfo[i].Module );
+
+                gBaseInfo[i].Module = NULL;
+            }
+        }
+
+        LspFree( gBaseInfo );
+        gBaseInfo = NULL;
+    }
+
+    if ( NULL != gAddContextEvent )
+    {
+        CloseHandle( gAddContextEvent );
+        gAddContextEvent = NULL;
+    }
+
+    LspDestroyHeap();
+}

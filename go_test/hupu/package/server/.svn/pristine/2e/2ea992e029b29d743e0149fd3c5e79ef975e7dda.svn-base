@@ -1,0 +1,512 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "GlobalFunction.h"
+#include <TlHelp32.h>
+#include<WinDef.h>
+
+#pragma comment(lib,"sqlite3.lib")
+
+//进程链表
+const char* pProNameList[] = {	"HpImanService.exe",
+                                "hpidmnac.exe",
+                                "hpregister.exe",	
+                                "HpUninstall.exe",};
+
+/************************************************************
+ Description: 获取当前程序所在路径
+ output: pFullPath【当前路径】
+ Return: FALSE【获取失败】，TRUE【获取成功】
+*************************************************************/
+string GetCurrentPath()
+{
+	CHAR szPath[MAX_PATH];
+	CHAR szDrive[_MAX_DRIVE];
+	CHAR szDir[_MAX_DIR];
+	CHAR szFname[_MAX_FNAME];
+	CHAR szExtname[_MAX_EXT];
+	std::string strFullPath = "";
+
+	if(GetModuleFileNameA(NULL, szPath, MAX_PATH))
+	{
+		if(!_splitpath_s(szPath, szDrive, _MAX_DRIVE, szDir, _MAX_DIR, szFname,_MAX_FNAME, szExtname, _MAX_EXT))
+		{
+			strFullPath = szDrive;
+			strFullPath += szDir;
+		}
+	}
+   
+	return	strFullPath;
+}
+
+/************************************************************
+ Description: char*转wstring
+ input: pszSrc[转换的字符串]
+ Return:  返回转换的wstring
+*************************************************************/
+std::wstring AnsiToWChar(IN const char* pszSrc)
+{
+	try
+	{
+		wchar_t* pwszDst = NULL;
+		std::wstring wstrTemp(L"");
+
+		int nLen = MultiByteToWideChar(CP_ACP, 0, pszSrc, -1, pwszDst, 0);
+
+		if (nLen <= 0) 
+		{
+			return std::wstring(L"");
+		}
+
+		pwszDst = new wchar_t[nLen];
+
+		if (NULL == pwszDst) 
+		{
+			return std::wstring(L"");
+		}
+
+		MultiByteToWideChar(CP_ACP, 0, pszSrc, strlen(pszSrc), pwszDst, nLen);
+
+		pwszDst[nLen -1] = 0;
+
+		wstrTemp = pwszDst;
+
+		delete [] pwszDst;
+
+		return wstrTemp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"AnsiToWChar Exception", L"Msg", 0);
+#endif
+	}
+	return L"";
+}
+
+/************************************************************
+ Description: LPCWSTR转String
+ input: wstr[转换的字符串]
+ Return:  返回转换的string
+*************************************************************/
+std::string WCharToAnsi(LPCWSTR pwszSrc)
+{
+    char* pszDst = NULL;
+    std::string strTemp("");
+
+    int nLen = WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, NULL, 0, NULL, NULL);
+
+    if (nLen <= 0) 
+    {
+        return std::string("");
+    }
+
+    pszDst = new char[nLen];
+
+    if (NULL == pszDst) 
+    {
+        return std::string("");
+    }
+
+    WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, pszDst, nLen, NULL, NULL);
+    pszDst[nLen -1] = 0;
+
+    strTemp = pszDst;
+
+    delete [] pszDst;
+
+    return strTemp;
+}
+
+bool RunProcess(const char* sCommand, const unsigned long imilsec)
+{
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+
+	memset(&si, 0, sizeof(si));
+	si.cb = sizeof(si);
+	si.dwFlags = STARTF_USESHOWWINDOW;
+	si.wShowWindow = SW_HIDE;
+	memset(&pi, 0, sizeof(pi));
+
+	if(!CreateProcessA(NULL, (LPSTR)sCommand, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+		return false;
+
+	WaitForSingleObject(pi.hProcess, imilsec);
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+	return true;
+}
+
+/************************************************************
+ Description: 结束进程
+*************************************************************/
+void TerminateAllProcess()  
+{
+	try
+	{
+		HANDLE snap = INVALID_HANDLE_VALUE;
+		PROCESSENTRY32 proc;
+		BOOL theloop = FALSE;
+
+		snap = CreateToolhelp32Snapshot(TH32CS_SNAPALL, 0);
+		if( snap == INVALID_HANDLE_VALUE )
+		{
+			return;
+		}
+
+		proc.dwSize = sizeof(PROCESSENTRY32);
+
+		for (int i = 0; i < TERMINATE_PRO_NUMBER-1; i++)
+		{
+			theloop = Process32First(snap, &proc); 
+
+			while(theloop)
+			{
+				string strExeName =  WCharToAnsi(proc.szExeFile);
+				int nLen = min((int)strExeName.length(), (int)strlen(pProNameList[i]));
+
+				if ( _strnicmp(strExeName.c_str(), pProNameList[i], nLen ) == 0 )
+				{
+					HANDLE hProcess = NULL;
+
+					hProcess = OpenProcess( PROCESS_TERMINATE, FALSE, proc.th32ProcessID );
+					TerminateProcess( hProcess, 0 );
+					break;
+				}
+				theloop = Process32Next(snap, &proc); 
+			}
+		}
+		
+		CloseHandle(snap);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"TerminateAllProcess Exception", L"Msg", 0);
+#endif
+	}
+} 
+
+/************************************************************
+ Description: 清空pDelDirPath目录文件
+ output: pDelDirPath【要清空目录】 bDelDesktopini【是否删除desktop.ini文件】
+ Return: FALSE【清空失败】 TRUE【清空成功】
+*************************************************************/
+BOOL ClearDirectory(const char* pDelDirPath, BOOL bDelDesktopini)
+{
+	string strDirPath = "";
+	WIN32_FIND_DATAA wfd;
+	HANDLE hFind = NULL;
+
+	strDirPath = pDelDirPath;
+	strDirPath += "\\";
+	strDirPath += "*.*";
+
+	hFind = FindFirstFileA(strDirPath.c_str(), &wfd);
+
+	if(hFind == INVALID_HANDLE_VALUE)
+	{
+		return FALSE;
+	}
+
+	do
+	{
+		if((strcmp(wfd.cFileName, ".") == 0||
+			strcmp(wfd.cFileName, "..") == 0||
+		   (bDelDesktopini == FALSE &&
+			strcmp(wfd.cFileName, "desktop.ini") == 0)))
+		{
+			continue;
+		}
+
+		string strFilePath = "";
+		DWORD dwAttributes = INVALID_FILE_ATTRIBUTES;
+
+		strFilePath = pDelDirPath;
+		strFilePath += "\\";
+		strFilePath += wfd.cFileName;
+
+		dwAttributes = GetFileAttributesA(strFilePath.c_str());
+
+		if(dwAttributes & FILE_ATTRIBUTE_READONLY)
+		{
+			dwAttributes &= ~FILE_ATTRIBUTE_READONLY;
+			SetFileAttributesA(strFilePath.c_str(), dwAttributes);
+		}
+
+		if(wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		{
+			ClearDirectory(strFilePath.c_str(), bDelDesktopini);
+			RemoveDirectoryA(strFilePath.c_str());
+		}
+		else
+		{
+			DeleteFileA(strFilePath.c_str());
+		}
+
+	}while(FindNextFileA(hFind, &wfd));
+
+	FindClose(hFind);
+	RemoveDirectoryA(pDelDirPath);
+
+	return TRUE;
+}
+
+/************************************************************
+ Description: 升级前备份用户数据
+ output: pDbPath【数据库路径】 
+ Return: SQLITE_OK【成功】 否则【失败】
+*************************************************************/
+int BackupUserInfoFromDB(IN const char* pDbPath, OUT vector<USERINFO> &userInfoVector)
+{
+	sqlite3 *pDb = NULL;
+	int iRet = SQLITE_OK;
+	string strSql = "SELECT * from tuser";
+	char **pSzResult = NULL;
+	CHAR *pSzErrMsg = NULL;
+	int iRow = 0;
+	int iCloumn = 0;
+
+	iRet = sqlite3_open(pDbPath, &pDb);
+
+	if(SQLITE_OK != iRet)
+	{
+		sqlite3_close(pDb);
+		return iRet;
+	}
+
+	iRet = sqlite3_get_table(pDb, strSql.c_str(), &pSzResult, &iRow, &iCloumn, &pSzErrMsg);
+
+	if(iRet != SQLITE_OK)
+	{
+		sqlite3_free_table(pSzResult);
+		sqlite3_close(pDb);
+		pDb = NULL;
+		return iRet;
+	}
+
+	if ((iRow > 0) && (iCloumn > 0))
+	{
+		for (int i = 0; i < iRow; i++)
+		{
+			USERINFO userinfo;
+
+			for (int j = 0; j < iCloumn; j++)
+			{
+				if(strcmp(pSzResult[j], "id")==0)
+				{			
+					if (pSzResult[(i+1)*iCloumn+j])
+					{
+						userinfo.strId = pSzResult[(i+1)*iCloumn+j];
+					}
+					else
+					{
+						userinfo.strId = "";
+					}
+				}
+				if(strcmp(pSzResult[j], "username")==0)
+				{		
+					if (pSzResult[(i+1)*iCloumn+j])
+					{
+						userinfo.strUserName = pSzResult[(i+1)*iCloumn+j];		
+					}
+					else
+					{
+						userinfo.strUserName = "";
+					}
+				}
+				if(strcmp(pSzResult[j], "pwd")==0)
+				{					 
+					if (pSzResult[(i+1)*iCloumn+j])
+					{
+						userinfo.strPwd = pSzResult[(i+1)*iCloumn+j];		
+					}
+					else
+					{
+						userinfo.strPwd = "";
+					}
+				}
+				if(strcmp(pSzResult[j], "state")==0)
+				{					 
+					if (pSzResult[(i+1)*iCloumn+j])
+					{
+						userinfo.strState = pSzResult[(i+1)*iCloumn+j];
+					}
+					else
+					{
+						userinfo.strState = "";
+					}
+				}
+				if(strcmp(pSzResult[j], "rempwd")==0)
+				{	
+					if (pSzResult[(i+1)*iCloumn+j])
+					{
+						userinfo.strRemPwd = pSzResult[(i+1)*iCloumn+j];	
+					}
+					else
+					{
+						userinfo.strRemPwd = "";
+					}
+				}
+				if(strcmp(pSzResult[j], "usertype")==0)
+				{	
+					if (pSzResult[(i+1)*iCloumn+j])
+					{
+						userinfo.strUserType = pSzResult[(i+1)*iCloumn+j];	
+					}
+					else
+					{
+						userinfo.strUserType = "";
+					}
+				}
+				else if (strcmp(pSzResult[j],"autologon")==0)
+				{
+					if (pSzResult[(i+1)*iCloumn+j])
+					{
+						userinfo.strUserAutoLogon = pSzResult[(i+1)*iCloumn+j];	
+					}
+					else
+					{
+						userinfo.strUserAutoLogon = "0";
+					}
+				}
+
+				if (strcmp(pSzResult[j], "domain")==0)
+				{
+					if (pSzResult[(i+1)*iCloumn+j])
+					{
+						userinfo.strUserDomain = pSzResult[(i+1)*iCloumn+j];	
+					}
+					else
+						userinfo.strUserDomain = "0";
+				}
+			}
+			userInfoVector.push_back(userinfo);
+		}
+	}
+
+	sqlite3_free_table(pSzResult);
+	sqlite3_close(pDb);
+	pDb = NULL;
+
+	return iRet;
+}
+
+/************************************************************
+ Description: 升级后将用户数据保存到数据库中
+ output: pDbPath【数据库路径】 
+ Return: SQLITE_OK【成功】 否则【失败】
+*************************************************************/
+int  SaveUserInfoToDB(IN const char* pDbPath, IN vector<USERINFO> &userInfoVector)
+{
+	sqlite3 *pDb = NULL;
+	int iRet = SQLITE_OK;
+	string strSql = "";
+	sqlite3_stmt *pStmt = NULL;  
+
+	iRet = sqlite3_open(pDbPath, &pDb);
+	if(SQLITE_OK != iRet)
+	{
+		sqlite3_close(pDb);
+		return iRet;
+	}
+
+	for(int i = 0; i < (int)userInfoVector.size(); i++)
+	{
+		strSql.clear();
+		strSql = "insert into tuser(id,username,pwd,state,rempwd,usertype,autologon,domain) values(";
+		strSql += userInfoVector[i].strId;
+		strSql += ",\"";
+		strSql += userInfoVector[i].strUserName;
+		strSql += "\",\"";
+		strSql += userInfoVector[i].strPwd;
+		strSql += "\",";
+		strSql += userInfoVector[i].strState;
+		strSql += ",";
+		strSql += userInfoVector[i].strRemPwd;
+		strSql += ",";
+		strSql += userInfoVector[i].strUserType;
+		strSql += ",";
+		strSql += userInfoVector[i].strUserAutoLogon;
+		strSql += ",";
+		strSql += userInfoVector[i].strUserDomain;
+		strSql += ")";
+
+		iRet = sqlite3_prepare_v2(pDb, strSql.c_str(), -1, &pStmt, NULL);
+
+		if(iRet != SQLITE_OK)
+		{
+			sqlite3_finalize(pStmt);  
+			continue;;
+		}
+
+		iRet = sqlite3_step(pStmt);
+		if (iRet != SQLITE_DONE)  
+		{
+			sqlite3_finalize(pStmt);  
+			continue;;
+		}  
+		sqlite3_finalize(pStmt);  
+	}
+
+	iRet = sqlite3_close(pDb);
+	pDb = NULL;
+
+	return iRet;
+}
+
+
+HANDLE OpenMntDriverDevice()
+{
+	HANDLE	hMntDriverHandle = NULL;
+
+	hMntDriverHandle = CreateFileA(HNM_DEVICE_NAME, GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, hMntDriverHandle); 
+
+	if (hMntDriverHandle == INVALID_HANDLE_VALUE)
+	{
+		hMntDriverHandle = CreateFileA(HNM_DEVICE_NAME, GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE , NULL, OPEN_EXISTING, 0, NULL);
+
+		string strPrin = "hMntDriverHandle == INVALID_HANDLE_VALUE hMntDriverHandle[";
+		strPrin += std::to_string((_ULonglong)hMntDriverHandle);
+		strPrin += "] error[";
+		strPrin += std::to_string((_ULonglong)GetLastError());
+		OutputDebugStringA(strPrin.c_str());
+	}
+
+	return hMntDriverHandle;
+}
+
+BOOL MntDeviceIOControl(LPVOID pInputBuf, DWORD dwInputLen, DWORD dwIoControlCode, LPVOID pOutputBuf, DWORD dwOutputLen)
+{
+	HANDLE hMntDriverHandle = NULL;
+	BOOL bRet = FALSE;
+
+	hMntDriverHandle = OpenMntDriverDevice();
+	if (hMntDriverHandle != NULL)
+	{
+		ULONG ulBytesReturned = 0;
+		string strPrint = "MntDeviceIOControl bret ";
+
+		bRet = DeviceIoControl(hMntDriverHandle, (DWORD)dwIoControlCode, pInputBuf, dwInputLen, pOutputBuf, dwOutputLen, &ulBytesReturned, NULL);
+
+		strPrint += std::to_string((_ULonglong)bRet);
+		strPrint += "; GetLastError ";
+		strPrint += std::to_string((_ULonglong)GetLastError());
+		strPrint += "; ulBytesReturned ";
+		strPrint += std::to_string((_ULonglong)ulBytesReturned);
+		strPrint += "\n";
+
+		OutputDebugStringA(strPrint.c_str());
+
+		CloseHandle(hMntDriverHandle);
+	}
+
+	return bRet;
+}

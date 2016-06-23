@@ -1,0 +1,1470 @@
+#include "StdAfx.h"
+#include "WSUSConfig.h"
+
+#include <WinDef.h>
+#include <WinBase.h>
+#include <Ole2.h>
+#include <wuapi.h>
+#pragma comment(lib,"wuguid.lib")
+#include "..\DebugInfo.h"
+#include "SafeCheckFuntion.h"
+
+#include <ATLComTime.h>
+#include <wuerror.h>
+
+#define   INITGUID
+#include <Guiddef.h>
+#include <GPEdit.h>
+
+#define GPO_UPDATE_REG  L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate"
+#define GPO_UPDATE_AU_REG L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU"
+
+//WSUS自动更新错误码
+const  char INITUPDATEURL[]={"http://###.###.###.###"};
+
+const unsigned int HP_WSUS_GETCONFIGFAIL = 1002;
+
+const unsigned int HP_WSUS_SETCONFIGFAIL = 1003;
+
+const unsigned int HP_WSUS_GETWSUSGPOSTG = 1004;
+
+const unsigned int HP_WSUS_SETWSUSGPOSTG = 1005;
+
+/*************************************************
+File Name: WSUSConfig
+Author:  gcy
+Description:  设置系统的自动更新选项,
+                        设置系统的WSUS更新服务器地址
+                        设置系统的检查时间和频率
+                        设置系统在安装完更新后是否自动重启
+Version:  0.0.1
+Data:  2014/10/31
+**************************************************/
+WSUSConfig::WSUSConfig(void)
+{
+    m_numcount = 0;
+    m_failcount = 0;
+
+    constantValue();
+}
+
+
+WSUSConfig::~WSUSConfig(void)
+{
+    m_numcount = 0;
+    m_failcount = 0;
+}
+
+
+int WSUSConfig::GetDataFromDB(wchar_t  *dirpath, char *userid,char* usertype, char *currdata, char *millisecond, char *weekday)
+{
+    //从数据库中查询总的策略项和当前要开始检查的策略项及所有的安检结果
+    int ret = SQLITE_OK;
+    if (HP_openDB(dirpath) == HP_DB_OPENFAIL)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"打开数据库失败");
+        return HP_DB_OPENFAIL;
+    }
+    else
+    {
+        InitData();
+
+        //获取WSUS配置数据
+        char sql[HP_C_SQLDATA]={0}; 
+        char sqlReal[HP_C_SQLDATA]={0};
+        char **pszResult='\0';
+        CHAR *szErrMsg='\0';
+        INT nRow = 0;
+        INT nCloumn = 0;	
+
+          sprintf_s(sql,HP_C_SQLDATA,"SELECT %s,updatetype,updateday,updatehour,serverurl,reboot,enblefreq,freqtime \
+        FROM    tstgwsusconfig  a WHERE  (a.iuserid=\'%s\') AND (usertype=\'%s\') \
+        AND (dstartdate<=\'%s\') AND (denddate>=\'%s\') AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\") \
+        ORDER BY a.ipriority ASC ",HP_ATTRIBUTE_SQLNAME,userid,usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));	
+
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "查询WSUS配置SQL语句:", sql);
+        Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+
+		//EnterCriticalSection(&g_opdbcs);
+        if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+        {
+			//LeaveCriticalSection(&g_opdbcs);
+           WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "查询WSUS配置SQL语句失败:", szErrMsg);
+            sqlite3_free_table(pszResult);
+            ret = sqlite3_close(g_db);
+            g_db = NULL;
+            return HP_DB_GETTABLEFAIL;
+        }
+        if ((nRow > 0) && (nCloumn > 0))
+        {	
+            for (int i=0;i<1;i++)
+            {
+                for (int j=0; j < nCloumn; j++)
+                {
+                    GetdbColumndata(pszResult[j],pszResult[(i+1)*nCloumn+j],	&m_execwsusinfo);
+                }//for (int j=0; j < nCloumn; j++)
+            }//for (int i=0;i<nRow;i++)
+
+            //优先级最高的动作时拒绝的话不执行
+            if ( atoi(m_execwsusinfo.attriinfo.spolicyaction) == REFUSE )
+            {
+                m_numcount = 0;
+            }
+            else
+            {
+                m_numcount++;
+            }
+
+        }//if ((nRow > 0) && (nCloumn > 0))
+
+        sqlite3_free_table(pszResult);
+		//LeaveCriticalSection(&g_opdbcs);
+    }
+    return HP_SUCCESS;
+}
+
+string WSUSConfig::ExeWSUSItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess)
+{
+    char tempheader[MAX_PATH]={"0"};
+    sprintf_s(tempheader,MAX_PATH,"%s;%s;%d;%d;1;%d;%s;",servertime,g_deviceid.c_str(),totalitem,
+        curritem,nextitem,mac);
+
+    //拼接向服务器发送的xml
+    string xmlstring;
+    char *failInfo= new char[MAX_PATH*4+1]();
+    memset(failInfo,'\0',MAX_PATH*4+1);
+    bool ResultSucces = true;
+
+    int configtype = 0;
+    int updateday = 0;
+    long  updatetime = 0;
+    char updatedesfaildes[MAX_PATH] = {0};
+    char  serverurlfaildes[MAX_PATH] = {0};
+    char rebootandfreqfaildes[MAX_PATH] = {0};
+
+    char servurl[MAX_PATH] = {0};
+    int noboot = 0;
+    int enblefreq = 0;
+    int  freqtime= 0;
+    int Res = GetWSUSGPOStg(servurl,&noboot,&enblefreq,&freqtime,&configtype,&updateday,&updatetime);
+    if (Res != HP_SUCCESS )
+    {
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "GetWSUSGPOStg Fail");
+    }
+    if ( m_numcount>0 )
+    {
+        if ( atoi(m_execwsusinfo.updatetype) == 4 )//需要设置为自动更新，判断星期和小时是否一致
+        {
+            if ( configtype == 4 )
+            {
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "自动更新配置类型相同");
+                char hourdes[HP_C_USERCONTENTLEN] = {0};
+                sprintf_s(hourdes,sizeof(hourdes),"%02ld:00",updatetime);
+                if (atoi(m_execwsusinfo.updateday) == updateday )
+                {
+                    if (_strnicmp(hourdes,m_execwsusinfo.updatehour,sizeof(hourdes)) == 0)
+                    {
+                        WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "自动更新配置更新的小时相同");
+                        sprintf_s(updatedesfaildes,sizeof(updatedesfaildes),"自动更新配置为%s,在%s的%s时进行更新",m_configtypedes[configtype],
+                            m_updatedaydes[updateday],hourdes);
+                    }
+                    else 
+                    {
+                        WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "自动更新配置更新的小时不相同");
+                        sprintf_s(updatedesfaildes,sizeof(updatedesfaildes),"自动更新配置为%s,本地为在%s的%s时进行更新,服务器为在%s的%s时进行更新",m_configtypedes[configtype],
+                            m_updatedaydes[updateday],hourdes,m_updatedaydes[atoi(m_execwsusinfo.updatehour)],m_execwsusinfo.updatehour);
+                        m_failcount++;
+                    }
+                }
+                else
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "自动更新配置更新的星期时间不同");
+                    sprintf_s(updatedesfaildes,sizeof(updatedesfaildes),"自动更新配置为%s,本地为在%s的%s时进行更新,服务器为在%s的%s时进行更新",m_configtypedes[configtype],
+                        m_updatedaydes[updateday],hourdes,m_updatedaydes[atoi(m_execwsusinfo.updatehour)],m_execwsusinfo.updatehour);
+                    m_failcount++;
+                }
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "自动更新配置类型不相同");
+                sprintf_s(updatedesfaildes,sizeof(updatedesfaildes),"自动更新配置本地为%s,服务器配置为%s",m_configtypedes[configtype],
+                    m_configtypedes[atoi(m_execwsusinfo.updatetype)]);
+                m_failcount++;
+            }
+        }//if ( atoi(m_execwsusinfo.updatetype) == 4 )
+        else 
+        {
+            if ( atoi(m_execwsusinfo.updatetype) == configtype )
+            {
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "自动更新配置类型相同");
+                sprintf_s(updatedesfaildes,sizeof(updatedesfaildes),"自动更新配置为%s",m_configtypedes[configtype]);
+            }
+            else
+            {
+                 WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "自动更新配置类型不相同");
+                 sprintf_s(updatedesfaildes,sizeof(updatedesfaildes),"自动更新配置本地为%s,服务器配置为%s",m_configtypedes[configtype],
+                     m_configtypedes[atoi(m_execwsusinfo.updatetype)]);
+                 m_failcount++;
+            }
+        }
+
+        //判断服务器的URL
+        if ( _strnicmp(servurl,m_execwsusinfo.serverurl,sizeof(servurl)) == 0 )
+        {
+           WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "服务器url配置相同");
+           if (_strnicmp(servurl,"",sizeof(servurl))==0 )
+           {
+               sprintf_s(serverurlfaildes,sizeof(serverurlfaildes),"%s","服务器和本地均没有配置自动更新服务器");
+           }
+           else
+           {
+               sprintf_s(serverurlfaildes,sizeof(serverurlfaildes),"服务器和本地配置自动更新服务器%s",servurl);
+           }
+        }
+        else
+        {
+            if ( _strnicmp(servurl,"",sizeof(servurl))==0 )
+            {
+                 sprintf_s(serverurlfaildes,sizeof(serverurlfaildes),"本地没有配置自动更新服务器,服务器配置的自动更新服务器为%s",m_execwsusinfo.serverurl);
+                 m_failcount++;
+            }
+            else
+            {
+                if (_strnicmp(m_execwsusinfo.serverurl,"",sizeof(m_execwsusinfo.serverurl))==0)
+                {
+                    sprintf_s(serverurlfaildes,sizeof(serverurlfaildes),"本地配置自动更新服务器为%s,服务器没有配置自动更新服务器",servurl);
+                    m_failcount++;
+                }
+                else
+                {
+                     sprintf_s(serverurlfaildes,sizeof(serverurlfaildes),"本地配置自动更新服务器为%s,服务器配置自动更新服务器为%s",servurl,m_execwsusinfo.serverurl);
+                     m_failcount++;
+                }
+            }
+        }
+
+        //判断更新完成之后是否自动重启
+        if ( atoi(m_execwsusinfo.reboot) == noboot )
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "更新完成之后是否重启标志不一样");
+            sprintf_s(rebootandfreqfaildes,sizeof(rebootandfreqfaildes),"本地配置更新完后%s,服务器配置为更新完成后%s",m_rebootdes[noboot],m_rebootdes[1-noboot]);
+            m_failcount++;
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "更新完成之后是否重启标志一样");
+            sprintf_s(rebootandfreqfaildes,sizeof(rebootandfreqfaildes),"本地和服务器配置更新完成后%s",m_rebootdes[noboot]);
+        }
+        //判断是否开启检测频率和检测频率的时间
+        if( atoi(m_execwsusinfo.enblefreq)==1 )
+        {
+            if ( enblefreq == 1 )
+            {
+                if (atoi(m_execwsusinfo.freqtime) == freqtime)
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "更新频率时间取值一样");
+                    sprintf_s(rebootandfreqfaildes,sizeof(rebootandfreqfaildes),"%s,本地和服务器均为开启检测频率,检测频率为%d",rebootandfreqfaildes,freqtime);
+                }
+                else
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "更新频率时间取值不一样");
+                    sprintf_s(rebootandfreqfaildes,sizeof(rebootandfreqfaildes),"%s,本地和服务器均为开启检测频率,本地检测频率为%d,服务器检查频率为%d",
+                        rebootandfreqfaildes,freqtime,atoi(m_execwsusinfo.freqtime));
+                    m_failcount++;
+                }
+            }
+            else
+            {
+                 WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "本地未开启自动更新检测频率");
+                 sprintf_s(rebootandfreqfaildes,sizeof(rebootandfreqfaildes),"%s,服务器为开启自动更新检测频率,本地未开启自动更新检测频率",
+                     rebootandfreqfaildes);
+                 m_failcount++;
+            }
+        }
+        else 
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "服务器配置未开启自动更新检测频率");
+            if ( enblefreq == 1 )
+            {
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "本地开启自动更新检测频率");
+                sprintf_s(rebootandfreqfaildes,sizeof(rebootandfreqfaildes),"%s,服务器未开启自动更新检测频率,本地开启了自动更新检测频率",
+                    rebootandfreqfaildes);
+                m_failcount++;
+            }
+            else
+            {
+                sprintf_s(rebootandfreqfaildes,sizeof(rebootandfreqfaildes),"%s,本地和服务器未开启自动更新检测频率",rebootandfreqfaildes);
+            }
+        }
+    }
+
+    if ( m_failcount>0 )
+    {
+        m_failcount =1;
+
+        ResultSucces = false;
+        sprintf_s( failInfo,MAX_PATH*4+1,
+            "<subitem checkItemId=\"0\" checkItemAction=\"%s\" faildes=\"%s,%s,%s\" name=\"WSUS检查\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",
+			m_execwsusinfo.attriinfo.spolicyaction,updatedesfaildes,serverurlfaildes,
+			rebootandfreqfaildes,m_execwsusinfo.attriinfo.warningcont,m_execwsusinfo.attriinfo.warninglevel,
+			m_execwsusinfo.attriinfo.srcevent);
+    }
+
+    if(ResultSucces)
+    {
+		IsSuccess[WSUSCONFIG] = HP_SUCCESS;
+
+        xmlstring = SendSingleItemSafeCheckSuccess(tempheader);
+    }
+    else
+    {
+		IsSuccess[WSUSCONFIG] = HP_SF_SAFECHECKFAIL;
+
+        char *datainfo=new char[MAX_PATH*4+MAX_PATH];
+        sprintf_s(datainfo,MAX_PATH*4+MAX_PATH,"<iman succflag =\"0\">%s</iman>",failInfo);
+        string xmlBody = datainfo;
+        string Sendtmpheader =tempheader;
+        string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+        string  xmltail ="</nac>";
+        xmlstring = Sendtmpheader+xmlHeader+xmlBody+xmltail;
+        delete[] datainfo;
+    }
+    delete[] failInfo;
+    return xmlstring;
+}
+
+int WSUSConfig::RestoreFailItem()
+{
+    if (m_failcount >0 )
+    {
+        string  serverhour = m_execwsusinfo.updatehour;
+        int pos = serverhour.find(":",0);
+        string hourinfo = serverhour.substr(0,pos);
+
+       if ( _strnicmp(m_execwsusinfo.serverurl,"",sizeof(m_execwsusinfo.serverurl)) ==0 )
+       {
+               SetWSUSGPOStg(const_cast<char*>(INITUPDATEURL),1-atoi(m_execwsusinfo.reboot),atoi(m_execwsusinfo.enblefreq),atoi(m_execwsusinfo.freqtime),
+                   atoi(m_execwsusinfo.updatetype),atoi(m_execwsusinfo.updateday),atoi(m_execwsusinfo.updatehour));
+       }
+       else
+       {
+               SetWSUSGPOStg(m_execwsusinfo.serverurl,1-atoi(m_execwsusinfo.reboot),atoi(m_execwsusinfo.enblefreq),atoi(m_execwsusinfo.freqtime),
+                   atoi(m_execwsusinfo.updatetype),atoi(m_execwsusinfo.updateday),atoi(m_execwsusinfo.updatehour));
+       }
+    }
+    return -1;
+}
+
+void WSUSConfig::InitData()
+{
+     m_numcount = 0;
+     m_failcount = 0;
+
+     memset(&m_execwsusinfo,0,sizeof(WSUSDATAINFO));
+}
+
+/*************************************************
+Function Name: GetUpdataConfig
+Description: 获取系统的自动更新选项
+Input and output:  
+      configtype   :取值为0-4
+                             0:未配置系统的自动更新
+                             1:从不检查更新
+                             2:检查更新，但是让我选择是否下载和安装更新
+                             3:检查更新,但是让我选择是否是否安装更新
+                             4:自动安装更新
+     aunlupdateday :安装更新的星期,取值为0-7
+                              0：每天都检查
+                              1-7：依次代表星期日到星期一
+      time :  取值为0-23的正小时数
+      Output: HP_SUCCESS表示配置成功
+               HP_WSUS_GETCONFIGFAIL表示配置失败
+**************************************************/
+unsigned int WSUSConfig::GetUpdataConfig(int *configtype,int *aunlupdateday, long *time )
+{
+    unsigned int configgetRes = HP_WSUS_GETCONFIGFAIL;
+     int  currconfigstat = 5; 
+
+    HRESULT hr;
+    hr = CoInitialize(NULL);
+    //获取Windows Updatae的设置信息
+    IAutomaticUpdates  *autoUpdate;
+    hr = CoCreateInstance(CLSID_AutomaticUpdates, NULL, CLSCTX_INPROC_SERVER, IID_IAutomaticUpdates, (LPVOID*)&autoUpdate);
+    //hr = autoUpdate->ShowSettingsDialog();
+    IAutomaticUpdatesSettings  *Setting;
+    hr = autoUpdate->get_Settings(&Setting);
+    if(hr==S_OK)
+    {
+        AutomaticUpdatesNotificationLevel retval;
+
+        hr = Setting->get_NotificationLevel(&retval);
+        if(hr == S_OK)
+        {
+            currconfigstat = retval ;
+
+            switch(retval)
+            {
+            case aunlNotConfigured:
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                        "Automatic Updates is not configured by the user or by a Group Policy administrator");
+                }
+                break;
+            case aunlDisabled:
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                        "Automatic Updates is disabled. Users are not notified of important updates for the computer");
+                }
+                break;
+            case aunlNotifyBeforeDownload:
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                        "Automatic Updates prompts users to approve updates before it downloads or installs the updates");
+                }
+                break;
+            case aunlNotifyBeforeInstallation:
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                        "Automatic Updates automatically downloads updates, but prompts users to approve the updates before installation");
+                }
+                break;
+            case aunlScheduledInstallation:
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                        "Automatic Updates automatically installs updates according to the schedule that is specified by the user or by the IAutomaticUpdatesSettings");
+                }
+                break;
+            default:
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,
+                        "不知道的格式");
+                }
+                break;
+            }
+
+            if (currconfigstat == 5)
+            {
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"获取更新标志失败");
+            }
+            else
+            {
+                if (currconfigstat == 4) //自动更新，获取当前设置的星期和时间点
+                {
+                    AutomaticUpdatesScheduledInstallationDay  scheinstallday;
+                    hr=Setting->get_ScheduledInstallationDay(&scheinstallday);
+                    if (hr == S_OK)
+                    {
+                        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"获取当前的星期成功");
+                        *aunlupdateday = scheinstallday;
+                    }
+                    LONG updatatimev = 0;
+                    hr=Setting->get_ScheduledInstallationTime(&updatatimev);
+                    if (hr == S_OK)
+                    {
+                        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"获取当前的时间点成功");
+                        *time = updatatimev;
+                    }
+                }
+                *configtype = currconfigstat;
+
+                if (hr == S_OK)
+                {
+                    configgetRes = HP_SUCCESS ;
+                }
+            }
+        }
+        else
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"get Automatic Updates Fail");
+    }
+    CoUninitialize();
+
+    return configgetRes;
+}
+
+/*************************************************
+Function Name: SetUpdataConfig
+Description: 设置系统的自动更新选项
+Input:  
+      configtype   :取值为0-4
+                             0:未配置系统的自动更新
+                             1:从不检查更新
+                             2:检查更新，但是让我选择是否下载个安装更新
+                             3:检查更新,但是让我选择是否是否安装更新
+                             4:自动安装更新
+     aunlupdateday :安装更新的星期,取值为0-7
+                              0：每天都检查
+                              1-7：依次代表星期日到星期六
+      time :  取值为0-23的正小时数
+      Output: HP_SUCCESS表示配置成功
+               HP_WSUS_SETCONFIGFAIL表示配置失败
+**************************************************/
+ unsigned int WSUSConfig::SetUpdataConfig(int configtype,int aunlupdateday , long time)
+{
+    unsigned int configfunRes = HP_WSUS_SETCONFIGFAIL;
+
+    HRESULT hr;
+    hr = CoInitialize(NULL);
+    //获取Windows Updatae的设置信息
+    IAutomaticUpdates  *autoUpdate;
+    hr = CoCreateInstance(CLSID_AutomaticUpdates, NULL, CLSCTX_INPROC_SERVER, 
+        IID_IAutomaticUpdates, (LPVOID*)&autoUpdate);
+    IAutomaticUpdatesSettings  *Setting;
+    hr = autoUpdate->get_Settings(&Setting);
+    if(S_OK == hr)
+    {
+        AutomaticUpdatesNotificationLevel retval;
+        hr=Setting->get_NotificationLevel(&retval);
+        if(S_OK == hr)
+        {
+            int  currconfigstat = 5;
+
+            currconfigstat = retval ;
+
+            switch(retval)
+            {
+            case aunlNotConfigured:
+                {
+                     WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                         "Automatic Updates is not configured by the user or by a Group Policy administrator");
+                }
+                break;
+            case aunlDisabled:
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                        "Automatic Updates is disabled. Users are not notified of important updates for the computer");
+                }
+                break;
+            case aunlNotifyBeforeDownload:
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                        "Automatic Updates prompts users to approve updates before it downloads or installs the updates");
+                }
+                break;
+            case aunlNotifyBeforeInstallation:
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                        "Automatic Updates automatically downloads updates, but prompts users to approve the updates before installation");
+                }
+                break;
+            case aunlScheduledInstallation:
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                        "Automatic Updates automatically installs updates according to the schedule that is specified by the user or by the IAutomaticUpdatesSettings");
+                }
+                break;
+            default:
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "不知道的格式");
+                break;
+            }
+
+            if (currconfigstat == configtype)
+            {
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION, "已经是要配置的设置");
+            }
+            else
+            {
+                switch (configtype)
+                {
+                case 0:
+                    retval = aunlNotConfigured;
+                	break;
+                case 1:
+                    retval = aunlDisabled;
+                    break;
+                case 2:
+                    retval = aunlNotifyBeforeDownload;
+                    break;
+                case 3:
+                    retval = aunlNotifyBeforeInstallation;
+                        break;
+                case 4:
+                    retval = aunlScheduledInstallation;
+                    break;
+                default:
+                    break;
+                }
+
+                hr = Setting->put_NotificationLevel(retval);
+                if (retval ==  aunlScheduledInstallation)
+                {
+                    AutomaticUpdatesScheduledInstallationDay  setday;
+                    setday = (AutomaticUpdatesScheduledInstallationDay)aunlupdateday;
+
+                    hr=Setting->put_ScheduledInstallationDay(setday);
+                    if (S_OK == hr)
+                    {
+                        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"设置天数成功");
+                    }
+                    LONG settime;
+                    settime = time;
+                    hr = Setting->put_ScheduledInstallationTime(settime);
+                    if (S_OK == hr)
+                    {
+                        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"设置时间点成功");
+                    }
+                }
+                hr = Setting->Save();
+                if(S_OK == hr)
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"修改成功");
+                    configfunRes = HP_SUCCESS ;
+                }
+                else
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"修改失败");
+            }
+        }
+        else
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"get Automatic Updates Fail");
+    }
+
+    CoUninitialize();
+
+    return configfunRes;
+}
+
+/*************************************************
+Function Name: GetWSUSGPOStg
+Description: 获取系统的自动更新的组策略
+Input:  
+      serverurl  :更新服务位置; 例如http://192.168.2.1
+      noreboot : 取值为0-1
+                          0:自动更新安装后执行重启,
+                          1:自动更新安装后不执行重启
+      enblefreq :  取值为0-1
+                           开启自动更新检测频率;
+                          1开启自动更新检测频率,
+                          0不开启自动更新检测频率
+      time: 取值为1-22
+                          检查更新的间隔小时
+      Output: HP_SUCCESS  设置系统的自动更新的组策略成功
+               HP_WSUS_GETWSUSGPOSTG  设置系统的自动更新的组策略失败
+**************************************************/
+unsigned int WSUSConfig::GetWSUSGPOStg(char* serverurl,int  *reboot,int *enblefreq,int *freqtime)
+{
+    int getWSUSGPORes = HP_SUCCESS;
+
+    HKEY hSubKey = NULL;
+    HKEY hSubauKey = NULL;
+
+    wchar_t servervalue[MAX_PATH] = {L"0"};
+    DWORD servvalLen = MAX_PATH;
+    DWORD  type = REG_SZ;
+
+    LONG RegRes;
+    RegRes = RegOpenKeyEx(HKEY_LOCAL_MACHINE, GPO_UPDATE_REG, 0, KEY_QUERY_VALUE, &hSubKey);
+    if (ERROR_SUCCESS == RegRes)
+    {
+       RegRes = RegQueryValueEx(hSubKey, L"WUServer", 0, &type,(LPBYTE)servervalue , &servvalLen);
+       if (ERROR_SUCCESS == RegRes)
+       {
+           if (wcscmp(servervalue, L"0") == 0)
+           {
+               memset(serverurl,'\0',sizeof(serverurl));
+           }
+           else
+           {
+               int Len = WideCharToMultiByte(CP_ACP,0,servervalue,-1,NULL,0,NULL,NULL);
+               WideCharToMultiByte(CP_ACP,0,servervalue,-1,serverurl,Len,NULL,NULL);
+           }
+       }
+       else
+       {
+           WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"不存在这样WUServer键值");
+           memset(serverurl,'\0',sizeof(serverurl));
+       }
+       RegRes = RegOpenKeyEx(HKEY_LOCAL_MACHINE, GPO_UPDATE_AU_REG, 0,KEY_QUERY_VALUE,&hSubauKey);
+       if (ERROR_SUCCESS == RegRes)
+       {
+           DWORD dwvalue = 0;
+           DWORD cbsize = sizeof(DWORD);
+           type = REG_DWORD;
+
+           RegRes = RegQueryValueEx(hSubauKey,L"NoAutoRebootWithLoggedOnUsers", 0, &type,(LPBYTE)&dwvalue, &cbsize);
+           if(ERROR_SUCCESS == RegRes)
+           {
+               *reboot = dwvalue;
+           }
+           else
+           {
+                *reboot = 0;
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"不存在NoAutoRebootWithLoggedOnUsers键值");
+           }
+            dwvalue = 0;
+           cbsize = sizeof(DWORD);
+           type = REG_DWORD;
+           RegRes = RegQueryValueEx(hSubauKey, L"DetectionFrequencyEnabled", 0, &type,(LPBYTE)&dwvalue, &cbsize);
+           if( ERROR_SUCCESS == RegRes )
+           {
+               *enblefreq = dwvalue;
+           }
+           else
+           {
+               *enblefreq = 1;
+               WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                   "不存在DetectionFrequencyEnabled键值");
+           }
+           dwvalue = 0;
+           cbsize = sizeof(DWORD);
+           type = REG_DWORD;
+           RegRes = RegQueryValueEx(hSubauKey, L"DetectionFrequency", 0, &type,(LPBYTE)&dwvalue, &cbsize);
+           if(ERROR_SUCCESS == RegRes)
+           {
+               *freqtime = dwvalue;
+           }
+           else
+           {
+               *freqtime = 22;
+               WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                   "不存在DetectionFrequency键值");
+           }
+       }
+       else
+       {
+           WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+               "不存在这样AU项");
+           *reboot = 0;
+           *enblefreq = 1;
+           *freqtime = 22;
+       }
+    } 
+    else
+    {
+        getWSUSGPORes = HP_WSUS_GETWSUSGPOSTG;
+
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+            "不存在这样Windows Update项");
+        memset(serverurl,'\0',sizeof(serverurl));
+        *reboot = 0;
+        *enblefreq = 1;
+        *freqtime = 22;
+
+    }
+    
+    if (hSubKey != NULL)
+    {
+        RegCloseKey(hSubKey);
+        hSubKey = NULL;
+    }
+    if (hSubauKey != NULL)
+    {
+         RegCloseKey(hSubauKey);
+         hSubauKey = NULL;
+    }
+   
+    return getWSUSGPORes;
+}
+
+unsigned int WSUSConfig::GetWSUSGPOStg(char* serverurl,int  *reboot,int *enblefreq,int *freqtime,
+    int *configtype,int *aunlupdateday, long *time)
+{
+    int getWSUSGPORes = HP_SUCCESS;
+
+    HKEY hSubKey = NULL;
+    HKEY hSubauKey = NULL;
+
+    wchar_t servervalue[MAX_PATH] = {L"0"};
+    DWORD servvalLen = MAX_PATH;
+    DWORD  type = REG_SZ;
+
+    LONG RegRes;
+    RegRes = RegOpenKeyEx(HKEY_LOCAL_MACHINE, GPO_UPDATE_REG, 0,KEY_QUERY_VALUE, &hSubKey);
+    if (ERROR_SUCCESS == RegRes)
+    {
+        RegRes = RegQueryValueEx(hSubKey,L"WUServer", 0, &type,(LPBYTE)servervalue , &servvalLen);
+        if (ERROR_SUCCESS == RegRes)
+        {
+            if (wcscmp(servervalue,L"0") == 0)
+            {
+                memset(serverurl,'\0',sizeof(serverurl));
+            }
+            else
+            {
+                int Len = WideCharToMultiByte(CP_ACP,0,servervalue,-1,NULL,0,NULL,NULL);
+                WideCharToMultiByte(CP_ACP,0,servervalue,-1,serverurl,Len,NULL,NULL);
+            }
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"不存在这样WUServer键值");
+            memset(serverurl,'\0',sizeof(serverurl));
+        }
+        RegRes = RegOpenKeyEx(HKEY_LOCAL_MACHINE, GPO_UPDATE_AU_REG, 0,KEY_QUERY_VALUE,&hSubauKey);
+        if (ERROR_SUCCESS == RegRes)
+        {
+            DWORD dwvalue = 0;
+            DWORD cbsize = sizeof(DWORD);
+            type = REG_DWORD;
+
+            RegRes = RegQueryValueEx(hSubauKey,L"NoAutoRebootWithLoggedOnUsers", 0, &type,(LPBYTE)&dwvalue, &cbsize);
+            if(ERROR_SUCCESS == RegRes)
+            {
+                *reboot = dwvalue;
+            }
+            else
+            {
+                *reboot = 0;
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"不存在NoAutoRebootWithLoggedOnUsers键值");
+            }
+            dwvalue = 0;
+            cbsize = sizeof(DWORD);
+            type = REG_DWORD;
+            RegRes = RegQueryValueEx(hSubauKey,L"DetectionFrequencyEnabled", 0, &type,(LPBYTE)&dwvalue, &cbsize);
+            if( ERROR_SUCCESS == RegRes )
+            {
+                *enblefreq = dwvalue;
+            }
+            else
+            {
+                *enblefreq = 1;
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                    "不存在DetectionFrequencyEnabled键值");
+            }
+            dwvalue = 0;
+            cbsize = sizeof(DWORD);
+            type = REG_DWORD;
+            RegRes = RegQueryValueEx(hSubauKey,L"DetectionFrequency", 0, &type,(LPBYTE)&dwvalue, &cbsize);
+            if(ERROR_SUCCESS == RegRes)
+            {
+                *freqtime = dwvalue;
+            }
+            else
+            {
+                *freqtime = 22;
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                    "不存在DetectionFrequency键值");
+            }
+            dwvalue = 0;
+            cbsize = sizeof(DWORD);
+            type = REG_DWORD;
+            RegRes = RegQueryValueEx(hSubauKey,L"AUOptions",0,&type,(LPBYTE)&dwvalue,&cbsize);
+            if ( ERROR_SUCCESS == RegRes )
+            {
+                if ( ((dwvalue >=2) || (dwvalue <=5 )))
+                {
+                    *configtype = dwvalue;
+                    if (dwvalue ==4 )
+                    {
+                        dwvalue = 0;
+                        cbsize = sizeof(DWORD);
+                        type = REG_DWORD;
+                        RegRes = RegQueryValueEx(hSubauKey,L"ScheduledInstallDay",0,&type,(LPBYTE)&dwvalue,&cbsize);
+                        if (RegRes == ERROR_SUCCESS )
+                        {
+                            *aunlupdateday=dwvalue;
+                        }
+                        else
+                        {
+                            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                                "不存在ScheduledInstallDay键值");
+                        }
+                        
+                        dwvalue = 0;
+                        cbsize = sizeof(DWORD);
+                        type = REG_DWORD;
+                        RegRes = RegQueryValueEx(hSubauKey,L"ScheduledInstallTime",0,&type,(LPBYTE)&dwvalue,&cbsize);
+                        if ( RegRes == ERROR_SUCCESS )
+                        {
+                            *time=dwvalue;
+                        }
+                        else
+                        {
+                            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                                "不存在ScheduledInstallTime键值");
+                        }
+                    }
+                }
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                    "不存在AUOptions键值");
+            }
+            dwvalue = 0;
+            cbsize = sizeof(DWORD);
+            type = REG_DWORD;
+            RegRes = RegQueryValueEx(hSubauKey,L"NoAutoUpdate",0,&type,(LPBYTE)&dwvalue,&cbsize);
+            if ( RegRes == ERROR_SUCCESS )
+            {
+                if (dwvalue == 1)
+                {
+                    *configtype = dwvalue;
+                }
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                    "不存在NoAutoUpdate键值");
+            }
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+                "不存在这样AU项");
+            *reboot = 0;
+            *enblefreq = 1;
+            *freqtime = 22;
+        }
+    } 
+    else
+    {
+        getWSUSGPORes = HP_WSUS_GETWSUSGPOSTG;
+
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+            "不存在这样Windows Update项");
+        memset(serverurl,'\0',sizeof(serverurl));
+        *reboot = 0;
+        *enblefreq = 1;
+        *freqtime = 22;
+
+    }
+
+    if (hSubKey != NULL)
+    {
+        RegCloseKey(hSubKey);
+        hSubKey = NULL;
+    }
+    if (hSubauKey != NULL)
+    {
+        RegCloseKey(hSubauKey);
+        hSubauKey = NULL;
+    }
+
+    return getWSUSGPORes;
+}
+
+/*************************************************
+Function Name: SetWSUSGPOStg
+Description: 设置系统的自动更新的组策略
+Input:  
+      serverurl  :更新服务位置; 例如http://192.168.2.1
+      noreboot : 取值为0-1
+                          0:自动更新安装后执行重启,
+                          1:自动更新安装后不执行重启
+      enblefreq :  取值为0-1
+                           开启自动更新检测频率;
+                          1开启自动更新检测频率,
+                          0不开启自动更新检测频率
+      time: 取值为1-24
+                          检查更新的间隔小时
+      Output: HP_SUCCESS  设置系统的自动更新的组策略成功
+               HP_WSUS_SETWSUSGPOSTG  设置系统的自动更新的组策略失败
+**************************************************/
+unsigned int WSUSConfig::SetWSUSGPOStg(char* serverurl,int  noreboot,int enblefreq,int freqtime)
+{
+    ASSERT(serverurl);
+
+    int setWSUSGPORes = HP_WSUS_SETWSUSGPOSTG;
+
+    int urlLen = MultiByteToWideChar(CP_ACP,0,serverurl,-1,NULL,0);
+    wchar_t *wurl = new wchar_t[urlLen+1];
+    MultiByteToWideChar(CP_ACP,0,serverurl,-1,wurl,urlLen);
+    wurl[urlLen]=L'\0';
+
+    bool configserurl = false;
+    bool configreboot = false;
+    bool configenblefreq = false;
+    bool configfreqtime = false;
+
+    if (strcmp(serverurl,INITUPDATEURL) != 0)
+    {
+        configserurl = true;
+    }
+    if ( (0== noreboot) ||(1 == noreboot))
+    {
+        configreboot = true;
+    }
+
+    if ( (0== enblefreq) ||(1 == enblefreq))
+    {
+        configenblefreq = true;
+    }
+    if ( ( 1< freqtime) ||(freqtime  < 24))
+    {
+        configfreqtime = true;
+    }
+
+    CoInitialize(NULL);
+    HKEY ghoKey = NULL;
+    HKEY ghoSubKey = NULL;
+    HKEY hSubKey = NULL;
+
+    HKEY ghoauKey = NULL;
+    HKEY ghoauSubKey = NULL;
+    HKEY hSubauKey = NULL;
+
+    IGroupPolicyObject *pGPO = NULL;
+    HRESULT hr=CoCreateInstance(CLSID_GroupPolicyObject, NULL, CLSCTX_ALL,IID_IGroupPolicyObject, 
+          (LPVOID*)&pGPO);
+    if (S_OK == hr)
+    {
+        LONG RegRes;
+         RegRes = RegCreateKeyEx(HKEY_LOCAL_MACHINE, GPO_UPDATE_REG, 0,NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hSubKey, NULL);
+        if (configserurl)
+        {
+            RegSetValueEx(hSubKey,L"WUServer", 0, REG_SZ, (const BYTE *)wurl, wcslen(wurl)*sizeof(wchar_t));
+            RegSetValueEx(hSubKey,L"WUStatusServer", 0, REG_SZ, (const BYTE *)wurl, wcslen(wurl)*sizeof(wchar_t));
+            DWORD targetgroupenable = 1;
+            RegSetValueEx(hSubKey,L"TargetGroupEnabled", 0, REG_DWORD, (const BYTE *)&targetgroupenable,sizeof(DWORD));
+            
+        }
+        else
+        {
+            RegSetValueEx(hSubKey,L"WUServer", 0, REG_SZ, (const BYTE *)L"", wcslen(L"")*sizeof(wchar_t));
+            RegSetValueEx(hSubKey,L"WUStatusServer", 0, REG_SZ, (const BYTE *)L"", wcslen(L"")*sizeof(wchar_t));
+        }
+        if (configreboot || configenblefreq || configfreqtime)
+        {
+            RegRes = RegCreateKeyEx(HKEY_LOCAL_MACHINE, GPO_UPDATE_AU_REG, 0,NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hSubauKey, NULL);
+           if (configserurl)
+           {
+               DWORD  UseWUServer = 1;
+               RegSetValueEx(hSubauKey,L"UseWUServer", 0, REG_DWORD, (const BYTE *)&UseWUServer, sizeof(DWORD));
+           }
+            if (configreboot)
+            {
+                DWORD  dwrebootvalue = noreboot;
+                int rebootLen = sizeof(DWORD);
+                RegSetValueEx(hSubauKey,L"NoAutoRebootWithLoggedOnUsers", 0, REG_DWORD, (const BYTE *)&dwrebootvalue, rebootLen);
+            }
+            if (configenblefreq)
+            {
+               DWORD  dwenblefreqvalue = enblefreq;
+                int enblefreqLen = sizeof(DWORD);
+                RegSetValueEx(hSubauKey, L"DetectionFrequencyEnabled", 0, REG_DWORD,  (const BYTE *)&dwenblefreqvalue, enblefreqLen);
+            }
+            if (configfreqtime)
+            {
+                DWORD dwtimevalue = freqtime;
+                int timeLen = sizeof(DWORD);
+                RegSetValueEx(hSubauKey,L"DetectionFrequency", 0, REG_DWORD, (const BYTE *)&dwtimevalue, timeLen);
+            }
+        }
+        
+        pGPO->OpenLocalMachineGPO(GPO_OPEN_LOAD_REGISTRY);
+        pGPO->GetRegistryKey(GPO_SECTION_MACHINE,&ghoKey);
+        RegCreateKeyEx(ghoKey, GPO_UPDATE_REG, 0,NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &ghoSubKey, NULL);
+
+        if (configserurl)
+        {
+            RegSetValueEx(ghoSubKey,L"WUServer", 0, REG_SZ, (const BYTE *)wurl, wcslen(wurl)*sizeof(wchar_t));
+            RegSetValueEx(ghoSubKey,L"WUStatusServer", 0, REG_SZ, (const BYTE *)wurl, wcslen(wurl)*sizeof(wchar_t));
+        }
+        else
+        {
+            RegSetValueEx(ghoSubKey,L"WUServer", 0, REG_SZ, (const BYTE *)L"", wcslen(L"")*sizeof(wchar_t));
+            RegSetValueEx(ghoSubKey,L"WUStatusServer", 0, REG_SZ, (const BYTE *)L"", wcslen(L"")*sizeof(wchar_t));
+        }
+         if (configreboot || configenblefreq || configfreqtime)
+         {
+             RegCreateKeyEx(ghoKey, GPO_UPDATE_AU_REG, 0,NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &ghoauSubKey, NULL);
+             if (configreboot)
+             {
+                 DWORD  audwrebootvalue = noreboot;
+                 int aurebootLen = sizeof(DWORD);
+                 RegSetValueEx(ghoauSubKey,L"NoAutoRebootWithLoggedOnUsers", 0, REG_DWORD, (const BYTE *)&audwrebootvalue, aurebootLen);
+             }
+           if (configenblefreq)
+           {
+              DWORD  auefreqvalue = enblefreq;
+              int  auefreqLen = sizeof(DWORD);
+               RegSetValueEx(ghoauSubKey,L"DetectionFrequencyEnabled", 0, REG_DWORD, (const BYTE *)&auefreqvalue, auefreqLen);
+           }
+            if (configfreqtime)
+            {
+                DWORD autimevalue = freqtime;
+                int autimeLen = sizeof(DWORD);
+                RegSetValueEx(ghoauSubKey,L"DetectionFrequency", 0, REG_DWORD, (const BYTE *)&autimevalue, autimeLen);
+            }
+         }
+
+        GUID RegistryId = REGISTRY_EXTENSION_GUID;
+        //save method 的第一个参数一定要True
+        pGPO->Save(TRUE,TRUE,const_cast<GUID*>(&RegistryId),const_cast<GUID*>(&CLSID_GPESnapIn));
+        pGPO->Release();
+
+        if (ghoKey != NULL )
+        {
+            RegCloseKey(ghoKey);
+            ghoKey = NULL;
+        }
+        if (ghoSubKey != NULL )
+        {
+            RegCloseKey(ghoSubKey);
+            ghoSubKey= NULL;
+        }
+        if (ghoauKey != NULL )
+        {
+             RegCloseKey(ghoauKey);
+             ghoauKey = NULL;
+        }
+       if (hSubauKey != NULL )
+       {
+           RegCloseKey(hSubauKey);
+           hSubauKey = NULL;
+       }
+        
+
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+            "设置自动更新的组策略成功");
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+            "CoCreateInstance 创建GPO失败");
+    }
+
+    CoUninitialize();
+     delete[] wurl;
+
+    return setWSUSGPORes;
+}
+
+
+unsigned int WSUSConfig::SetWSUSGPOStg(char* serverurl,int  noreboot,int enblefreq,int freqtime,int configtype,int aunlupdateday, long time)
+{
+    ASSERT(serverurl);
+
+    int setWSUSGPORes = HP_WSUS_SETWSUSGPOSTG;
+
+    int urlLen = MultiByteToWideChar(CP_ACP,0,serverurl,-1,NULL,0);
+    wchar_t *wurl = new wchar_t[urlLen+1];
+    MultiByteToWideChar(CP_ACP,0,serverurl,-1,wurl,urlLen);
+    wurl[urlLen]=L'\0';
+
+    bool configserurl = false;
+    bool configreboot = false;
+    bool configenblefreq = false;
+    bool configfreqtime = false;
+
+    if (strcmp(serverurl,INITUPDATEURL) != 0)
+    {
+        configserurl = true;
+    }
+    if ( (0== noreboot) ||(1 == noreboot))
+    {
+        configreboot = true;
+    }
+
+    if ( (0== enblefreq) ||(1 == enblefreq))
+    {
+        configenblefreq = true;
+    }
+    if ( ( 1< freqtime) ||(freqtime  < 24))
+    {
+        configfreqtime = true;
+    }
+
+    CoInitialize(NULL);
+    HKEY ghoKey = NULL;
+    HKEY ghoSubKey = NULL;
+    HKEY hSubKey = NULL;
+
+    HKEY ghoauKey = NULL;
+    HKEY ghoauSubKey = NULL;
+    HKEY hSubauKey = NULL;
+
+    IGroupPolicyObject *pGPO = NULL;
+    HRESULT hr=CoCreateInstance(CLSID_GroupPolicyObject, NULL, CLSCTX_ALL,IID_IGroupPolicyObject, 
+        (LPVOID*)&pGPO);
+    if (S_OK == hr)
+    {
+        LONG RegRes;
+        RegRes = RegCreateKeyEx(HKEY_LOCAL_MACHINE, GPO_UPDATE_REG, 0,NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hSubKey, NULL);
+        if (configserurl)
+        {
+            RegSetValueEx(hSubKey,L"WUServer", 0, REG_SZ, (const BYTE *)wurl, wcslen(wurl)*sizeof(wchar_t));
+            RegSetValueEx(hSubKey,L"WUStatusServer", 0, REG_SZ, (const BYTE *)wurl, wcslen(wurl)*sizeof(wchar_t));
+            DWORD targetgroupenable = 1;
+            RegSetValueEx(hSubKey,L"TargetGroupEnabled", 0, REG_DWORD, (const BYTE *)&targetgroupenable,sizeof(DWORD));
+        }
+        else
+        {
+            RegSetValueEx(hSubKey,L"WUServer", 0, REG_SZ, (const BYTE *)L"", wcslen(L"")*sizeof(wchar_t));
+            RegSetValueEx(hSubKey,L"WUStatusServer", 0, REG_SZ, (const BYTE *)L"", wcslen(L"")*sizeof(wchar_t));
+        }
+
+        RegRes = RegCreateKeyEx(HKEY_LOCAL_MACHINE, GPO_UPDATE_AU_REG, 0,NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hSubauKey, NULL);
+
+        if (configreboot || configenblefreq || configfreqtime)
+        {
+            if (configserurl)
+            {
+                DWORD  UseWUServer = 1;
+                RegSetValueEx(hSubauKey,L"UseWUServer", 0, REG_DWORD, (const BYTE *)&UseWUServer, sizeof(DWORD));
+            }
+            if (configreboot)
+            {
+                DWORD  dwrebootvalue = noreboot;
+                int rebootLen = sizeof(DWORD);
+                RegSetValueEx(hSubauKey,L"NoAutoRebootWithLoggedOnUsers", 0, REG_DWORD, (const BYTE *)&dwrebootvalue, rebootLen);
+            }
+            if (configenblefreq)
+            {
+                DWORD  dwenblefreqvalue = enblefreq;
+                int enblefreqLen = sizeof(DWORD);
+                RegSetValueEx(hSubauKey,L"DetectionFrequencyEnabled", 0, REG_DWORD,  (const BYTE *)&dwenblefreqvalue, enblefreqLen);
+            }
+            if (configfreqtime)
+            {
+                DWORD dwtimevalue = freqtime;
+                int timeLen = sizeof(DWORD);
+                RegSetValueEx(hSubauKey,L"DetectionFrequency", 0, REG_DWORD, (const BYTE *)&dwtimevalue, timeLen);
+            }
+        }
+
+        DWORD auoption = configtype;
+        int auoptionlen = sizeof(DWORD);
+
+        if( configtype == 4 )
+        {
+
+            DWORD auupdatavalue = 0;
+            RegSetValueEx(hSubauKey,L"NoAutoUpdate", 0, REG_DWORD, (const BYTE *)&auupdatavalue, sizeof(DWORD));
+
+            RegSetValueEx(hSubauKey,L"AUOptions", 0, REG_DWORD, (const BYTE *)&auoption, auoptionlen);
+            DWORD scheduledinstallday = aunlupdateday;
+            int  scheduledinstalldaylen = sizeof(DWORD);
+            RegSetValueEx(hSubauKey,L"ScheduledInstallDay", 0, REG_DWORD, (const BYTE *)&scheduledinstallday, scheduledinstalldaylen);
+            DWORD scheduleinstalltime = time;
+            int scheduleinstalltimelen = sizeof(DWORD);
+            RegSetValueEx(hSubauKey,L"ScheduledInstallTime", 0, REG_DWORD, (const BYTE *)&scheduleinstalltime, scheduleinstalltimelen);
+        }
+        else if ( configtype == 1 )
+        {
+            RegSetValueEx(hSubauKey,L"NoAutoUpdate", 0, REG_DWORD, (const BYTE *)&auoption, auoptionlen);
+        }
+        else
+        {
+            DWORD auupdatavalue = 0;
+            RegSetValueEx(hSubauKey,L"NoAutoUpdate", 0, REG_DWORD, (const BYTE *)&auupdatavalue, sizeof(DWORD));
+
+            RegSetValueEx(hSubauKey,L"AUOptions", 0, REG_DWORD, (const BYTE *)&auoption, auoptionlen);
+        }
+
+        pGPO->OpenLocalMachineGPO(GPO_OPEN_LOAD_REGISTRY);
+        pGPO->GetRegistryKey(GPO_SECTION_MACHINE,&ghoKey);
+        RegCreateKeyEx(ghoKey, GPO_UPDATE_REG, 0,NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &ghoSubKey, NULL);
+
+        if (configserurl)
+        {
+            RegSetValueEx(ghoSubKey,L"WUServer", 0, REG_SZ, (const BYTE *)wurl, wcslen(wurl)*sizeof(wchar_t));
+            RegSetValueEx(ghoSubKey,L"WUStatusServer", 0, REG_SZ, (const BYTE *)wurl, wcslen(wurl)*sizeof(wchar_t));
+        }
+        else
+        {
+            RegSetValueEx(ghoSubKey,L"WUServer", 0, REG_SZ, (const BYTE *)L"", wcslen(L"")*sizeof(wchar_t));
+            RegSetValueEx(ghoSubKey,L"WUStatusServer", 0, REG_SZ, (const BYTE *)L"", wcslen(L"")*sizeof(wchar_t));
+        }
+
+        RegCreateKeyEx(ghoKey, GPO_UPDATE_AU_REG, 0,NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &ghoauSubKey, NULL);
+
+        if (configreboot || configenblefreq || configfreqtime)
+        {
+            if (configreboot)
+            {
+                DWORD  audwrebootvalue = noreboot;
+                int aurebootLen = sizeof(DWORD);
+                RegSetValueEx(ghoauSubKey,L"NoAutoRebootWithLoggedOnUsers", 0, REG_DWORD, (const BYTE *)&audwrebootvalue, aurebootLen);
+            }
+            if (configenblefreq)
+            {
+                DWORD  auefreqvalue = enblefreq;
+                int  auefreqLen = sizeof(DWORD);
+                RegSetValueEx(ghoauSubKey,L"DetectionFrequencyEnabled", 0, REG_DWORD, (const BYTE *)&auefreqvalue, auefreqLen);
+            }
+            if (configfreqtime)
+            {
+                DWORD autimevalue = freqtime;
+                int autimeLen = sizeof(DWORD);
+                RegSetValueEx(ghoauSubKey,L"DetectionFrequency", 0, REG_DWORD, (const BYTE *)&autimevalue, autimeLen);
+            }
+        }
+
+        DWORD augpooption = configtype;
+        int augpooptionlen = sizeof(DWORD);
+
+        if( configtype == 4 )
+        {
+            DWORD auupdatavalue = 0;
+            RegSetValueEx(ghoauSubKey,L"NoAutoUpdate", 0, REG_DWORD, (const BYTE *)&auupdatavalue, sizeof(DWORD));
+
+            RegSetValueEx(ghoauSubKey,L"AUOptions", 0, REG_DWORD, (const BYTE *)&augpooption, augpooptionlen);
+            DWORD scheduledinstallday = aunlupdateday;
+            int  scheduledinstalldaylen = sizeof(DWORD);
+            RegSetValueEx(ghoauSubKey,L"ScheduledInstallDay", 0, REG_DWORD, (const BYTE *)&scheduledinstallday, scheduledinstalldaylen);
+            DWORD scheduleinstalltime = time;
+            int scheduleinstalltimelen = sizeof(DWORD);
+            RegSetValueEx(ghoauSubKey,L"ScheduledInstallTime", 0, REG_DWORD, (const BYTE *)&scheduleinstalltime, scheduleinstalltimelen);
+        }
+        else if ( configtype == 1)
+        {
+            RegSetValueEx(ghoauSubKey,L"NoAutoUpdate", 0, REG_DWORD, (const BYTE *)&augpooption, augpooptionlen);
+        }
+        else
+        {
+            DWORD auupdatavalue = 0;
+            RegSetValueEx(ghoauSubKey,L"NoAutoUpdate", 0, REG_DWORD, (const BYTE *)&auupdatavalue, sizeof(DWORD));
+
+            RegSetValueEx(ghoauSubKey,L"AUOptions", 0, REG_DWORD, (const BYTE *)&augpooption, augpooptionlen);
+        }
+
+        GUID RegistryId = REGISTRY_EXTENSION_GUID;
+        //save method 的第一个参数一定要True
+        pGPO->Save(TRUE,TRUE,const_cast<GUID*>(&RegistryId),const_cast<GUID*>(&CLSID_GPESnapIn));
+        pGPO->Release();
+
+        if (ghoKey != NULL )
+        {
+            RegCloseKey(ghoKey);
+            ghoKey = NULL;
+        }
+        if (ghoSubKey != NULL )
+        {
+            RegCloseKey(ghoSubKey);
+            ghoSubKey= NULL;
+        }
+        if (ghoauKey != NULL )
+        {
+            RegCloseKey(ghoauKey);
+            ghoauKey = NULL;
+        }
+        if (hSubauKey != NULL )
+        {
+            RegCloseKey(hSubauKey);
+            hSubauKey = NULL;
+        }
+
+
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+            "设置自动更新的组策略成功");
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,
+            "CoCreateInstance 创建GPO失败");
+    }
+
+    CoUninitialize();
+    delete[] wurl;
+
+    return setWSUSGPORes;
+}
+
+
+void WSUSConfig::constantValue()
+{
+    for (int i=0;i<6;i++)
+    {
+        memset(m_configtypedes[i],0,sizeof(m_configtypedes[i]));
+    }
+    for (int j=0;j<8;j++)
+    {
+        memset(m_updatedaydes[j],0,sizeof(m_updatedaydes[j]));
+    }
+
+    for (int i=0;i<2;i++)
+    {
+        memset(m_rebootdes[i],0,sizeof(m_rebootdes[i]));
+    }
+
+    for (int j=0;j<2;j++)
+    {
+        memset(m_enblefreqdes[j],0,sizeof(m_enblefreqdes[j]));
+    }
+
+    memcpy(m_configtypedes[0],"未配置系统的自动更新",strlen("未配置系统的自动更新"));
+    memcpy(m_configtypedes[1],"从不检查更新",strlen("从不检查更新"));
+    memcpy(m_configtypedes[2],"检查更新，但是让我选择是否下载和安装更新",strlen("检查更新，但是让我选择是否下载和安装更新"));
+    memcpy(m_configtypedes[3],"检查更新,但是让我选择是否安装更新",strlen("检查更新,但是让我选择是否安装更新"));
+    memcpy(m_configtypedes[4],"自动安装更新",strlen("自动安装更新"));
+    memcpy(m_configtypedes[5],"未知错误",strlen("未知错误"));
+
+    memcpy(m_updatedaydes[0],"每天",strlen("每天"));
+    memcpy(m_updatedaydes[1],"每星期日",strlen("每星期日"));
+    memcpy(m_updatedaydes[2],"每星期一",strlen("每星期一"));
+    memcpy(m_updatedaydes[3],"每星期二",strlen("每星期二"));
+    memcpy(m_updatedaydes[4],"每星期三",strlen("每星期三"));
+    memcpy(m_updatedaydes[5],"每星期四",strlen("每星期四"));
+    memcpy(m_updatedaydes[6],"每星期五",strlen("每星期五"));
+    memcpy(m_updatedaydes[7],"每星期六",strlen("每星期六"));
+
+    memcpy(m_rebootdes[0],"重启",strlen("重启"));
+    memcpy(m_rebootdes[1],"不重启",strlen("不重启"));
+
+    memcpy(m_enblefreqdes[0],"开启",strlen("开启"));
+    memcpy(m_enblefreqdes[1],"未开启",strlen("未开启"));
+}
+
+//根据数据库中的字段转化为结构体字段
+void WSUSConfig::GetdbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, WSUSDATAINFO *dbrowdata)
+{
+    if( strcmp(dbcolumnname, "ipriority")==0 )
+    {			
+        memset(dbrowdata->attriinfo.ipriority, 0, sizeof(dbrowdata->attriinfo.ipriority));
+        Convert(dbcolumnvalue, dbrowdata->attriinfo.ipriority, sizeof(dbrowdata->attriinfo.ipriority),CP_UTF8, CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname, "spolicyaction")==0)
+    {			
+        memset(dbrowdata->attriinfo.spolicyaction,0,sizeof(dbrowdata->attriinfo.spolicyaction));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.spolicyaction,sizeof(dbrowdata->attriinfo.spolicyaction),CP_UTF8,CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname, "spromptinfo")==0)
+    {
+        memset(dbrowdata->attriinfo.spromptinfo,0,sizeof(dbrowdata->attriinfo.spromptinfo));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.spromptinfo,sizeof(dbrowdata->attriinfo.spromptinfo),CP_UTF8,CP_ACP);					
+    }
+    else  if(strcmp(dbcolumnname, "warningcont")==0)
+    {
+        memset(dbrowdata->attriinfo.warningcont,0,sizeof(dbrowdata->attriinfo.warningcont));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.warningcont,sizeof(dbrowdata->attriinfo.warningcont),CP_UTF8,CP_ACP);					
+    }	
+    else  if(strcmp(dbcolumnname,"warninglevel")==0)
+    {
+        memset(dbrowdata->attriinfo.warninglevel,0,sizeof(dbrowdata->attriinfo.warninglevel));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.warninglevel,sizeof(dbrowdata->attriinfo.warninglevel),CP_UTF8,CP_ACP);					
+    }	
+    else  if(strcmp(dbcolumnname,"srcevent")==0)
+    {
+        memset(dbrowdata->attriinfo.srcevent,0,sizeof(dbrowdata->attriinfo.srcevent));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.srcevent,sizeof(dbrowdata->attriinfo.srcevent),CP_UTF8,CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname,"updatetype")==0)
+    {
+        memset(dbrowdata->updatetype,0,sizeof(dbrowdata->updatetype));
+        Convert(dbcolumnvalue,dbrowdata->updatetype,sizeof(dbrowdata->updatetype),CP_UTF8,CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname,"updateday")==0)
+    {
+        memset(dbrowdata->updateday,0,sizeof(dbrowdata->updateday));
+        Convert(dbcolumnvalue, dbrowdata->updateday,sizeof(dbrowdata->updateday),CP_UTF8,CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname,"updatehour")==0)
+    {
+        memset(dbrowdata->updatehour,0,sizeof(dbrowdata->updatehour));
+        Convert(dbcolumnvalue,dbrowdata->updatehour,sizeof(dbrowdata->updatehour),CP_UTF8,CP_ACP);					
+    }	
+    else if(strcmp(dbcolumnname,"serverurl")==0)
+    {
+        memset(dbrowdata->serverurl,0,sizeof(dbrowdata->serverurl));
+        Convert(dbcolumnvalue, dbrowdata->serverurl,sizeof(dbrowdata->serverurl),CP_UTF8,CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname,"reboot")==0)
+    {
+        memset(dbrowdata->reboot,0,sizeof(dbrowdata->reboot));
+        Convert(dbcolumnvalue,dbrowdata->reboot,sizeof(dbrowdata->reboot),CP_UTF8,CP_ACP);					
+    }	
+    else if(strcmp(dbcolumnname,"enblefreq")==0)
+    {
+        memset(dbrowdata->enblefreq,0,sizeof(dbrowdata->enblefreq));
+        Convert(dbcolumnvalue,dbrowdata->enblefreq,sizeof(dbrowdata->enblefreq),CP_UTF8,CP_ACP);					
+    }	
+    else if(strcmp(dbcolumnname,"freqtime")==0)
+    {
+        memset(dbrowdata->freqtime,0,sizeof(dbrowdata->freqtime));
+        Convert(dbcolumnvalue,dbrowdata->freqtime,sizeof(dbrowdata->freqtime),CP_UTF8,CP_ACP);					
+    }	
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有该字段");
+    }
+}

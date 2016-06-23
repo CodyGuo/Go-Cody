@@ -1,0 +1,118 @@
+#pragma once
+
+#include "JobExecuter.h"
+class CJobExecuter;
+
+#include <list>
+using namespace std;
+
+//Instanciated class of CTypedPtrList template class. 
+//This is used to maintain the job queue.
+
+//typedef CTypedPtrList< CPtrList ,CJob*>CJobQList;
+typedef list< CJob*>CJobQList;
+
+//This is the main class of the module. To use the Multithreaded job queue 
+//you just have to create an instance of this. And then add a job to this to
+//get the job done. The job is an instance of a child class that is derived 
+//from the class CJob. This class is responsible to accept the jobs and 
+//maintain them in a priority queue. This class has a observer thread which 
+//observes the job queue and also the free executer threads. When a new executer 
+//is free and there is a new job then, immediately it assigns the new job to the 
+//executer thread.
+
+class CMThreadedJobQ
+{
+public:
+	typedef struct THNODE
+	{
+		//Pointer to the Job Executer
+		CJobExecuter* pExecuter;
+
+		//Pointer to next THNODE
+		THNODE * pNext ;
+	} THNODE;
+
+	//This is the pointer to the the thread (instance of CWinThread) which is 
+	//responsible for observing and assigning the jobs to the free executer threads. 
+
+	HANDLE m_pObserverThread;
+		//CriticalSection object, used for synchronized access of shared resources
+	//between the thread.
+	CRITICAL_SECTION m_cs;
+	//This is the link list to maintain the priority queue of jobs.
+	CJobQList m_jobQList;	
+		//This method deletes a job executer. This method is not required to be used by the user. This is only for the use of the implementation of the multithreaded job queue. 
+	void deleteJobExecuter(CJobExecuter *pEx);
+	
+	//The setMaxNoOfExecuter method sets the maximum number of executer. If the user increases
+	//the maximum number of executer then the multithreaded job queue will create more 
+	//threads to execute more jobs parallely. If the user decreases the max number of 
+	//executers then the job queue brings down the number of executer. The bringing
+	//down process may not be immediate if all the executers are busy in processing.
+	//In such a case the number will come down as soon as some jobs gets finished.
+	void setMaxNoOfExecuter(int value);
+
+	//This method adds a CJobExecuter to the Job executer link list. This method 
+	//is not required to be called by the user, this is only for the use of the 
+	//implementation of the multithreaded job queue
+	void addJobExecuter(CJobExecuter *pEx);
+	
+	//This method returns a free Job Executer. This method is not required to be 
+	//called or used by the user. This is only for the implementation of the 
+	//multithreaded job queue.
+	CJobExecuter* getJobExecuter();
+
+
+	//This method adds a Job Executer to the free job executer list. This method
+	//is not required to be used by the user, this is only for the use of the 
+	//implementation of the multithreaded job queue.
+	void addFreeJobExecuter(CJobExecuter *pEx);
+
+	//This method adds a job to the job queue. The job is passed as the parameter. 
+	void addJob(CJob *pJob);
+	
+	//This method returns the maximum number allowed executer threads. 
+	int getMaxNoOfExecuter();
+	
+	//This method returns the number of executer present at any instance of time. 
+	int getNoOfExecuter();
+
+	//This is the static thread function. This function is not to be used by the user.
+	//This function is used to create the observer thread. 
+	static UINT WINAPI  JobObserverThreadFunction(LPVOID);
+
+	//This pauses the Multithreaded job queue, so that no new job gets processed.
+	//But the user can add new jobs to the job queue. The jobs will be processed 
+	//when the user again resumes. But this does not pauses currently running jobs.
+	void pause();
+
+	//This resumes the Multithreaded job queue, after resume all the pending
+	//jobs will be processed.
+	void resume();	
+
+	CMThreadedJobQ();
+	virtual ~CMThreadedJobQ();
+	
+private :
+	//The BOOL attribute to state whether the observer thread should process or 
+	//not the new jobs.
+	BOOL m_pause;
+
+	//This int attribute represent the maximum limit of the executers. At any 
+	//instance of time the total number of free , and busy executer threads all 
+	//together should not exceed this number. 
+	int m_MaxNoOfExecuter;
+	
+	//This int attribute is to maintain the number of executer that are present
+	//at a particular instance of time to execute the Jobs. 
+	int m_NoOfExecuter;
+
+	//This is the pointer to the head of the link list which maintains the free executer 
+	//thread list. 
+	THNODE* m_pFreeEList;
+
+	//This is the head of the link list that maintains all the executer thread list. 
+	THNODE* m_pAllEList;
+};
+

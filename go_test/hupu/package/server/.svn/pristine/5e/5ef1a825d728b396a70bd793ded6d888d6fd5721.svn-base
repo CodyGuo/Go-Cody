@@ -1,0 +1,497 @@
+/*模块名称：strconvert 
+   模块功能：字符串转化
+   描述:       将Unicode字节和MultiByte字节相互转化
+                   从字串中查找字串
+                   按特定字符拆分字符串
+                   将时间戳转化为当前时间
+   作者：gcy
+   时间：2014/8/25
+*/
+
+#include "StdAfx.h"
+#include "strconvert.h"
+#include "DebugInfo.h"
+
+/*************************************************
+Function Name: TimeValToStandTime
+Description: 将13位的时间戳转化为日期和星期
+Input and output:  
+      timeval   :13位的时间戳
+      currdate: 时间戳对应的当前的年月日时分秒
+       weektime:时间戳对应的当前的星期
+**************************************************/
+void TimeValToStandTime(IN char *timeval,OUT char *currdate, OUT char* weektime)
+{
+    
+    ASSERT(timeval);
+    ASSERT(currdate);
+    ASSERT(weektime);
+
+    long long mytime = _atoi64(timeval)/1000;
+    time_t nowtime = mytime;
+    FILETIME ft;
+    SYSTEMTIME pst;
+    LONGLONG nLL = Int32x32To64(nowtime, 10000000) + 116444736000000000;
+    ft.dwLowDateTime = (DWORD)nLL;
+    ft.dwHighDateTime = (DWORD)(nLL >> 32);
+    FILETIME ftnow;
+    FileTimeToLocalFileTime(&ft,&ftnow);
+    FileTimeToSystemTime(&ftnow, &pst);
+
+    sprintf_s(currdate,25,"%04d-%02d-%02d %02d:%02d:%02d",pst.wYear,pst.wMonth,pst.wDay,pst.wHour,pst.wMinute,pst.wSecond);
+
+    if(pst.wDayOfWeek==0)
+        memcpy(weektime,"7",strlen("7"));
+    else
+        sprintf_s(weektime,10,"%d",pst.wDayOfWeek);
+    return;
+}
+
+/*************************************************
+Function Name: ConvertA2W
+Description: 将Multibyte字符串转化为Unicode字符串
+Input and output:  
+      strIn   : Multibyte字符串
+      strOut: Unicode字符串
+      StrOutLen:Unicode字符串初始分配的字符串大小
+**************************************************/
+int ConvertA2W(IN const char* strIn, OUT wchar_t* strOut,IN int StrOutLen)
+{
+    ASSERT(strIn);
+     ASSERT(strOut);
+	 if (strIn == NULL)
+	 {
+		  WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ConvertA2W 接收到空输入");
+		  return HP_C_BUFFTOSMALL;
+	 }
+    int Len =MultiByteToWideChar(CP_ACP,0,strIn,-1,NULL,0);
+    if(StrOutLen<Len)
+        return HP_C_BUFFTOSMALL;
+    MultiByteToWideChar(CP_ACP,0,strIn,-1,strOut,Len);
+    strOut[Len]='\0';
+    return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: ConvertW2A
+Description: 将Unicode字符串转化为Multibyte字符串
+Input and output:  
+      strIn   : Unicode字符串
+      strOut: Multibyte字符串
+      StrOutLen:Multibyte字符串初始分配的字符串大小
+**************************************************/
+int ConvertW2A(IN const wchar_t* strIn,OUT char* strOut,IN int StrOutLen)
+{
+	if (strIn == NULL)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ConvertW2A 接收到空输入");
+		return HP_C_BUFFTOSMALL;
+	}
+	ASSERT(strIn);
+	ASSERT(strOut);
+    int Len = WideCharToMultiByte(CP_ACP,0,strIn,-1,NULL,0,NULL,NULL);
+    if(StrOutLen<Len)
+        return HP_C_BUFFTOSMALL;
+    WideCharToMultiByte(CP_ACP,0,strIn,-1,strOut,Len,NULL,NULL);
+    strOut[Len]='\0';
+    return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: ConvertA2UTF8W
+Description: 将ASCII格式的字符串转为UTF8格式的宽字节
+Input and output:  
+      strIn   : Multibyte字符串
+      strOut: UTF8格式的宽字节
+      StrOutLen:UTF8格式的宽字节字符串初始分配的字符串大小
+**************************************************/
+int ConvertA2UTF8W(IN const char* strIn,OUT wchar_t* strOut,IN int StrOutLen)
+{
+    ASSERT(strIn);
+    ASSERT(strOut);
+	if (strIn == NULL)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ConvertA2UTF8W 接收到空输入");
+		return HP_C_BUFFTOSMALL;
+	}
+    int Len = MultiByteToWideChar(CP_UTF8,0,strIn,-1,NULL,0);
+    if(StrOutLen<Len)
+        return HP_C_BUFFTOSMALL;
+    MultiByteToWideChar(CP_UTF8,0,strIn,-1,strOut,Len);
+    strOut[Len]=L'\0';
+    return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: ConvertA2UTF8
+Description: 将ASCII格式的字符串转为UTF8格式的多字节字节
+Input and output:  
+      strIn   : ASCII格式的字符串
+      strOut: UTF8格式的多字节字节
+      StrOutLen:UTF8格式的多字节字符串初始分配的字符串大小
+**************************************************/
+int ConvertA2UTF8(IN const char* strIn, OUT char* strOut, IN int StrOutLen)
+{
+    ASSERT(strIn);
+    ASSERT(strOut);
+	if (strIn == NULL)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ConvertA2UTF8 接收到空输入");
+		return HP_C_BUFFTOSMALL;
+	}
+    int Len = MultiByteToWideChar(CP_ACP, 0, strIn, -1, NULL, 0);
+    wchar_t *strunicode = new wchar_t[Len+1];
+    MultiByteToWideChar(CP_ACP, 0, strIn, -1, strunicode, Len);
+    strunicode[Len]=L'\0';
+    assert(strunicode);
+    Len =WideCharToMultiByte(CP_UTF8, 0, strunicode, -1, NULL, 0, NULL, NULL);
+    if(StrOutLen<Len) 
+    {
+        delete[] strunicode;
+        strunicode = NULL;
+        return HP_C_BUFFTOSMALL;
+    }
+    WideCharToMultiByte(CP_UTF8, 0, strunicode, -1, strOut ,Len, NULL, NULL);
+    strOut[Len]='\0';
+    assert(strOut);
+    delete[] strunicode;
+    strunicode = NULL;
+    return HP_SUCCESS;
+}
+
+/*************************************************
+Function Name: ConvertW2UTF8
+Description: 将Unicode格式的宽字节转化为UTF8格式的多字节
+Input and output:  
+      strIn   : Unicode格式的宽字节
+      strOut: UTF8格式的多字节
+      StrOutLen:UTF8格式的多字节字符串初始分配的字符串大小
+**************************************************/
+int ConvertW2UTF8(IN const wchar_t* strIn,OUT char* strOut,IN int StrOutLen)
+{
+    ASSERT(strIn);
+    ASSERT(strOut);
+	if (strIn == NULL)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ConvertW2UTF8 接收到空输入");
+		return HP_C_BUFFTOSMALL;
+	}
+    int Len = WideCharToMultiByte(CP_UTF8,0,strIn,-1,NULL,0,NULL,NULL);
+    if(StrOutLen<Len)
+        return HP_C_BUFFTOSMALL;
+    WideCharToMultiByte(CP_UTF8,0,strIn,-1,strOut,Len,NULL,NULL);
+    strOut[Len]='\0';
+    return HP_SUCCESS;
+}
+
+/************************************************************ 
+ Description: 转换查询数据库字段为宽字符
+ input: pFieldValue[字段值]， wstrFieldValue[转后字段值]
+ Return: 
+*************************************************************/
+int ConvertDbFieldsToUni(IN char* pFieldValue, IN int iOutLen, OUT wchar_t* pWFieldValue)
+{
+	int ret = FALSE;
+	char tempBuf[MAXFIELDLEN] = {0};
+
+	Convert(pFieldValue, tempBuf, sizeof(tempBuf), CP_UTF8, CP_ACP);
+	if (tempBuf)
+	{
+		if (ConvertA2W(tempBuf, pWFieldValue, iOutLen) == HP_SUCCESS)
+		{
+			ret = TRUE;
+		}
+	}		
+
+	return ret;
+}
+
+/*************************************************
+Function Name: BoolRepLs
+Description: 判断list中是否有字符串数据
+Input and output:  
+      ls   :存有string类型的数据的链表
+      data: 要查询的数据
+ Return:
+     list中存在数据返回true,list中不存在数据返回false
+**************************************************/
+bool BoolRepLs(IN list<string> ls,IN const char *data)
+{
+    bool bflag= false;
+
+    try
+    {
+        ASSERT(data);
+
+        list<string>::iterator LstIter;
+        for (LstIter=ls.begin();LstIter!=ls.end();LstIter++)
+        {		
+            if (strcmp(LstIter->data(),data)==0)
+            {
+                bflag= true;
+                break;
+            }
+        }
+    }
+    catch (...)
+    {
+#ifdef DEBUG
+        ::MessageBoxA(NULL, "BoolRepLs exceptiom", "err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "BoolRepLs Exception");
+    }
+    return bflag;
+}
+
+/*************************************************
+Function Name: split
+Description: 根据pattern拆分str字符串
+Input and output:  
+      str   :要拆分的str字符串
+      pattern:要拆分的标识,如",","."
+ Return:
+     根据pattern拆分的数据放入vector容器
+**************************************************/
+vector<string> split(IN string str,IN string pattern)
+{
+    string::size_type pos;
+    vector<string> result;
+    str+=pattern;//扩展字符串以方便操作
+    try
+    {
+        unsigned  int size=str.size();
+
+        for(unsigned  int i=0; i<size; i++)
+        {
+            pos=str.find(pattern,i);
+            if(pos<size)
+            {
+                string s=str.substr(i,pos-i);
+                result.push_back(s);
+                i=pos+pattern.size()-1;
+            }
+        }
+    }
+    catch (...)
+    {
+#ifdef DEBUG
+        ::MessageBoxA(NULL, "split exceptiom", "err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "split Exception");
+    }
+    return result;
+}
+
+
+vector<wstring> splitwstr(IN wstring str,IN wstring pattern)
+{
+	string::size_type pos;
+	vector<wstring> result;
+	str+=pattern;//扩展字符串以方便操作
+	try
+	{
+		unsigned  int size=str.size();
+
+		for(unsigned  int i=0; i<size; i++)
+		{
+			pos=str.find(pattern,i);
+			if(pos<size)
+			{
+				wstring s=str.substr(i,pos-i);
+				result.push_back(s);
+				i=pos+pattern.size()-1;
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef DEBUG
+		::MessageBoxA(NULL, "splitwstr exceptiom", "err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "splitwstr Exception");
+	}
+	return result;
+}
+
+/*************************************************
+Function Name: Convert
+Description: 根据sourceCodepage和targetCodepage转换字节类型
+Input and output:  
+      strIn   :要转换类型的MultiByte字符串
+      strOut:转换后的MultiByte字符串
+      sourceCodepage: strIn的字节类型
+      targetCodepage:  strOut的字节类型
+**************************************************/
+ void Convert(IN const char* strIn,OUT char* strOut, IN int strOutLen, IN int sourceCodepage, IN int targetCodepage)
+ {
+     try
+     {
+         ASSERT(strIn);
+         ASSERT(strOut);
+
+		 if (strIn == NULL)
+		 {
+			 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "Convert 接收到空输入");
+			 return ;
+		 }
+
+         int unicodeLen=MultiByteToWideChar(sourceCodepage,0,strIn,-1,NULL,0);
+         wchar_t* pUnicode=new wchar_t[unicodeLen+1];
+
+         memset(pUnicode,0,(unicodeLen+1)*sizeof(wchar_t));
+         MultiByteToWideChar(sourceCodepage,0,strIn,-1,(LPWSTR)pUnicode,unicodeLen);
+
+         BYTE * pTargetData = NULL;
+
+         int targetLen=WideCharToMultiByte(targetCodepage,0,(LPWSTR)pUnicode,-1,(char *)pTargetData,0,NULL,NULL);
+         pTargetData=new BYTE[targetLen+1];
+
+         memset(pTargetData,0,targetLen+1);
+
+         WideCharToMultiByte(targetCodepage,0,(LPWSTR)pUnicode,-1,(char *)pTargetData,targetLen,NULL,NULL);
+         lstrcpynA(strOut,(char*)pTargetData, min(strOutLen,targetLen));
+
+         delete[] pUnicode;
+         pUnicode = NULL;
+         delete[] pTargetData;
+         pTargetData = NULL;
+
+     }
+     catch (...)
+     {
+#ifdef DEBUG
+         ::MessageBoxA(NULL, strIn, "Convert", 0);
+#endif
+         WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "Convert Exception");
+         WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,(char*)strIn);
+     }
+}
+
+ string ConvertUniToAnsi(IN wstring BufferW)
+ {
+	 if(BufferW.length()==0)
+	 {
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "NULL Convert");
+		return "";
+	 }
+	 int len = WideCharToMultiByte(CP_ACP,0,BufferW.c_str(),BufferW.length(),NULL,0,NULL,NULL);
+	 char *buff = new char[len+1];
+	 memset(buff,0,len+1);
+	 WideCharToMultiByte(CP_ACP,0,BufferW.c_str(),BufferW.length(),buff,len,NULL,NULL);
+	 buff[len]='\0';
+	 string tmpstr= buff;
+	 if(buff)
+	 {
+		 delete[] buff;
+		 buff = NULL;
+	 }
+	 return tmpstr;
+ }
+
+ wstring ConvertAnsiToUni(IN string buff)
+ {
+	 if(buff.length()==0)
+	 {
+		 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "NULL Convert");
+		return L"";
+	 }
+	 int len = MultiByteToWideChar(CP_ACP,0,buff.c_str(),buff.length(),NULL,0);
+	 wchar_t *Buff = new wchar_t[len+1];
+	 memset(Buff,0,(len+1)*sizeof(wchar_t));
+	 MultiByteToWideChar(CP_ACP,0,buff.c_str(),buff.length(),Buff,len);
+	 Buff[len]=L'\0';
+	 wstring Tempstr = Buff;
+	 if(Buff)
+	 {
+		 delete[] Buff;
+		 Buff = NULL;
+	 }
+	 return Tempstr;
+ }
+
+ string ConvertSrcToDst(string buff,IN int sourceCodepage, IN int targetCodepage)
+ {
+	 string tmpbuff = "";
+	 if(buff.length()==0)
+		 return tmpbuff;
+
+	 int unicodeLen=MultiByteToWideChar(sourceCodepage,0,buff.c_str(),buff.length(),NULL,0);
+	 wchar_t* pUnicode=new wchar_t[unicodeLen+1];
+	 memset(pUnicode,0,(unicodeLen+1)*sizeof(wchar_t));
+	 MultiByteToWideChar(sourceCodepage,0,buff.c_str(),buff.length(),(LPWSTR)pUnicode,unicodeLen);
+	 pUnicode[unicodeLen]=L'\0';
+	 int targetLen=WideCharToMultiByte(targetCodepage,0,(LPWSTR)pUnicode,-1,NULL,0,NULL,NULL);
+	 char *pTargetData=new char[targetLen+1];
+	 memset(pTargetData,0,targetLen+1);
+	 WideCharToMultiByte(targetCodepage,0,(LPWSTR)pUnicode,-1,pTargetData,targetLen,NULL,NULL);
+	 pTargetData[targetLen]='\0';
+	 tmpbuff = pTargetData;
+	 if(pUnicode)
+	 {
+		 delete[] pUnicode;
+		 pUnicode = NULL;
+	 }
+	 if(pTargetData)
+	 {
+		 delete[] pTargetData;
+		 pTargetData = NULL;
+	 }
+	 return tmpbuff;
+ }
+
+ wstring  ConvertstringToWstring(string buff, IN int targetCodepage)
+ {
+	 wstring tmpbuff = L"";
+	 if(buff.length()==0)
+		 return tmpbuff;
+
+	 int targetLen=MultiByteToWideChar(targetCodepage,0,buff.c_str(),buff.length(),NULL,0);
+	 wchar_t* pTargetData=new wchar_t[targetLen+1];
+	 memset(pTargetData,0,(targetLen+1)*sizeof(wchar_t));
+	 MultiByteToWideChar(targetCodepage,0,buff.c_str(),buff.length(),(LPWSTR)pTargetData,targetLen);
+	 pTargetData[targetLen]=L'\0';
+	 tmpbuff = pTargetData;
+	 if(pTargetData)
+	 {
+		 delete[] pTargetData;
+		 pTargetData = NULL;
+	 }
+	 return tmpbuff;
+ }
+
+ BOOL bFindWindowsTitle(wstring wintitle,BOOL bCloseWindows,WPARAM wparam)
+ {
+	 BOOL bRet = FALSE;
+	 CWnd* pDesktopWnd = CWnd::GetDesktopWindow();
+	 CWnd* pWnd = pDesktopWnd->GetWindow(GW_CHILD);
+	 try
+	 {
+		 while (pWnd != NULL) 
+		 {		
+			 CString cstrWinTex = L"";
+			 ::GetWindowText(pWnd->GetSafeHwnd(), cstrWinTex.GetBuffer(MAX_PATH), MAX_PATH-1);
+
+			 if (  cstrWinTex.Find(wintitle.c_str(),0) != -1 )
+			 {
+				 if(bCloseWindows)
+					 ::SendMessage(pWnd->GetSafeHwnd(),wparam,0,0);
+				 bRet = TRUE;
+				 break;
+			 }
+			 cstrWinTex.ReleaseBuffer();
+
+			 if (pWnd)
+			 {
+				 pWnd = pWnd->GetWindow(GW_HWNDNEXT);
+			 }
+		 }
+	 }
+	 catch(...)
+	 {
+#ifdef DEBUG
+		 MessageBox(NULL,L"bFindWindowsTitle exception",L"bFindWindowsTitle exception",MB_OK);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"bFindWindowsTitle exception");
+	 }
+	 return bRet;
+ }

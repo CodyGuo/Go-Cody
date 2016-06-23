@@ -1,0 +1,298 @@
+////
+//操作系统检查数据库字段说明:
+//soptype:操作系统类型,例如Microsoft Windows 7
+//sosspversion:操作系统补丁包版本,0:表示不限制补丁包版本,1:表示策略设置为
+//补丁包为server pack 1以上，2:表示策略设置为补丁包为server pack 2以上，
+//3:表示策略设置为补丁包为server pack 3以上，4:表示策略设置为补丁包为server pack 4以上(包含当前版本)
+//
+#include "StdAfx.h"
+#include "GetOsInfo.h"
+
+#include <strsafe.h>
+#pragma comment(lib,"strsafe.lib")
+
+#include "..\strconvert.h"
+#include "..\DebugInfo.h"
+#include "SafeCheckFuntion.h"
+#include "OperationSystem.h"
+
+CGetOsInfo::CGetOsInfo(void)
+{
+    InitData();
+}
+
+CGetOsInfo::~CGetOsInfo(void)
+{
+    InitData();
+}
+
+
+int CGetOsInfo::GetDataFromDB(wchar_t  *dirpath, char *userid,char* usertype, char *currdata, char *millisecond, char *weekday)
+{
+    //从数据库中查询总的策略项和当前要开始检查的策略项及所有的安检结果
+    int ret = SQLITE_OK;
+
+    if (HP_openDB(dirpath) == HP_DB_OPENFAIL)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"打开数据库失败");
+        return HP_DB_OPENFAIL;
+    }
+    else
+    {
+        InitData();
+
+        //获取process数据
+        char sql[HP_C_SQLDATA]={'0'}; 
+        char sqlReal[HP_C_SQLDATA]={'0'};
+        char **pszResult='\0';
+        CHAR *szErrMsg='\0';
+        INT nRow = 0;
+        INT nCloumn = 0;
+
+        sprintf_s(sql,HP_C_SQLDATA,"SELECT %s,sostype,sosspversion FROM  (SELECT * FROM tstgoscheck a, tstgoscheckcontent b WHERE \
+                                   (a.ipolicyauthid=b.ipolicyauthid) AND (a.iuserid=%d) AND (a.usertype = \'%s\')AND (a.dstartdate<=\'%s\') AND (a.denddate>=\'%s\') \
+                                   AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority DESC) AS tb  \
+                                   GROUP BY tb.sostype ORDER BY ipriority ASC ",HP_ATTRIBUTE_SQLNAME,
+                                   atoi(userid),usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));	
+
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "查询操作系统检查策略的SQL语句:", sql);
+
+        Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+//		EnterCriticalSection(&g_opdbcs);
+        if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "获取操作系统检查数据错误:",szErrMsg);
+	//		LeaveCriticalSection(&g_opdbcs);
+            sqlite3_free_table(pszResult);
+            ret = sqlite3_close(g_db);
+            g_db = NULL;
+            return HP_DB_GETTABLEFAIL;
+        }
+        if ((nRow > 0) && (nCloumn > 0))
+        {	
+            m_numcount = nRow;
+
+            for (int i=0;i<nRow;i++)
+            {
+                OSDATAINFO osdatainfo;
+                memset(&osdatainfo,0,sizeof(OSDATAINFO));
+				sprintf_s(osdatainfo.attriinfo.spolicyaction,sizeof(osdatainfo.attriinfo.spolicyaction),"%d",1);
+                for (int j=0; j < nCloumn; j++)
+                {
+                    if(strcmp(pszResult[j], "ipriority")==0)
+                    {			
+                        memset(osdatainfo.attriinfo.ipriority, 0, sizeof(osdatainfo.attriinfo.ipriority));
+                        Convert(pszResult[(i+1)*nCloumn+j], osdatainfo.attriinfo.ipriority, sizeof(osdatainfo.attriinfo.ipriority),CP_UTF8, CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j], "spolicyaction")==0)
+					{	
+						if(strcmp(pszResult[(i+1)*nCloumn+j],""))
+						{
+							memset(osdatainfo.attriinfo.spolicyaction,0,sizeof(osdatainfo.attriinfo.spolicyaction));
+							Convert(pszResult[(i+1)*nCloumn+j],osdatainfo.attriinfo.spolicyaction,sizeof(osdatainfo.attriinfo.spolicyaction),CP_UTF8,CP_ACP);		
+						}
+					}
+                    else if(strcmp(pszResult[j], "spromptinfo")==0)
+                    {
+                        memset(osdatainfo.attriinfo.spromptinfo,0,sizeof(osdatainfo.attriinfo.spromptinfo));
+                        Convert(pszResult[(i+1)*nCloumn+j],osdatainfo.attriinfo.spromptinfo,sizeof(osdatainfo.attriinfo.spromptinfo),CP_UTF8,CP_ACP);					
+                    }
+                    else  if(strcmp(pszResult[j], "warningcont")==0)
+                    {
+                        memset(osdatainfo.attriinfo.warningcont,0,sizeof(osdatainfo.attriinfo.warningcont));
+                        Convert(pszResult[(i+1)*nCloumn+j],osdatainfo.attriinfo.warningcont,sizeof(osdatainfo.attriinfo.warningcont),CP_UTF8,CP_ACP);					
+                    }	
+                    else  if(strcmp(pszResult[j],"warninglevel")==0)
+                    {
+                        memset(osdatainfo.attriinfo.warninglevel,0,sizeof(osdatainfo.attriinfo.warninglevel));
+                        Convert(pszResult[(i+1)*nCloumn+j],osdatainfo.attriinfo.warninglevel,sizeof(osdatainfo.attriinfo.warninglevel),CP_UTF8,CP_ACP);					
+                    }	
+                    else  if(strcmp(pszResult[j],"srcevent")==0)
+                    {
+                        memset(osdatainfo.attriinfo.srcevent,0,sizeof(osdatainfo.attriinfo.srcevent));
+                        Convert(pszResult[(i+1)*nCloumn+j],osdatainfo.attriinfo.srcevent,sizeof(osdatainfo.attriinfo.srcevent),CP_UTF8,CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j],"sostype")==0)
+                    {
+                        memset(osdatainfo.ostype,0,sizeof(osdatainfo.ostype));
+                        Convert(pszResult[(i+1)*nCloumn+j],osdatainfo.ostype,sizeof(osdatainfo.ostype),CP_UTF8,CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j],"sosspversion")==0)
+                    {
+                        memset(osdatainfo.osspversion,0,sizeof(osdatainfo.osspversion));
+                        Convert(pszResult[(i+1)*nCloumn+j], osdatainfo.osspversion,sizeof(osdatainfo.osspversion),CP_UTF8,CP_ACP);					
+                    }
+                }//for (int j=0; j < nCloumn; j++)
+
+                m_stgosinfo.push_back(osdatainfo);
+
+            }//for (int i=0;i<nRow;i++)
+        }//if ((nRow > 0) && (nCloumn > 0))
+
+        sqlite3_free_table(pszResult);
+	//	LeaveCriticalSection(&g_opdbcs);
+    }
+    return HP_SUCCESS;
+}
+
+string CGetOsInfo::ExecOSVersionItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess)
+{
+    ASSERT(servertime);
+    ASSERT(mac);
+
+    char tempheader[MAX_PATH]={"0"};
+    sprintf_s(tempheader,MAX_PATH,"%s;%s;%d;%d;1;%d;%s;", servertime, g_deviceid.c_str(), totalitem, curritem, nextitem, mac);
+    //拼接向服务器发送的xml
+
+    string xmlstring;
+    char *failInfo= new char[MAX_PATH*2+1]();
+    memset(failInfo,0,MAX_PATH*2+1);
+    bool bIsSucces = true;
+    if (m_numcount>0)
+    {
+        BOOL bHavethisOs = FALSE;
+
+        list<OSDATAINFO>::iterator  execositer;
+        execositer =m_stgosinfo.begin();
+        m_osckeckinfo = *execositer;
+
+        OperationSystem systeminfo;
+        if ( systeminfo.CrnGetWindowsVersionAndServPack(m_osdetailinfo,sizeof(m_osdetailinfo),m_servpack,sizeof(m_servpack)))
+        {
+           for (execositer =m_stgosinfo.begin();execositer != m_stgosinfo.end();++execositer)
+           {
+               OSDATAINFO tmposinfo;
+               memset(&tmposinfo,0,sizeof(OSDATAINFO));
+               tmposinfo = *execositer;
+               
+               char ostype[MAX_PATH] = {0};
+			   sprintf_s(ostype,sizeof(ostype),"%s",m_osdetailinfo);
+			   trim_all(ostype);
+
+               char stgostype[MAX_PATH] = {0};
+			   sprintf_s(stgostype,sizeof(stgostype),"%s",tmposinfo.ostype);
+			    trim_all(stgostype);
+
+               char ossptype[MAX_PATH] = {0};
+               if (_stricmp(m_servpack,"ERROR"))
+			   {
+				   sprintf_s(ossptype,sizeof(ossptype),"%s",m_servpack);
+				   trim_all(ossptype);
+			   }
+               
+               if ( StrStrIA(ostype, stgostype))
+               {
+                   bHavethisOs = TRUE;
+
+                   WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"找到该操作系统的策略");
+                   int osspnum = atoi(tmposinfo.osspversion);
+                   if ( osspnum == 0 )
+                   {
+                       break;
+                   }
+                   else
+                   {
+                       if ( !StrStrIA(ossptype, tmposinfo.osspversion) )
+                       {
+                            bIsSucces= false;
+                            memset(&m_osckeckinfo,0,sizeof(OSDATAINFO));
+                            m_osckeckinfo = *execositer;
+
+                            if (strcmp(m_servpack,"ERROR") == 0 )
+                            {
+                                sprintf_s( failInfo,MAX_PATH*2+1,"<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"操作系统%s与服务器设定的%s的补丁包server pack%s不符合\" \
+                                    name=\"操作系统版本检查\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",m_failnumcount,m_osckeckinfo.attriinfo.spolicyaction,
+									m_osdetailinfo,m_osckeckinfo.ostype,m_osckeckinfo.osspversion,m_osckeckinfo.attriinfo.warningcont,m_osckeckinfo.attriinfo.warninglevel,
+									m_osckeckinfo.attriinfo.srcevent);
+                            }
+                            else
+                            {
+                                sprintf_s( failInfo,MAX_PATH*2+1,"<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"操作系统%s的补丁包版本%s与服务器设定的%s的补丁包server pack%s不符合\" \
+                                     name=\"操作系统版本检查\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",m_failnumcount,m_osckeckinfo.attriinfo.spolicyaction,
+									 m_osdetailinfo,m_servpack,m_osckeckinfo.ostype,m_osckeckinfo.osspversion,m_osckeckinfo.attriinfo.warningcont,
+									 m_osckeckinfo.attriinfo.warninglevel,m_osckeckinfo.attriinfo.srcevent);
+                            }
+                            m_failnumcount++;
+                            break;
+                       }// if ( Findsomestring(ossptype,tmposinfo.osspversion) == FALSE )
+                   }
+               }// if ( Findsomestring(m_stgosinfo,tmposinfo.ostype) )
+           }//for (execositer =m_stgosinfo.begin();execositer != m_stgosinfo.end();++execositer)
+
+           if (!bHavethisOs)
+           {
+               bIsSucces= false;
+               sprintf_s( failInfo,
+                   MAX_PATH*2+1,
+                   "<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"服务器端没有配置%s的操作系统\" name=\"操作系统版本检查\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",
+                   m_failnumcount,m_osckeckinfo.attriinfo.spolicyaction,m_osdetailinfo,m_osckeckinfo.attriinfo.warningcont,m_osckeckinfo.attriinfo.warninglevel,m_osckeckinfo.attriinfo.srcevent);
+               m_failnumcount++;
+           }
+        }
+        else
+        {
+            bIsSucces= false;
+            sprintf_s( failInfo,
+                MAX_PATH*2+1,
+                "<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"获取本地操作系统版本和补丁包失败\" name=\"操作系统版本检查\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\"/>",
+                m_failnumcount,m_osckeckinfo.attriinfo.spolicyaction,
+				m_osckeckinfo.attriinfo.warningcont,m_osckeckinfo.attriinfo.warninglevel,m_osckeckinfo.attriinfo.srcevent);
+            m_failnumcount++;
+        }
+    }
+    if(bIsSucces)
+    {
+		IsSuccess[OSVERSION] = HP_SUCCESS;
+
+        xmlstring =xmlstring = SendSingleItemSafeCheckSuccess(tempheader);;
+    }
+    else
+    {
+		IsSuccess[OSVERSION] = HP_SF_SAFECHECKFAIL;
+
+        char *dataInfo=new char[MAX_PATH*2+MAX_PATH];
+        sprintf_s(dataInfo,MAX_PATH*2+MAX_PATH,"<iman succflag =\"0\">%s</iman>",failInfo);
+        string xmlBody = dataInfo;
+        string Sendtmpheader =tempheader;
+        string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+        string  xmltail ="</nac>";
+        xmlstring = Sendtmpheader+xmlHeader+xmlBody+xmltail;
+        delete[] dataInfo;
+    }
+    delete[] failInfo;
+    return xmlstring;
+}
+
+int CGetOsInfo::RestoreFailItem()
+{
+     return -1;
+}
+
+ void CGetOsInfo::InitData()
+ {
+     memset(m_servpack,0,sizeof(m_servpack));
+     memset(m_osdetailinfo,0,sizeof(m_osdetailinfo));
+      m_numcount =0;
+      m_failnumcount=0;
+
+       list<OSDATAINFO>::iterator osinfoiter;
+      for (osinfoiter = m_stgosinfo.begin();osinfoiter != m_stgosinfo.end();)
+      {
+          m_stgosinfo.erase(osinfoiter++);
+      }
+      
+      memset(&m_osckeckinfo,0,sizeof(OSDATAINFO));
+
+ }
+
+ char* CGetOsInfo::trim_all(char *s)
+ {
+     char *p=s, *sa=s;
+     while (*p) {
+         if(*p!=' ')
+             *s++ = *p;
+         p++;
+     }
+     *s=0;
+     return sa;
+ }

@@ -1,0 +1,14 @@
+#pragma once
+
+#include <string>
+using namespace std;
+
+
+//将systemtime时间转化为秒
+unsigned long ConvertSystemUserBlackSpaceToSecond(string timestr);
+
+//将systemtime格式的时间转化为秒
+unsigned long ConvertSystemTimeToSecond(SYSTEMTIME st);
+
+//将时间戳格式的时间转化为秒
+unsigned long ConvertServiceTimevalToSecond(string servtimeval);

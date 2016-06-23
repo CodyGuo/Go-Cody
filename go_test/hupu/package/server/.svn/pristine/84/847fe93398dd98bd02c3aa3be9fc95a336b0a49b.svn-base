@@ -1,0 +1,112 @@
+#pragma once 
+
+#include "..\stdafx.h"
+#include "TlHelp32.h"
+#include <Iphlpapi.h>
+#include "..\GlobalDate.h"
+#pragma comment(lib,"Iphlpapi.lib")
+#pragma  comment(lib,"WS2_32.lib")
+
+#include <WtsApi32.h>
+#pragma comment(lib,"WtsApi32.lib")
+
+//去除内联函数Modified By GCY 2014/8/25
+int UrlEncodeUtf8(LPCSTR pszUrl, LPSTR pszEncode, int nEncodeLen);
+int UrlEncodeUtf8(LPCWSTR pszUrl, LPWSTR pszEncode, int nEncodeLen);
+bool DownLoadFileFromUrl(wchar_t *hostIp,char *UrlPath,char *szLocalFile,bool bFailIfExist,bool bIsexeProg);
+int TerminateProcessByName(char *processName);
+int TerminateProcessByName(wchar_t  *processName);
+
+//返回CANTFINDPORT表示找不到该端口
+ HMODULE  InitPortFunc();
+
+DWORD GetProcessIdByTcpPort(HMODULE hModule,DWORD Port);
+
+DWORD GetUdpPortByProcessId(HMODULE hModule,DWORD Port);
+
+ bool  TerminateProcessForOccupiedTcpPort(HMODULE hModule,DWORD Port);
+
+ DWORD TerminateProcessForOccupiedUdpPort(HMODULE hModule,DWORD Port);
+
+ void FreePortLibrary(HMODULE hModule);
+
+//查询某一个进程是否在运行
+ int IsProcessExec(char* processName);
+
+ int GetSendData(IN int iflag, OUT RECVMSG *recvMsg,char* Inparam=NULL,char* Outparam=NULL);
+
+  PMIB_IPFORWARDTABLE MyGetIpForwardTable(BOOL bOrder);
+
+ void MyFreeIpForwardTable(PMIB_IPFORWARDTABLE pIpRouteTab);
+
+ int GetCurrentUsingIp(in_addr *DesIpAddr,in_addr *SourceIpAddr);
+
+ int GetLocalIp(OUT char *pLocalIp);
+
+ int GetLocalMac(char *MACInfo);
+
+ int GetLocalIpAndMac(OUT char *pLocalIp, OUT char *pMacInfo);
+
+//设备认证
+ string GetDeviceIdentification(char* ascmac);
+
+//发送长连接数据:输入参数为Token值和连接类型(0建立长连接或者1修改长连接)
+ string GetEstablishData(char* inputparam);
+
+ string GetDbUser(SERVREGISTERUSERTYPE EnableUser,char* Outparam);
+
+ string GetDeviceMAC();
+
+ string SendARPInfo(char*  ascmac);
+
+ string SendARPInitInfo(char*  ascmac);
+
+ string SendExceptInfo(char *Errorinfo);
+
+ string SendGetClientState();
+
+ string getuserregister(char* Inparam);
+
+ string LocalUserLogOn(char*  inputparam);
+
+ int GetSendData(int iflag,RECVMSG *recvMsg,char* Inparam,char* Outparam);
+
+
+ int GetSysTimeFromTimval(IN char* timeval,OUT LPSYSTEMTIME st);
+
+ int GetDetailDataInfo(char *timeval,char *currdate,char *millisectime,char* weektime);
+
+ string  SendOnlineOrOffLineMsg(char*  Inputparam);
+
+ string SendStgRequest(char*  inputparam);
+
+ BOOL LaunchAppIntoDifferentSession(char *softwarepath,char *param = NULL, IN const unsigned long imilsec = INFINITE);
+
+ BOOL GetProcessUserToken(IN wchar_t* processName,OUT HANDLE *pUserToken,BOOL bcurrsession = TRUE);
+
+ BOOL GetCurrentUserStringSid(IN HANDLE pUserToken,OUT wchar_t *userstringsid,IN int userstringsidlen);
+
+ //获取服务的计算机时间
+ string GetServiceTimeRequest(char* actiontype);
+
+/************************************************************
+ Description: 客户端
+ input: 
+ Return: 拼接客户端MAC和IP
+*************************************************************/
+string GetClientMacAndIp();
+
+ /************************************************************
+ Description: 发送客户端切换用户、重启系统事件数据
+ input: pActionType["1":重启Windows系统, "2":切换Windows用户]
+ Return: NULL
+*************************************************************/
+string GetClientEventData(IN char* pActionType);
+
+void GetSubItemStgInfo(int iUserId,int iUserType,int iStgIndex);
+
+void  GetAllStagInfo(int iUserId,int iUserType);
+
+//向服务器发送安检项成功的字符串
+string  SendSingleItemSafeCheckSuccess(char* pSFResultHeader);
+

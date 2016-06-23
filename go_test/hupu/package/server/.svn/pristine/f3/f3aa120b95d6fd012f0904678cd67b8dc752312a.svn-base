@@ -1,0 +1,27 @@
+#ifndef  HANDLEJOB1_H_
+#define HANDLEJOB1_H_
+
+#include "Job.h"
+
+class HandleJob1:public CJob
+{
+
+public:
+	HandleJob1();
+	virtual  ~HandleJob1();
+
+	virtual int execute();
+
+	void InitParam(HANDLE sock,int flag, const  char*  parammsg=NULL);
+
+	char m_outmsg[MAX_PATH];
+
+private:
+	int m_flag;
+	string m_msgStr;
+
+	//sock¾ä±ú
+	HANDLE m_sockhandle;
+
+};
+#endif

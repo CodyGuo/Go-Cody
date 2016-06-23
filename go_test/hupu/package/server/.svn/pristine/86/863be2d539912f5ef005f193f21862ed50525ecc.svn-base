@@ -1,0 +1,512 @@
+#include "stdafx.h"
+#include "AssistRunAlarm.h"
+#include "DebugInfo.h"
+#include "HandleJob1.h"
+#include "CommPub.h"
+#include "xml\tinyxml.h"
+#include "GlobalDate.h"
+#include "strconvert.h"
+
+//小助手启动策略
+ASSISTRUNSTG runStg = {0};
+
+//小助手运行事件标志，提交启动事件后标志置为FALSE
+BOOL g_runEventFlag = TRUE; 
+
+//小助手退出策略
+ASSISTRUNSTG exitStg = {0};
+
+//小助手小助手用户注销策略
+ASSISTRUNSTG userLogoffStg = {0};
+
+//小助手卸载策略
+ASSISTRUNSTG uninstallStg = {0};
+
+/************************************************************
+ Description: 获取当前系统时间
+ output: 当前系统时间
+ Return: NULL
+*************************************************************/
+void GetCurTime(OUT char* pCurTime)
+{
+    SYSTEMTIME st;
+
+    GetLocalTime(&st);
+
+    sprintf_s(  pCurTime, 
+                TIME_BUF_LEN,
+                "%04d-%02d-%02d %02d:%02d:%02d",
+                st.wYear,
+                st.wMonth,
+                st.wDay,
+                st.wHour,
+                st.wMinute,
+                st.wSecond );
+}
+
+/************************************************************
+ Description: 获取系统报警策略
+ Return: NULL
+*************************************************************/
+void GetAssistRunAlarmPolicy()
+{
+    HandleJob1 getAssistRunAlertPolicy;
+
+    getAssistRunAlertPolicy.InitParam(g_EstliSocket.m_hComm,CLIENT_REQUST_ALARM_POLICY_FLAG);
+    getAssistRunAlertPolicy.execute();
+}
+
+/************************************************************
+ Description: 发送小助手事件动作
+ Return: NULL
+*************************************************************/
+void SendAssistEventPolicy(IN const CHAR* pSendMsgBuf)
+{
+    HandleJob1 sendAssistEventPolicy;
+
+    sendAssistEventPolicy.InitParam(g_EstliSocket.m_hComm,CLIENT_SEND_ALARM_EVENTINFO_FLAG, pSendMsgBuf);
+    sendAssistEventPolicy.execute();
+}
+
+/************************************************************
+ Description: 解析事件策略元素
+ input: 时间节点元素
+ Return: NULL
+*************************************************************/
+static void GetEventElement(IN TiXmlElement *eventElement)
+{
+	try
+	{
+		TiXmlAttribute *subItemAttr = eventElement->FirstAttribute();
+		ASSISTRUNSTG stgBuf = {0};
+
+		strncpy_s(stgBuf.eventCode, sizeof(stgBuf.eventCode), subItemAttr->Value(), strlen(subItemAttr->Value()));
+
+		subItemAttr = subItemAttr->Next();
+
+		while (subItemAttr)
+		{
+			if (_strnicmp(subItemAttr->Name(), "ifalarm", strlen("ifalarm")) == 0)
+			{
+				stgBuf.ifalarm = atoi(subItemAttr->Value());
+			}
+			else if (_strnicmp(subItemAttr->Name(), "warnlevel", strlen("warnlevel")) == 0)
+			{
+				stgBuf.warnlevel = atoi(subItemAttr->Value());
+			}
+			else if (_strnicmp(subItemAttr->Name(), "warnname", strlen("warnname")) == 0)
+			{
+				Convert(subItemAttr->Value(), stgBuf.warnname, sizeof(stgBuf.warnname),CP_UTF8, CP_ACP);			
+			}
+			subItemAttr = subItemAttr->Next();
+		}
+
+		if (_strnicmp(stgBuf.eventCode, ASSIST_RUN_CODE, strlen(ASSIST_RUN_CODE)) == 0)
+		{
+			memcpy(&runStg, &stgBuf, sizeof(ASSISTRUNSTG) );
+		}
+		else if (_strnicmp(stgBuf.eventCode, ASSIST_EXIT_CODE, strlen(ASSIST_EXIT_CODE)) == 0)
+		{
+			memcpy(&exitStg, &stgBuf, sizeof(ASSISTRUNSTG) );
+		}
+		else if (_strnicmp(stgBuf.eventCode, USER_LOGOFF_CODE, strlen(USER_LOGOFF_CODE)) == 0)
+		{
+			memcpy(&userLogoffStg, &stgBuf, sizeof(ASSISTRUNSTG));
+		}
+		else if (_strnicmp(stgBuf.eventCode, ASSIST_UNINSTALL_CODE, strlen(ASSIST_UNINSTALL_CODE)) == 0)
+		{
+			memcpy(&uninstallStg, &stgBuf, sizeof(ASSISTRUNSTG));
+		}
+
+	}
+	catch (...)
+	{
+		MessageBox(NULL, L"GetEventElement Exception", L"Msg", 0);
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "GetEventElement Exception");
+	}
+}
+
+/************************************************************
+ Description: 解析接收消息策略
+ input: 时间节点元素
+ Return: 0[成功]；-1[失败]
+*************************************************************/
+int ParseMsgBuf(IN char* pMsgBuf)
+{
+	try
+	{
+		if (_strnicmp(pMsgBuf, "EMPTY", strlen("EMPTY")) == 0)
+		{
+			memset(&runStg, 0, sizeof(ASSISTRUNSTG));
+			memset(&exitStg, 0, sizeof(ASSISTRUNSTG));
+			memset(&userLogoffStg, 0, sizeof(ASSISTRUNSTG));
+			memset(&uninstallStg, 0, sizeof(ASSISTRUNSTG));
+
+			return -1;
+		}
+
+		TiXmlDocument* myDocument = new TiXmlDocument();
+		TiXmlElement *rootElement = NULL;
+		TiXmlElement *imanElement = NULL;
+		TiXmlElement *eventElement = NULL;
+
+		if (myDocument == NULL)
+		{
+			return -1;
+		}
+
+		myDocument->Parse(pMsgBuf);
+		if (myDocument->Error())
+		{
+			delete myDocument;
+			return -1;
+		}
+
+		rootElement = myDocument->RootElement();
+
+		if (rootElement == NULL)
+		{
+			delete myDocument;
+			return -1;
+		}
+
+		imanElement = rootElement->FirstChildElement();
+
+		if (imanElement == NULL)
+		{
+			delete myDocument;
+			return -1;
+		}
+
+		eventElement = imanElement->FirstChildElement();
+
+		if (eventElement == NULL)
+		{
+			delete myDocument;
+			return -1;
+
+		}
+
+		while(eventElement)
+		{  
+			GetEventElement(eventElement);
+			eventElement = eventElement->NextSiblingElement();
+		}
+
+		delete myDocument;
+
+	}
+	catch (...)
+	{
+		MessageBox(NULL, L"ParseMsgBuf Exception", L"Msg", 0);
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "ParseMsgBuf Exception");
+	}
+    return 0;
+}
+
+/************************************************************
+ Description: 组织发送消息策略
+ input: 
+ Return: NULL
+*************************************************************/
+void PacketSendMsgBuf(IN CHAR* pEventCode, IN BOOL ifalarm, IN int warnlevel, IN CHAR* pWarnName, IN CHAR* pCurTime, OUT string& sendMsgBuf)
+{
+	try
+	{
+		CHAR subItem[MAX_STRING_LEN] = {0};
+		string xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac><iman>";
+		string xmltail ="</iman></nac>";
+		string subItemStr;
+
+		sprintf_s(subItem, 
+			MAX_STRING_LEN,
+			"<subitem eventcode =\"%s\" ifalarm =\"%d\" warnlevel=\"%d\"  warnname = \"%s\" eventfiretime = \"%s\" />",
+			pEventCode,
+			ifalarm,
+			warnlevel,
+			pWarnName,
+			pCurTime);
+
+		subItemStr = subItem;
+		sendMsgBuf = xmlHeader + subItemStr  + xmltail;
+	}
+	catch (...)
+	{
+		MessageBox(NULL, L"PacketSendMsgBuf Exception", L"Msg", 0);
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "PacketSendMsgBuf Exception");
+	}
+}
+
+/************************************************************
+ Description: 小助手事件警报
+ input: pCurPath，当前路径；assistRunStg，小助手发生事件
+ Return: NULL
+*************************************************************/
+void AssistEventAlarm(IN WCHAR* pCurPath, IN PASSISTRUNSTG assistRunStg)
+{
+	try
+	{
+		CHAR curTime[TIME_BUF_LEN] = {0};
+
+		if (strcmp(assistRunStg->eventCode, ASSIST_EXIT_CODE) == 0)
+		{
+			GetLastTurnOffTime(curTime);
+		}
+		else
+		{
+			GetCurTime(curTime);
+		}
+
+		if (g_EstliSocket.IsOpen())
+		{
+			string sendMsgBuf;
+
+			PacketSendMsgBuf(assistRunStg->eventCode, assistRunStg->ifalarm, assistRunStg->warnlevel, assistRunStg->warnname, curTime, sendMsgBuf);
+			SendAssistEventPolicy(sendMsgBuf.c_str());
+		}
+		else
+		{
+			InsertAssistEventToDb(pCurPath, assistRunStg, curTime);
+		}
+	}
+	catch (...)
+	{
+		MessageBox(NULL, L"AssistEventAlarm Exception", L"Msg", 0);
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "AssistEventAlarm Exception");
+	}
+}
+
+/************************************************************
+ Description: 插入小助手事件到数据库
+ input:  pCurPath，当前路径；pEventCode，发生事件类型；assistRunStg，小助手发生事件
+ Return: NULL
+*************************************************************/
+BOOL InsertAssistEventToDb(IN WCHAR* pCurPath, IN PASSISTRUNSTG assistRunStg, IN CHAR* pCurTime)
+{		
+	int ret = !SQLITE_OK;
+	try
+	{
+		wchar_t wdbPath[MAX_PATH] = {L"0"};
+		char dbPath[MAX_PATH] = {0};
+		char sql[HP_C_SQLDATA] = {0};
+		char* utf8Sql = NULL;
+		sqlite3_stmt *stmt = NULL;  
+
+		memset(sql, 0, sizeof(sql));
+		wsprintf(wdbPath, L"%s\\nacdata.db", pCurPath);
+
+		if (ConvertW2UTF8(wdbPath, dbPath, MAX_PATH) == 0)
+		{
+			if ( g_db == NULL)
+			{
+				ret = sqlite3_open(dbPath, &g_db);
+			}
+
+			sprintf_s(  sql, 
+				HP_C_SQLDATA, 
+				"INSERT INTO teventinfo(eventcode, ifalarm, warnlevel, warnname, eventfiretime) VALUES(\"%s\", %d, %d, \"%s\", \"%s\")",
+				assistRunStg->eventCode,
+				assistRunStg->ifalarm,
+				assistRunStg->warnlevel,
+				assistRunStg->warnname,
+				pCurTime);
+
+			utf8Sql = new char[1024];
+
+			if (ConvertA2UTF8(sql, utf8Sql, 1024) == 0)
+			{
+				if ( sqlite3_prepare_v2(g_db, utf8Sql, -1, &stmt, NULL) == SQLITE_OK)
+				{
+					if (sqlite3_step(stmt) == SQLITE_DONE)
+					{
+						ret = SQLITE_OK;
+					}
+				}
+			}
+			sqlite3_finalize(stmt); 
+			delete[] utf8Sql;
+		}
+	}
+	catch (...)
+	{
+		ret = !SQLITE_OK;
+		MessageBox(NULL, L"InsertAssistEventToDb Exception", L"Msg", 0);
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "InsertAssistEventToDb Exception");
+	}
+	return ret;
+}
+
+/************************************************************
+ Description: 发送数据库小助手事件动作给服务端
+ input: 
+ Return: NULL
+*************************************************************/
+void SendAssistEventAlarmDataFromDb(IN CHAR* pEventCode, IN  CHAR* pIfalarm, IN CHAR* pWarnlevel, IN CHAR* pWarnname, IN CHAR* pEventfiretime)
+{
+    if (g_EstliSocket.IsOpen())
+    {
+        string sendMsgBuf;
+
+        PacketSendMsgBuf(pEventCode, atoi(pIfalarm), atoi(pWarnlevel), pWarnname, pEventfiretime, sendMsgBuf);
+        SendAssistEventPolicy(sendMsgBuf.c_str());
+    }
+}
+
+/************************************************************
+ Description: 从数据库中获取并提交未上传的小助手事件动作
+ input:  pCurPath，当前路径
+ Return: 0[成功]，非0[失败]
+*************************************************************/
+BOOL SendAssistEventFromDbData(IN WCHAR* pCurPath)
+{
+	int ret = !SQLITE_OK;
+
+	try
+	{
+		wchar_t wdbPath[MAX_PATH] = {L"0"};
+		CHAR dbPath[MAX_PATH] = {0};
+		const CHAR selectSql[] = {"SELECT * from teventinfo"};
+		CHAR* utf8SelectSql = NULL;
+		CHAR **pszResult='\0';
+		CHAR *szErrMsg='\0';
+		INT nRow = 0;
+		INT nCloumn = 0;
+
+		const CHAR deleteSql[] = {"DELETE FROM teventinfo"};
+		CHAR* utf8DeleteSql = NULL;
+		sqlite3_stmt *stmt = NULL; 
+
+		wsprintf(wdbPath, L"%s\\nacdata.db", pCurPath);
+
+		if (ConvertW2UTF8(wdbPath, dbPath, MAX_PATH) == 0)
+		{
+			if ( g_db == NULL)
+			{
+				ret = sqlite3_open(dbPath, &g_db);
+			}
+
+			utf8SelectSql = new char[strlen(selectSql) + 2];
+
+			if (ConvertA2UTF8(selectSql, utf8SelectSql, strlen(selectSql) + 1) == 0)
+			{
+				utf8SelectSql[strlen(utf8SelectSql)] = '\0';
+
+				if(SQLITE_OK == (ret = sqlite3_get_table(g_db, utf8SelectSql, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+				{
+					if ((nRow > 0) && (nCloumn > 0))
+					{
+						for (int i=0; i < nRow; i++)
+						{
+							char warnName[WARNNAME_LEN] = {0};   
+
+							Convert(pszResult[(i+1)*nCloumn+3], warnName, sizeof(warnName),CP_UTF8, CP_ACP);			
+							SendAssistEventAlarmDataFromDb( pszResult[(i+1)*nCloumn+0], 
+								pszResult[(i+1)*nCloumn+1], 
+								pszResult[(i+1)*nCloumn+2], 
+								warnName, 
+								pszResult[(i+1)*nCloumn+4]);
+						}
+					}
+					sqlite3_free_table(pszResult);
+				}
+			}
+			delete[] utf8SelectSql;
+
+			utf8DeleteSql = new char[strlen(deleteSql) + 2];
+			if (ConvertA2UTF8(deleteSql, utf8DeleteSql, strlen(deleteSql) + 1) == 0)
+			{
+				if (sqlite3_prepare_v2(g_db, utf8DeleteSql, -1, &stmt, NULL) == SQLITE_OK)
+				{
+					if (sqlite3_step(stmt) == SQLITE_DONE)
+					{
+						ret = SQLITE_OK;
+					}
+				}
+			}
+
+			sqlite3_finalize(stmt); 
+			delete[] utf8DeleteSql;
+		}
+
+	}
+	catch (...)
+	{
+		MessageBox(NULL, L"SendAssistEventFromDbData Exception", L"Msg", 0);
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "SendAssistEventFromDbData Exception");
+	}
+  
+    return ret;
+}
+
+/************************************************************
+ Description:FileTime和time_t的格式转换
+*************************************************************/
+void  FileTimeToTimet(IN FILETIME ft, OUT time_t *t )
+{  
+    ULARGE_INTEGER ui; 
+
+    ui.LowPart =  ft.dwLowDateTime;  
+    ui.HighPart = ft.dwHighDateTime;  
+
+    *t = (LONGLONG)(ui.QuadPart - 116444736000000000)/10000000; 
+}
+
+/************************************************************
+ Description:获得最近一次关机时间
+ Input: [VOID] 
+ Return: 若为0，则失败；返回格式为Unix时间，若需要其他格式时间请稍作修改即可
+*************************************************************/
+void GetLastTurnOffTime(OUT CHAR* pCurTime)
+{
+	try
+	{
+		HKEY hKey = NULL;
+		LONG lResult;
+		time_t ShutdownTime = 0;
+		LPTSTR lpSubKey = TEXT("SYSTEM\\CurrentControlSet\\Control\\Windows");
+		FILETIME FileTime;
+		DWORD dwSize;
+		struct tm tmShutdownTime = {0};
+
+		lResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lpSubKey, 0, KEY_READ, &hKey);
+
+		if (lResult != ERROR_SUCCESS)
+			return;
+
+		lResult = RegQueryValueEx(  hKey, 
+			TEXT("ShutdownTime"), 
+			NULL, 
+			NULL, 
+			NULL,
+			&dwSize);
+
+		if (lResult == ERROR_SUCCESS && dwSize==sizeof(FileTime))
+		{
+			lResult = RegQueryValueEx(  hKey,
+				TEXT("ShutdownTime"),
+				NULL, 
+				NULL,
+				(LPBYTE)&FileTime,
+				&dwSize);
+
+			FileTimeToTimet(FileTime, &ShutdownTime);
+			localtime_s(&tmShutdownTime, &ShutdownTime);
+
+			sprintf_s(  pCurTime, 
+				TIME_BUF_LEN,
+				"%04d-%02d-%02d %02d:%02d:%02d",
+				tmShutdownTime.tm_year + 1900,
+				tmShutdownTime.tm_mon,
+				tmShutdownTime.tm_mday,
+				tmShutdownTime.tm_hour,
+				tmShutdownTime.tm_min,
+				tmShutdownTime.tm_sec);
+		}
+		RegCloseKey(hKey);
+	}
+	catch (...)
+	{
+		MessageBox(NULL, L"GetLastTurnOffTime Exception", L"Msg", 0);
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_IEEXTENSIONS, LOGLOCATION, "GetLastTurnOffTime Exception");
+	}
+}

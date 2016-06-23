@@ -1,0 +1,58 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _HP8021X_H
+#define _HP8021X_H 1
+
+#include <Windows.h>
+#include "../hpidmnacDlg.h"
+
+#define WM_LOGON_STATES_NOTIFY	WM_USER+311
+
+#define AUTHEN_FAILURE_FLAG "0"
+#define AUTHEN_SUCCESSS_FLAG "1"
+
+#define OTHER_NAC_TECH_FALG "1"
+#define ENABLE_8021X_TECH "4"
+
+
+typedef enum ENUM8021XCONNECTSTATUS
+{
+	//认证失败或未认证
+	AUTHENTICATION_FAILURE =0,
+
+	//认证成功
+	AUTHENTICATION_SUCCESS = 1,
+
+	//认证中
+	UNDER_AUTHENTICATION = 2,
+
+}_ENUM8021XCONNECTSTATUS; 
+
+extern HWND h8021xWnd;
+extern HINSTANCE hHupu8021xDll;
+extern int m_connectStatus;
+extern USERINFO m_8021x_user_info;
+extern BOOL g_bEnable8021x;
+
+typedef HWND (*pShowAuthenWindowsDlg)(IN HWND hMainWnd);
+typedef void (*pClearResource)();
+typedef void (*pConnectingNetwork)();
+typedef void (*pDisconnectNetwork)();
+typedef void (*pGetShareBuf)(wchar_t* pShareBuf);
+
+BOOL IsEnable8021x();
+void MenuDisableNetwork();
+void Load8021xMenu(IN CWnd* pWnd);
+void Show8021xWindow(IN HWND hMainWnd);
+void Free8021xResource();
+void LogonNotifyMsgHandle(IN ChpidmnacDlg* phpidmnacDlg);
+int GetAuthenNetWorkStatus(IN ChpidmnacDlg* phpidmnacDlg);
+void HandleNotifyLogoffMsg(IN const char* pNotifyMsg, IN ChpidmnacDlg* phpidmnacDlg);
+
+#endif

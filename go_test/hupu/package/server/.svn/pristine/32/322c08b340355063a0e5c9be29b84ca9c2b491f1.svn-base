@@ -1,0 +1,48 @@
+#pragma once
+
+#include "Job.h"
+#include "MThreadedJobQ.h"
+class CMThreadedJobQ;
+
+class CJobExecuter
+{
+public:
+	//This function stops the Executer. Your code should not call this method.?
+	void stop();
+	
+	//This points to the CMThreadedJobQ to which this instace belongs.?
+	CMThreadedJobQ* m_pJobQ;
+
+	//This contain the refarence to a instance of CJob or it's child class. 
+	//The executer remains idle if this is NULL. That is when no job to do.
+	CJob* m_pJob2Do;
+	
+	//This is used as a Flag. Two defind constats are
+	//defined for this variable, they are  STOP_WORKING (Value is  -1),  
+	//KEEP_WORKING (value is  0 ). If the m_flaag value is set to STOP_WORKING then 
+	//the thread associated with the instance exists, else that thread is keep working.
+	int m_flag;
+	
+	//This pointer keep a reference to the thread that
+	//is associated with the class.
+
+	//CWinThread* m_pExecuterThread;
+
+	HANDLE m_pExecuterThread;
+
+	//This operation is responsible for executing a job. The CMThreadedJobQ 
+	//class will call this function to get a job done. User should not call 
+	//this method, this is only for the use of the implementation of the
+	//multithreaded job queue.
+	int execute(CJob* pJob);
+
+	//This is the static thread function. This function is used while 
+	//creating the thread in the constructor.
+	static UINT WINAPI ThreadFunction(LPVOID pParam);
+
+	//Constructor
+	CJobExecuter(CMThreadedJobQ *pJobQ);
+	
+	virtual ~CJobExecuter();
+};
+

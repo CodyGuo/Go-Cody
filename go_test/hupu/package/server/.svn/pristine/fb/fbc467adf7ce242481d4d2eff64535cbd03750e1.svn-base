@@ -1,0 +1,1681 @@
+/*************************************************
+File Name: DomainUser
+Author:  gcy
+Description:  获取当前用户的用户名
+                       获取当前用户是否加入域及加入的域名
+                       获取当前用户登录的服务器及DNS域名
+                       将不在域中的电脑加入到域中
+                       将已经加入域的电脑退出域
+Version:  0.0.1
+Data:  2014/10/31
+**************************************************/
+
+#include "StdAfx.h"
+#include "DomainUser.h"
+#include "..\DebugInfo.h"
+#include "SafeCheckFuntion.h"
+
+#include <WtsApi32.h>
+#pragma  comment(lib,"WtsApi32.lib")
+#include <Sddl.h>
+#pragma comment(lib,"Advapi32.lib")
+
+#include <LM.h>
+#include <DSRole.h>
+#pragma comment(lib,"Netapi32.lib")
+
+#include <Iads.h>
+#include <AdsHlp.h>
+#include <adserr.h>
+#pragma comment(lib,"activeds.lib")
+#pragma comment(lib,"adsiid.lib")
+#pragma comment(lib,"activeds.lib")
+#include <UserEnv.h>
+#pragma comment(lib,"UserEnv.lib")
+
+#include "Download.h"
+#include "DomainIdentydlg.h"
+#include "..\ControlName.h"
+#include "..\GetLangValue.h"
+#include "..\JobThread\HandleJob1.h"
+
+#include "..\FileinfoCheckSum.h"
+
+DomainUser::DomainUser(void)
+    : m_Iscmpdomain(FALSE),
+    m_IsLogOnDomain( FALSE)
+{
+    memset(m_logonServer , '\0' , sizeof(m_logonServer));
+    memset(m_dnsDomain , '\0' , sizeof(m_dnsDomain));
+    memset(m_userDomain , '\0' , sizeof(m_userDomain));
+    memset(m_userName , '\0' , sizeof(m_userName));
+
+	m_tipdlgtime = C_TIPDLGTIMEOUT;
+	m_tipdlgHwd = NULL;
+
+    InitData();
+
+}
+
+DomainUser::~DomainUser(void)
+{
+    InitData();
+}
+
+//获取是否需要安检的数据
+int DomainUser::GetDataFromDB(wchar_t  *dirpath, char *userid,char* usertype, char *currdata, char *millisecond, char *weekday)
+{
+    ASSERT(dirpath);
+    //从数据库中查询总的策略项和当前要开始检查的策略项及所有的安检结果
+    int ret = SQLITE_OK;
+    if (HP_openDB(dirpath)==HP_DB_OPENFAIL)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "打开数据库失败");
+        return HP_DB_OPENFAIL;
+    }
+    else
+    {
+        InitData();
+
+        //获取域用户数据
+        char sql[HP_C_SQLDATA]={'0'}; 
+        char sqlReal[HP_C_SQLDATA]={'0'};
+        char **pszResult=NULL;
+        CHAR *szErrMsg=NULL;
+        INT nRow = 0;
+        INT nCloumn = 0;
+
+         sprintf_s(sql,HP_C_SQLDATA,"SELECT %s,ipolicycontid,domainname,domainserv,customfaildes,secserviplist,showidenwindow,\
+									dlgtimeout,dlgtimeoutunit,idenperoid,idenperoidunit,domainip,whitelistuser,blacklistuser,\
+		repairpath,repairparam,advnotifytime,advnotifytimeunit,tipnum,tiptext FROM  (SELECT * FROM tstgdomain a, \
+        tstgdomaincontent b WHERE (a.ipolicyauthid=b.ipolicyauthid) AND (a.iuserid=%d) AND (a.usertype = \'%s\')AND (a.dstartdate<=\'%s\') \
+        AND (a.denddate>=\'%s\') AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority ASC) AS tb  \
+        ORDER BY tb.domainname , ipriority ASC ",HP_ATTRIBUTE_SQLNAME,
+        atoi(userid),usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));	
+
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"查询域用户策略的SQL语句:",sql);
+        Convert(sql, sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+	//	EnterCriticalSection(&g_opdbcs);
+        if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"sqlite3_get_table Fail,errMsg为",szErrMsg);
+//			LeaveCriticalSection(&g_opdbcs);
+            sqlite3_free_table(pszResult);
+            ret = sqlite3_close(g_db);
+            g_db = NULL;
+            return HP_DB_GETTABLEFAIL;
+        }
+        if ((nRow > 0) && (nCloumn > 0))
+        {	
+            m_totaldomainnum= nRow;
+
+            for (int i=0;i<nRow;i++)
+            {
+                XMLSFDOMAINEXEC  domaininfo;
+				memset(&domaininfo,0,sizeof(XMLSFDOMAINEXEC));
+
+                for (int j=0; j < nCloumn; j++)
+                {
+                   GetDomaindbColumndata(pszResult[j],pszResult[(i+1)*nCloumn+j],&domaininfo);
+                }//for (int j=0; j < nCloumn; j++)
+
+                m_totaldomaininfo.push_back(domaininfo);
+
+            }//for (int i=0;i<nRow;i++)
+        }//if ((nRow > 0) && (nCloumn > 0))
+		else
+		{
+			PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd,UM_DOMAINIDENTIFYTIP,(WPARAM)NULL,(LPARAM)NULL);
+		}
+        sqlite3_free_table(pszResult);
+	//	LeaveCriticalSection(&g_opdbcs);
+
+        m_domainCnt=0;
+        bool bmerge = FALSE;
+        if(m_totaldomainnum>0)
+        {
+            XMLSFDOMAINEXEC lastdomaininfo; //上一次的域用户信息
+            memset(&lastdomaininfo,0,sizeof(XMLSFDOMAINEXEC));
+
+            list<XMLSFDOMAINEXEC>::iterator domainiter = m_totaldomaininfo.begin( );
+            lastdomaininfo = *domainiter;
+            
+            m_domainInfo.push_back(lastdomaininfo);
+            ++domainiter;
+
+            for (; domainiter != m_totaldomaininfo.end( );  ++domainiter)
+            {
+                bmerge = FALSE;
+
+                XMLSFDOMAINEXEC tmpdomain;
+                memset(&tmpdomain,0,sizeof(XMLSFDOMAINEXEC));
+
+                tmpdomain = *domainiter;
+
+                if ( _strnicmp(tmpdomain.domainname,lastdomaininfo.domainname,MAX_PATH) == 0 )//域名称是一样的
+                {
+                    //动作是一样的,继承白名单和黑名单设置，动作时不一样的，直接取原来的优先级高的那一条
+                    if ( _strnicmp(tmpdomain.attriinfo.spolicyaction,lastdomaininfo.attriinfo.spolicyaction,MAX_PATH) == 0 )
+                    {
+                        if ( MergeExceptUser(tmpdomain.whitelistuser, tmpdomain.blacklistuser,
+                            lastdomaininfo.whitelistuser,lastdomaininfo.blacklistuser) )
+                        {
+                            bmerge = TRUE;
+
+                            list<XMLSFDOMAINEXEC>::reverse_iterator   lastdataiter;
+                            lastdataiter = m_domainInfo.rbegin();
+
+                            XMLSFDOMAINEXEC tmpdata;
+                            tmpdata = *lastdataiter;
+
+                            memset(tmpdata.blacklistuser, '\0', sizeof(tmpdata.blacklistuser));
+                            memset(tmpdata.whitelistuser, '\0', sizeof(tmpdata.whitelistuser));
+                            sprintf_s(tmpdata.blacklistuser, MAX_PATH, "%s", lastdomaininfo.blacklistuser);
+                            sprintf_s(tmpdata.whitelistuser, MAX_PATH, "%s", lastdomaininfo.whitelistuser);
+
+                            m_domainInfo.pop_back();
+                            m_domainInfo.push_back(tmpdata);
+
+                            lastdomaininfo = tmpdata;
+                        }
+                    }
+                }
+                else
+                {
+                    m_domainInfo.push_back(tmpdomain);
+                }
+
+                if (!bmerge)
+                {
+                    lastdomaininfo = *domainiter;
+                }
+            }// for (; domainiter != m_totaldomaininfo.end( );  ++domainiter)
+
+            m_domainCnt = m_domainInfo.size();
+        }  //if(m_totaldomainnum>0)
+    }
+    return HP_SUCCESS;
+}
+
+//执行安检数据
+string DomainUser::ExecDomainItem(IN SFSAFECHECKTYPE sfchecktype,IN LANGUAGETYPE language,char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsDomainSuccess)
+{
+    char tempheader[MAX_PATH]={"0"};
+    sprintf_s(tempheader,MAX_PATH,"%s;%s;%d;%d;1;%d;%s;", servertime, g_deviceid.c_str(), totalitem, curritem, nextitem, mac);
+	sprintf_s(m_servtimeval,sizeof(m_servtimeval),"%s",servertime);
+
+    //拼接向服务器发送的xml
+    string xmlstring;
+    BOOL bIsSucces = true;
+
+	char identifyResult[MAX_PATH*3] = {"0"};//记录域验证信息
+
+    int domainres = isDomainUser();
+    if ( HP_DOMAIN_GETDOMAINREGFAIL == domainres )
+    {
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"获取域用户信息失败");
+        bIsSucces = true;
+    }
+    else
+    {
+        //电脑的域名
+        char domainname[MAX_PATH] = {0};
+        ConvertW2A(m_dnsDomain,domainname,MAX_PATH);
+
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,L"m_dnsDomain=",m_dnsDomain);
+        //登录的用户名
+        char currusername[MAX_PATH] = {0};
+        ConvertW2A(m_userName,currusername,MAX_PATH);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,L"m_userName=",m_userName);
+
+		JudgeUserNameInBlackOrWriteList(language,currusername,domainname,&bIsSucces,&domainres);
+
+        //用户既不属于超级认证用户也不属于黑名单用户,为普通用户,判断是加入域还是退出域
+        if( (HP_DOMAIN_BELONGDOMAINBLACK != domainres) &&(HP_DOMAIN_BELONGDOMAINWHITE != domainres) )
+        {
+            BOOL  matchallowstgdomain = FALSE;
+            BOOL matchrefusestgdomain = FALSE;
+
+			GetServDomainConfigNum();
+
+            if ( m_refusedomainnum>0 )
+            {
+                if ( m_Iscmpdomain )
+                {
+                 matchrefusestgdomain = cmpInRefuseDomain(language,currusername,domainname,&bIsSucces);
+                }
+            }//  if ( m_refusedomainnum>0 )
+           
+            if ( m_allowdomainnum >0 )
+            {
+                if (m_Iscmpdomain)//电脑已经加入域
+                {
+                    if (matchrefusestgdomain) //若已经在拒绝域中,则不会在允许域中，选择允许的域的优先级最高的域进行加入
+                    {
+						chooseSuitDomainTojoin(language,currusername,domainname,2,&bIsSucces);
+                    }
+                    else//电脑不在拒绝域中
+                    {
+						 XMLSFDOMAINEXEC tmpdata;
+						 memset(&tmpdata,0,sizeof(XMLSFDOMAINEXEC));
+						 //判断是否为必须加入的域
+						 matchallowstgdomain = GetCompterDomainInServier(domainname,sizeof(domainname),&tmpdata);
+						 if (matchallowstgdomain)
+						 {	
+#ifdef DEBUG
+							 m_IsLogOnDomain = false;
+#endif
+							 if (!m_IsLogOnDomain)//判断是不是域用户登录
+							 {
+								 bIsSucces= FALSE;
+								 if(sfchecktype == CLIENTAUTOONLINESFCHECK)
+								 {
+									  bIsSucces= FALSE;
+								 }
+								 else
+								 {
+									 if (atoi(tmpdata.identifyconf.identifydlg))//判断是否需要弹出验证的框
+									 {
+										 GetIdentifyDomainServer();
+
+										 if (sfchecktype == CLIENTONTIMERSFCHECK)//如果是定时安检
+										 {
+											 bIsSucces= TRUE; 
+
+											 sprintf_s(identifyResult, sizeof(identifyResult),"<subitem faildes=\"本地用户%s加入域%s,延时%s%s时间进行域用户验证\" name=\"域用户检查\" \
+													swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",currusername,domainname,tmpdata.identifyconf.identifyperiod,
+													tmpdata.identifyconf.identifyperiodunit,tmpdata.attriinfo.warningcont,tmpdata.attriinfo.warninglevel,tmpdata.attriinfo.srcevent); 
+
+											 ShowOffLineTipToIdentify(1,tmpdata.identifyconf,tmpdata.attriinfo.warningcont,tmpdata.attriinfo.warninglevel,tmpdata.attriinfo.srcevent);
+										 }
+										 else
+										 {
+											// if ( g_domainidenResult == "0" )
+											// {
+												 ShowOffLineTipToIdentify(0,tmpdata.identifyconf,tmpdata.attriinfo.warningcont,tmpdata.attriinfo.warninglevel,tmpdata.attriinfo.srcevent);
+											 //}
+											 bIsSucces = IdentifyDomainMsg(language,sfchecktype,currusername,domainname,tmpdata,identifyResult,sizeof(identifyResult));
+										 }
+									 }
+						        }
+								 if ( !bIsSucces )
+								 {
+									 XMLSFDOMAINFAILINFO  faildata;
+									 memset(&faildata,0,sizeof(XMLSFDOMAINFAILINFO));
+									 if (atoi(tmpdata.identifyconf.identifydlg))
+										  memcpy(faildata.canrepair,"2",strlen("2"));
+									 else
+									      memcpy(faildata.canrepair,"0",strlen("0"));
+
+									 memcpy(faildata.domainname,domainname,min(sizeof(faildata.domainname),strlen(domainname)));
+									 memcpy(faildata.username,currusername,min(sizeof(faildata.username),strlen(currusername)));
+
+									 if (strcmp(tmpdata.customfailDes,"") && strcmp(tmpdata.customfailDes,"0"))
+									 {
+										 sprintf_s(faildata.faildes,MAX_PATH,"%s",tmpdata.customfailDes);
+									 }
+									 else
+									 {
+										 vector<string> notdomuserdes;
+										 if (GetLangVectorByKeyA(language,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_INDOMAINNOTDOMAINUSER],
+											 (char*)SFDOMAINKEYSTR[SF_SFDOMAIN_INDOMAINNOTDOMAINUSER],MAX_PATH,3,&notdomuserdes))
+										 {
+											 sprintf_s(faildata.faildes,MAX_PATH,"%s%s%s%s%s",notdomuserdes[0].c_str(),domainname,notdomuserdes[1].c_str(),
+												 currusername,notdomuserdes[2].c_str());
+										 }
+									 }
+									 CopyStructData(tmpdata,&faildata);
+									 m_faildomaininfo.push_back(faildata);
+									 WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"当前用户不是域中的用户");
+									 m_faildomainnum++;
+								 }
+							 }
+						 }
+					}
+                    if ( !matchrefusestgdomain && !matchallowstgdomain )
+                    {
+						chooseSuitDomainTojoin(language,currusername,domainname,1,&bIsSucces);
+                    }
+                }
+                else////电脑没有加入域，选择允许的域的优先级最高的域进行加入
+                {
+					chooseSuitDomainTojoin(language,currusername,"0",0,&bIsSucces);
+                }
+            }// if ( m_allowdomainnum >0 )
+        }
+    }
+
+    char *failInfo= new char[MAX_PATH*2*m_faildomainnum+1]();
+    memset(failInfo,'\0',MAX_PATH*2*m_faildomainnum+1);
+
+    if (m_faildomainnum>0)
+    {
+        list<XMLSFDOMAINFAILINFO>::iterator  domainfailiter;
+
+		int iFailItemIndex = 0;
+        for ( domainfailiter = m_faildomaininfo.begin(); domainfailiter != m_faildomaininfo.end(); ++domainfailiter)
+        {
+            XMLSFDOMAINFAILINFO tmpdata;
+
+			char sfname[MAX_PATH] = {"0"};
+			GetLangValueByKeyA((LANGUAGETYPE)language,SFDOMAINAPPNAME,SFDOMAINKEYSTR[SF_SFDOMAIN_NAME],
+				SFDOMAINKEYSTR[SF_SFDOMAIN_NAME],sfname,sizeof(sfname));
+
+            memset(&tmpdata,0,sizeof(XMLSFDOMAINFAILINFO));
+            tmpdata = *domainfailiter;
+            char temp[MAX_PATH*2+1] = {0};
+
+			string symblestr = ConvertUniToAnsi(L"￥");
+            sprintf_s(temp, MAX_PATH*2+1,"<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"%s\" name=\"%s%s%s\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",
+				iFailItemIndex,tmpdata.repairaction,tmpdata.faildes,tmpdata.domainname,symblestr.c_str(),tmpdata.canrepair,tmpdata.warningcont,tmpdata.warninglevel,tmpdata.srcevent);   
+            strcat_s(failInfo, MAX_PATH*2*m_faildomainnum+1, temp);
+			iFailItemIndex++;
+        }  
+    }
+
+    if(bIsSucces)
+    {
+		IsDomainSuccess[SFDOMAIN] =  HP_SUCCESS;
+
+		if (!strcmp(identifyResult,"0"))//不是域用户验证成功的，而是直接在域中的
+		{
+			SendDomainIdentifyInfoToServer("","",sfchecktype,TRUE);
+            PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd,UM_DOMAINIDENTIFYTIP,(WPARAM)NULL,(LPARAM)NULL);
+		}
+        xmlstring = SendSingleItemSafeCheckSuccess(tempheader);
+    }
+    else
+    {
+		IsDomainSuccess[SFDOMAIN] =  HP_SF_SAFECHECKFAIL;
+
+		char *datainfo=new char[MAX_PATH*3+MAX_PATH];
+		if (strcmp(identifyResult,"0"))
+		{
+			sprintf_s(datainfo,MAX_PATH*3+MAX_PATH,"<iman succflag =\"0\">%s</iman>",identifyResult);
+		}
+		else
+		{
+			sprintf_s(datainfo,MAX_PATH*3+MAX_PATH,"<iman succflag =\"0\">%s</iman>",failInfo);
+			SendDomainIdentifyInfoToServer("","",sfchecktype,FALSE);
+			PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd,UM_DOMAINIDENTIFYTIP,(WPARAM)NULL,(LPARAM)NULL);	
+		}
+        string xmlBody = datainfo;
+        string Sendtmpheader =tempheader;
+        string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+        string  xmltail ="</nac>";
+        xmlstring = Sendtmpheader+xmlHeader+xmlBody+xmltail;
+        delete[] datainfo;
+    }
+    delete[] failInfo;
+    failInfo = NULL;
+    return xmlstring;
+}
+
+//修复失败的安检项
+int DomainUser::RestoreFailItem(int index)
+{
+	if (m_faildomainnum > 0)
+	{
+		list<XMLSFDOMAINFAILINFO>::iterator  faildataiter;
+		for ( faildataiter = m_faildomaininfo.begin();faildataiter != m_faildomaininfo.end(); ++faildataiter )
+		{
+			XMLSFDOMAINFAILINFO tmpdata;
+			memset( &tmpdata, 0, sizeof(XMLSFDOMAINFAILINFO) );
+			tmpdata = *faildataiter;
+
+			if ( atoi(tmpdata.canrepair) == 1 )
+			{
+				CDownload downfile(tmpdata.repairpath,strlen(tmpdata.repairpath));
+				char localfile[MAX_PATH] = {0};
+				downfile.StartDownLoad(localfile,sizeof(localfile));
+
+				string  repairpth = tmpdata.repairpath;
+				int repos = repairpth.rfind("softwareName=");
+				int namelen = strlen("softwareName=");
+				if (repos == string::npos)
+				{
+					continue;
+				}
+				string name = repairpth.substr(repos+namelen, repairpth.length()-repos-namelen);
+
+				if(PathFileExistsA(localfile))
+				{
+					//将临时文件夹中的文件copy到本地目录
+					char fileexepath[MAX_PATH] = {0};
+					sprintf_s(fileexepath,MAX_PATH,"%s\\%s",g_nacdirpath,name.c_str());
+					CopyFileA(localfile, fileexepath, FALSE);
+
+					if ( atoi(tmpdata.repairaction) == ALLOW )
+					{
+						downfile.RunDownLoadFile(fileexepath);
+					}
+					else
+					{
+						downfile.RunDownLoadFile(fileexepath,"exitdomain");
+					}
+					while ( IsProcessExec(const_cast<char*>(name.c_str())) == HP_SUCCESS )
+					{
+						Sleep(100);
+					}
+					DeleteFileA(fileexepath);
+				}
+			}
+			else if (atoi(tmpdata.canrepair) == 2)
+			{
+				if( index == INFINITE)
+					return false;
+
+				char domainname[MAX_PATH] = {0};
+				ConvertW2A(m_dnsDomain,domainname,MAX_PATH);
+				XMLSFDOMAINEXEC tmpdata;
+				memset(&tmpdata,0,sizeof(XMLSFDOMAINEXEC));
+				//判断是否为必须加入的域
+				BOOL matchallowstgdomain = GetCompterDomainInServier(domainname,sizeof(domainname),&tmpdata);
+				if (matchallowstgdomain)
+				{	
+					if (!m_IsLogOnDomain)//判断是不是域用户登录
+					{
+						if (atoi(tmpdata.identifyconf.identifydlg))//判断是否需要弹出验证的框
+						{
+							//GetIdentifyDomainServer();
+							ShowOffLineTipToIdentify(0,tmpdata.identifyconf,tmpdata.attriinfo.warningcont,tmpdata.attriinfo.warninglevel,tmpdata.attriinfo.srcevent);
+						}
+					}
+				}
+			}
+		}
+	} 
+	return false;
+}
+
+void DomainUser::InitData()
+{
+    m_Iscmpdomain = FALSE;
+    m_IsLogOnDomain = FALSE;
+    memset(m_logonServer , '\0' , sizeof(m_logonServer));
+    memset(m_dnsDomain , '\0' , sizeof(m_dnsDomain));
+    memset(m_userDomain , '\0' , sizeof(m_userDomain));
+    memset(m_userName , '\0' , sizeof(m_userName));
+
+    m_domainCnt=0;
+    m_faildomainnum=0; 
+    m_totaldomainnum=0;
+
+    list<XMLSFDOMAINEXEC>::iterator  iter;
+
+    for (iter = m_domainInfo.begin( ); iter != m_domainInfo.end( );  )
+    {
+        m_domainInfo.erase(iter++);
+    }
+
+    for (iter = m_totaldomaininfo.begin();iter != m_totaldomaininfo.end();)
+    {
+        m_totaldomaininfo.erase(iter++);
+    }
+
+     list<XMLSFDOMAINFAILINFO>::iterator  failiter;
+    
+    for (failiter = m_faildomaininfo.begin();failiter != m_faildomaininfo.end();)
+    {
+        m_faildomaininfo.erase(failiter++);
+    }
+      m_allowdomainnum = 0;
+     m_refusedomainnum=0;
+
+	  list<ADSERVERNAMEIP>::iterator  servdomainipiter;
+	  for ( servdomainipiter = m_servidendomain.begin(); servdomainipiter != m_servidendomain.end();)
+	  {
+		  m_servidendomain.erase(servdomainipiter++);
+	  }
+	 memset(m_servtimeval,0,sizeof(m_servtimeval));
+}
+
+/*************************************************
+Function Name: MergeExceptUser
+Description: 将域用户检查中的白名单和黑名单用户进行合并
+Input and output:  
+Return:
+   TRUE表示做了合并
+   FALSE表示没有做合并
+**************************************************/
+BOOL  DomainUser::MergeExceptUser(IN char* whitelist,IN char* blacklist,OUT char* currwhitelist,OUT char* currblacklist)
+{
+    BOOL  res = FALSE;
+    int whitelistlen = strlen(whitelist);
+    if (whitelistlen != 0)
+    {
+        res = TRUE;
+        int curritemlen = strlen(currwhitelist);
+        if (curritemlen != 0)
+        {
+            strcat_s(currwhitelist, MAX_PATH, ",");
+        }
+        strcat_s(currwhitelist, MAX_PATH, whitelist);
+    }
+    
+    int blacklistlen = strlen(blacklist);
+    if (blacklistlen != 0)
+    {
+        res = TRUE;
+        int curritemlen = strlen(currblacklist);
+        if (curritemlen != 0 )
+        {
+            strcat_s(currblacklist,MAX_PATH,",");
+        }
+        strcat_s(currblacklist,MAX_PATH,blacklist);
+    }
+    return res;
+}
+
+
+int  DomainUser::isDomainUser()
+{
+    //已加入的工作组
+    LPWSTR lpDomainName = NULL;
+    NETSETUP_JOIN_STATUS njs = NetSetupUnknownStatus ;
+
+    ::NetGetJoinInformation(NULL, &lpDomainName, &njs);
+    int joinGroupLen = WideCharToMultiByte(CP_ACP,0,lpDomainName,-1,NULL,0,NULL,NULL);
+    char *joinGroup = new char[joinGroupLen+1];
+    WideCharToMultiByte(CP_ACP,0,lpDomainName,-1,joinGroup,joinGroupLen,NULL,NULL);
+    joinGroup[joinGroupLen]='\0';
+    WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,joinGroup);
+   
+	 memcpy(m_dnsDomain, lpDomainName, wcslen(lpDomainName)*2);
+
+    if (njs == NetSetupUnknownStatus  )
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"The status is unknown");
+    }
+    else if (njs == NetSetupUnjoined)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"The computer is not joined");
+    }
+    else if (njs == NetSetupWorkgroupName)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"The computer is joined to a workgroup");
+    }
+    else if (njs == NetSetupDomainName)
+    {
+        m_Iscmpdomain = true;
+        //wcscat_s(m_dnsDomain, sizeof(m_dnsDomain), L".COM");
+		DSROLE_PRIMARY_DOMAIN_INFO_BASIC * info;
+		DWORD dw = DsRoleGetPrimaryDomainInformation(NULL,
+			DsRolePrimaryDomainInfoBasic,
+			(PBYTE *)&info);
+		if (dw != ERROR_SUCCESS)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"DsRoleGetPrimaryDomainInformation");
+			wcscat_s(m_dnsDomain, sizeof(m_dnsDomain), L".COM");
+		}
+
+		if (info->DomainNameDns == NULL)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"DomainNameDns NULL");
+		}
+		else
+		{
+			memset(m_dnsDomain,0,sizeof(m_dnsDomain));
+			memcpy(m_dnsDomain, info->DomainNameDns, wcslen(info->DomainNameDns)*2);
+		}
+		if (info->DomainNameFlat== NULL)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"DomainNameFlat is NULL");
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"DomainNameFlat");
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,info->DomainNameFlat);
+		}
+		DsRoleFreeMemory(info);
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"The computer is joined to a domain");
+
+    }
+    else
+    {
+         WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"系统异常");
+    }
+    if (lpDomainName != NULL)
+    {
+        NetApiBufferFree(lpDomainName);
+        lpDomainName=NULL;
+    }
+    delete[] joinGroup;
+    int res = GetCurrentUserDomain();
+    if ( res == HP_SUCCESS )
+    {
+        if (m_IsLogOnDomain)
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"用户为域用户");
+            return HP_SUCCESS;
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "用户不是域用户");
+            return HP_DOMAIN_NOTUSER;
+        }
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "获取域用户失败");
+        return  HP_DOMAIN_GETREGFAIL;
+    }
+}
+
+/*************************************************
+Function Name: GetCurrentUserDomain
+Description:获取当前计算机的登录用户信息
+Input and output: 
+      Input: 
+      Output: HP_SUCCESS表示该用户是域用户
+                   HP_DOMAIN_GETCOMPDOMAINFAIL表示该用户不是域用户
+**************************************************/
+int DomainUser::GetCurrentUserDomain()  
+{  
+    HANDLE hUserToken = NULL;  
+    wchar_t usertokenstring[MAX_PATH] = {L"0"};
+    BOOL bIsOK = GetProcessUserToken(L"explorer.exe",&hUserToken);
+    if (bIsOK)
+    {
+        bIsOK = GetCurrentUserStringSid(hUserToken,usertokenstring,MAX_PATH);
+        if (!bIsOK)
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"GetCurrentUserStringSid fail");
+            CloseHandle(hUserToken);
+            hUserToken = NULL;
+            return HP_DOMAIN_GETCOMPDOMAINFAIL;
+        }  
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"GetProcessUserToken fail");
+        return HP_DOMAIN_GETCOMPDOMAINFAIL;
+    }
+    
+        TCHAR  strPath[MAX_PATH] = {_T("0")};
+        _snwprintf_s(strPath , MAX_PATH , MAX_PATH-1, _T("%s\\Volatile Environment"), usertokenstring);
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_DOMAIN, LOGLOCATION, strPath );
+
+        CRegKey theReg;  
+        LONG lRetCode = theReg.Open( HKEY_USERS , strPath);  
+        if ( lRetCode != 0 )  
+        {  
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "Open  strPath Fail");
+            return  HP_DOMAIN_GETCOMPDOMAINFAIL;  
+        }  
+        DWORD dwsz = MAX_PATH;
+        lRetCode = theReg.QueryStringValue(_T("USERDOMAIN") , m_userDomain , &dwsz);
+        if ( lRetCode != ERROR_SUCCESS)
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "Query  USERDOMAIN Fail");
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, L"m_userDomain=",m_userDomain);
+        }
+
+        dwsz = MAX_PATH ;
+        lRetCode = theReg.QueryStringValue(_T("USERDNSDOMAIN"), m_dnsDomain ,&dwsz);  
+        if ( lRetCode != ERROR_SUCCESS )  
+        {  
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION,"Query  USERDNSDOMAIN Fail");
+            m_IsLogOnDomain = false;
+        }  
+        else
+        {
+            m_IsLogOnDomain = true;
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,L"m_dnsDomain=",m_dnsDomain);
+        }
+
+        dwsz = MAX_PATH ;
+        lRetCode = theReg.QueryStringValue(_T("USERNAME") , m_userName ,&dwsz);  
+        if ( lRetCode != ERROR_SUCCESS )  
+        {  
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"Query  USERNAME Fail");
+			//注册表中获取用户名失败,使用其他的方式获取
+			wchar_t domainname[MAX_PATH] = {L"0"};
+			GetProcessUser(hUserToken,m_userName,sizeof(m_userName),domainname,sizeof(domainname));
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,L"m_userName",m_userName);
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,L"domainname",domainname);
+        }  
+        else
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,L"m_userName=", m_userName);
+        }
+
+        dwsz = MAX_PATH ;
+        lRetCode = theReg.QueryStringValue(_T("LOGONSERVER") , m_logonServer ,&dwsz);  
+        if ( lRetCode != ERROR_SUCCESS )  
+        {  
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_DOMAIN,LOGLOCATION,"Query  LOGONSERVER Fail");
+        }  
+        else
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,L"m_logonServer=", m_logonServer);
+        }
+
+        lRetCode = theReg.Close();  
+        if ( lRetCode != 0 )  
+        {  
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_DOMAIN, LOGLOCATION, "Close Fail");
+            return  HP_DOMAIN_GETCOMPDOMAINFAIL;  
+        }  
+        return  HP_SUCCESS;  
+       
+} 
+
+
+   /*************************************************
+Function Name: Findstring
+Description:从字符串dstbuffer中查找是否完全匹配某一个字符串pattern
+Input and output: 
+      Input: dstbuffer:将要匹配的字符串
+                 pattern:将要查找的字符串
+  Ret:
+   TRUE:表示查找到pattern字符串
+   FALSE:表示查找不到pattern字符串
+**************************************************/
+BOOL DomainUser::Finduserstring(IN char* dstbuffer, IN char* pattern)
+{
+    BOOL res = FALSE;
+
+    int len = strlen(dstbuffer);
+    if (len == 0)
+    {
+        return res;
+    }
+
+    char *upperdstbuff = new char[len+1];
+    memset(upperdstbuff, 0, len+1);
+    for (int i=0; i<len; i++){
+        upperdstbuff[i] = static_cast<char>(toupper(*(dstbuffer+i)));
+    }
+    upperdstbuff[len]='\0';
+
+    len = strlen(pattern);
+    if (len == 0)
+    {
+        return res;
+    }
+
+    char *upperpattern = new char[len+1];
+    memset(upperpattern, 0, len+1);
+    for (int i=0;i<len;i++){
+        upperpattern[i] = static_cast<char>(toupper(*(pattern+i)));
+    }
+    upperpattern[len]='\0';
+
+    string str =  upperdstbuff;
+     int pos = str.find(upperpattern, 0);
+     if (pos != string::npos )
+     {
+         int douhaopos = str.find(",", pos);
+         string substr;
+         if ( douhaopos != string::npos )
+         {
+             substr = str.substr(pos, douhaopos-pos);
+         }
+         else
+         {
+             substr = str.substr(pos);
+         }
+
+         WriteDebugInfomation(LEVEL_DEBUG, MODULE_DOMAIN, LOGLOCATION,"substr.c_str()",(char*)substr.c_str());
+         WriteDebugInfomation(LEVEL_DEBUG, MODULE_DOMAIN, LOGLOCATION, "pattern", pattern);
+
+         if ( _strnicmp(substr.c_str(), pattern, MAX_PATH ) == 0 )
+         {
+             res = TRUE;
+         }
+     }
+
+     delete[] upperdstbuff;
+     delete[] upperpattern;
+
+     return res;
+}
+
+
+//根据数据库中的字段转化为结构体字段
+void DomainUser::GetDomaindbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, XMLSFDOMAINEXEC *dbrowdata)
+{
+    if(strcmp(dbcolumnname,"ipriority")==0)
+    {			
+        memset(dbrowdata->attriinfo.ipriority, '\0', sizeof(dbrowdata->attriinfo.ipriority));
+        Convert(dbcolumnvalue, dbrowdata->attriinfo.ipriority,sizeof(dbrowdata->attriinfo.ipriority), CP_UTF8, CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname,"spolicyaction")==0)
+    {			
+        memset(dbrowdata->attriinfo.spolicyaction,'\0',sizeof(dbrowdata->attriinfo.spolicyaction));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.spolicyaction,sizeof(dbrowdata->attriinfo.spolicyaction),CP_UTF8,CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname,"spromptinfo")==0)
+    {
+        memset(dbrowdata->attriinfo.spromptinfo,'\0',sizeof(dbrowdata->attriinfo.spromptinfo));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.spromptinfo,sizeof(dbrowdata->attriinfo.spromptinfo),CP_UTF8,CP_ACP);					
+    }
+    else  if(strcmp(dbcolumnname,"warningcont")==0)
+    {
+        memset(dbrowdata->attriinfo.warningcont,'\0',sizeof(dbrowdata->attriinfo.warningcont));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.warningcont,sizeof(dbrowdata->attriinfo.warningcont),CP_UTF8,CP_ACP);					
+    }	
+    else  if(strcmp(dbcolumnname,"warninglevel")==0)
+    {
+        memset(dbrowdata->attriinfo.warninglevel,'\0',sizeof(dbrowdata->attriinfo.warninglevel));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.warninglevel,sizeof(dbrowdata->attriinfo.warninglevel),CP_UTF8,CP_ACP);					
+    }	
+    else  if(strcmp(dbcolumnname,"srcevent")==0)
+    {
+        memset(dbrowdata->attriinfo.srcevent,'\0',sizeof(dbrowdata->attriinfo.srcevent));
+        Convert(dbcolumnvalue,dbrowdata->attriinfo.srcevent,sizeof(dbrowdata->attriinfo.srcevent),CP_UTF8,CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname,"domainname")==0)
+    {
+        memset(dbrowdata->domainname,'\0',sizeof(dbrowdata->domainname));
+        Convert(dbcolumnvalue,dbrowdata->domainname,sizeof(dbrowdata->domainname),CP_UTF8,CP_ACP);					
+    }
+    else if(strcmp(dbcolumnname,"whitelistuser")==0)
+    {
+        memset(dbrowdata->whitelistuser,'\0',sizeof(dbrowdata->whitelistuser));
+        Convert(dbcolumnvalue,dbrowdata->whitelistuser,sizeof(dbrowdata->whitelistuser),CP_UTF8,CP_ACP);					
+    }
+
+    else if(strcmp(dbcolumnname,"blacklistuser")==0)
+    {
+        memset(dbrowdata->blacklistuser,'\0',sizeof(dbrowdata->blacklistuser));
+        Convert(dbcolumnvalue,dbrowdata->blacklistuser,sizeof(dbrowdata->blacklistuser),CP_UTF8,CP_ACP);					
+    }				
+    else if(strcmp(dbcolumnname,"repairpath")==0)
+    {
+        memset(dbrowdata->repairpath,'\0',sizeof(dbrowdata->repairpath));
+        Convert(dbcolumnvalue,dbrowdata->repairpath,sizeof(dbrowdata->repairpath),CP_UTF8,CP_ACP);					
+    }	
+    else if(strcmp(dbcolumnname,"repairparam")==0)
+    {
+        memset(dbrowdata->repairparam,'\0',sizeof(dbrowdata->repairparam));
+        Convert(dbcolumnvalue,dbrowdata->repairparam,sizeof(dbrowdata->repairparam),CP_UTF8,CP_ACP);					
+    }	
+	else if (strcmp(dbcolumnname,"showidenwindow")==0)
+	{
+		memset(dbrowdata->identifyconf.identifydlg,'\0',sizeof(dbrowdata->identifyconf.identifydlg));
+		Convert(dbcolumnvalue,dbrowdata->identifyconf.identifydlg,sizeof(dbrowdata->identifyconf.identifydlg),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"dlgtimeout")==0)
+	{
+		memset(dbrowdata->identifyconf.dlgtimeouttime,'\0',sizeof(dbrowdata->identifyconf.dlgtimeouttime));
+		Convert(dbcolumnvalue,dbrowdata->identifyconf.dlgtimeouttime,sizeof(dbrowdata->identifyconf.dlgtimeouttime),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"dlgtimeoutunit")==0)
+	{
+		memset(dbrowdata->identifyconf.dlgtimeoutunit,'\0',sizeof(dbrowdata->identifyconf.dlgtimeoutunit));
+		Convert(dbcolumnvalue,dbrowdata->identifyconf.dlgtimeoutunit,sizeof(dbrowdata->identifyconf.dlgtimeoutunit),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"idenperoid")==0)
+	{
+		memset(dbrowdata->identifyconf.identifyperiod,'\0',sizeof(dbrowdata->identifyconf.identifyperiod));
+		Convert(dbcolumnvalue,dbrowdata->identifyconf.identifyperiod,sizeof(dbrowdata->identifyconf.identifyperiod),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"idenperoidunit")==0)
+	{
+		memset(dbrowdata->identifyconf.identifyperiodunit,'\0',sizeof(dbrowdata->identifyconf.identifyperiodunit));
+		Convert(dbcolumnvalue,dbrowdata->identifyconf.identifyperiodunit,sizeof(dbrowdata->identifyconf.identifyperiodunit),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"domainip")==0)
+	{
+		memset(dbrowdata->servip,'\0',sizeof(dbrowdata->servip));
+		Convert(dbcolumnvalue,dbrowdata->servip,sizeof(dbrowdata->servip),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"domainserv")==0)
+	{
+		memset(dbrowdata->domainserv,'\0',sizeof(dbrowdata->domainserv));
+		Convert(dbcolumnvalue,dbrowdata->domainserv,sizeof(dbrowdata->domainserv),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"ipolicycontid")==0)
+	{
+		dbrowdata->domainid = atoi(dbcolumnvalue);
+	}
+	else if (strcmp(dbcolumnname,"advnotifytime")==0)
+	{
+		memset(dbrowdata->identifyconf.advnotifytime,'\0',sizeof(dbrowdata->identifyconf.advnotifytime));
+		Convert(dbcolumnvalue,dbrowdata->identifyconf.advnotifytime,sizeof(dbrowdata->identifyconf.advnotifytime),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"advnotifytimeunit")==0)
+	{
+		memset(dbrowdata->identifyconf.advnotifytimeunit,'\0',sizeof(dbrowdata->identifyconf.advnotifytimeunit));
+		Convert(dbcolumnvalue,dbrowdata->identifyconf.advnotifytimeunit,sizeof(dbrowdata->identifyconf.advnotifytimeunit),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"tipnum")==0)
+	{
+		memset(dbrowdata->identifyconf.offlinetipNum,'\0',sizeof(dbrowdata->identifyconf.offlinetipNum));
+		Convert(dbcolumnvalue,dbrowdata->identifyconf.offlinetipNum,sizeof(dbrowdata->identifyconf.offlinetipNum),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"tiptext")==0)
+	{
+		memset(dbrowdata->identifyconf.offlineTip,'\0',sizeof(dbrowdata->identifyconf.offlineTip));
+		Convert(dbcolumnvalue,dbrowdata->identifyconf.offlineTip,sizeof(dbrowdata->identifyconf.offlineTip),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"customfaildes")==0)
+	{
+		memset(dbrowdata->customfailDes,'\0',sizeof(dbrowdata->customfailDes));
+		Convert(dbcolumnvalue,dbrowdata->customfailDes,sizeof(dbrowdata->customfailDes),CP_UTF8,CP_ACP);			
+	}
+	else if (strcmp(dbcolumnname,"secserviplist")==0)
+	{
+		memset(dbrowdata->secserviplist,'\0',sizeof(dbrowdata->secserviplist));
+		Convert(dbcolumnvalue,dbrowdata->secserviplist,sizeof(dbrowdata->secserviplist),CP_UTF8,CP_ACP);			
+	}
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"没有该字段");
+    }
+}
+
+//判断用户是否属于黑名单或者白名单用户
+void DomainUser::JudgeUserNameInBlackOrWriteList(IN LANGUAGETYPE language,IN char* userName,IN char* doMainname,OUT BOOL* bSuccess,OUT int* iRes)
+{
+	list<XMLSFDOMAINEXEC>::iterator  domainiter;
+	for (domainiter = m_domainInfo.begin();domainiter != m_domainInfo.end(); )
+	{
+		XMLSFDOMAINEXEC tmpdata;
+		tmpdata = *domainiter;
+
+		//判断用户是否为超级认证用户
+		if (Finduserstring(tmpdata.whitelistuser, userName))
+		{
+			*bSuccess= true;
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_DOMAIN, LOGLOCATION, "用户在白名单中");
+			*iRes = HP_DOMAIN_BELONGDOMAINWHITE;
+			break;
+		}
+		//判断用户是否为黑名单用户
+		if (Finduserstring(tmpdata.blacklistuser, userName))
+		{
+			*bSuccess= false;
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION, "用户在黑名单中");
+			XMLSFDOMAINFAILINFO  faildata;
+			memset(&faildata,0,sizeof(XMLSFDOMAINFAILINFO));
+			memcpy(faildata.canrepair,"0",strlen("0"));
+			memcpy(faildata.domainname, doMainname, min(sizeof(faildata.domainname), strlen(doMainname)));
+			memcpy(faildata.username, userName, min(sizeof(faildata.username), strlen(userName)));
+			if((strcmp(tmpdata.customfailDes,"")) ||strcmp(tmpdata.customfailDes,"0"))
+			{
+				sprintf_s(faildata.faildes, MAX_PATH, "%s",tmpdata.customfailDes);
+			}
+			else
+			{
+				if (m_Iscmpdomain)
+				{
+					vector<string> blackerrdes;
+					if (GetLangVectorByKeyA(language,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_INDOMAINBLACKUSER],
+						(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_INDOMAINBLACKUSER],MAX_PATH,3,&blackerrdes))
+					{
+						sprintf_s(faildata.faildes, MAX_PATH, "%s%s%s%s%s",blackerrdes[0].c_str(),doMainname,blackerrdes[1].c_str(),userName,blackerrdes[2].c_str());
+					}
+				}
+				else
+				{
+					vector<string> blackerrdes;
+					if (GetLangVectorByKeyA(language,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_NOTDOMAINBLACKUSER],
+						(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_NOTDOMAINBLACKUSER],MAX_PATH,2,&blackerrdes))
+					{
+						sprintf_s(faildata.faildes, MAX_PATH, "%s%s%s",blackerrdes[0].c_str(),userName,blackerrdes[1].c_str());
+					}
+				}
+			}
+
+			CopyStructData(tmpdata,&faildata);
+			m_faildomaininfo.push_back(faildata);
+			m_faildomainnum++;
+			*iRes = HP_DOMAIN_BELONGDOMAINBLACK;
+			break;
+		}
+		domainiter++;
+	}// for (userexcpiter = m_domainInfo::begin();userexcpiter !=m_domainInfo; )
+}
+
+//计算机选择允许加入的域进行提示
+//cmptype:0表示计算机没有加入域
+//                  1表示计算机已经加入一个域
+void DomainUser::chooseSuitDomainTojoin(IN LANGUAGETYPE language,IN char* userName,IN char* doMainname,IN int cmptype,OUT BOOL* bSuccess)
+{
+	 list<XMLSFDOMAINEXEC>::iterator  domainiter;
+	for (domainiter = m_domainInfo.begin();domainiter !=m_domainInfo.end(); )
+	{
+		XMLSFDOMAINEXEC tmpdata;
+		tmpdata = *domainiter;
+		if ( atoi(tmpdata.attriinfo.spolicyaction) == ALLOW )
+		{
+			*bSuccess= false;
+
+			XMLSFDOMAINFAILINFO  faildata;
+			memset(&faildata,0,sizeof(XMLSFDOMAINFAILINFO));
+			memcpy(faildata.username,userName,min(sizeof(faildata.username),strlen(userName)));
+
+			if (strcmp(tmpdata.customfailDes,"") && strcmp(tmpdata.customfailDes,"0"))
+			{
+				sprintf_s(faildata.faildes,MAX_PATH,"%s",tmpdata.customfailDes);
+			}
+			else
+			{
+				if ( cmptype == 0)
+				{
+					memcpy(faildata.canrepair,"1",strlen("1"));
+					memcpy(faildata.domainname,tmpdata.domainname,min(sizeof(faildata.domainname),strlen(tmpdata.domainname)));
+
+					vector<string> notindomain;
+					if (GetLangVectorByKeyA(language,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_NOTDOMAINNEEDDOMAIN],
+						(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_NOTDOMAINNEEDDOMAIN],MAX_PATH*2,2,&notindomain))
+					{
+						sprintf_s(faildata.faildes,MAX_PATH,"%s%s%s",notindomain[0].c_str(),tmpdata.domainname,notindomain[1].c_str());
+					}
+				}
+				else if (cmptype == 1)
+				{
+					memcpy(faildata.canrepair,"0",strlen("0"));
+					memcpy(faildata.domainname,doMainname,min(sizeof(faildata.domainname),strlen(doMainname)));
+
+					vector<string> indomuserdes;
+					if (GetLangVectorByKeyA(language,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_INDOMAINNEEDDOMAIN],
+						(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_INDOMAINNEEDDOMAIN],MAX_PATH*2,4,&indomuserdes))
+					{
+						sprintf_s(faildata.faildes,MAX_PATH,"%s%s%s%s%s%s%s",indomuserdes[0].c_str(),doMainname,indomuserdes[1].c_str(),
+							userName,indomuserdes[2].c_str(),tmpdata.domainname,indomuserdes[3].c_str());
+					}
+				}
+				else if (cmptype == 2)
+				{
+					memcpy(faildata.canrepair,"1",strlen("1"));
+					memcpy(faildata.domainname,doMainname,min(sizeof(faildata.domainname),strlen(doMainname)));
+
+					vector<string> inrefusedomdes;
+					if (GetLangVectorByKeyA(language,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_INREFUSEDOMAINNEEDDOMAIN],
+						(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_INREFUSEDOMAINNEEDDOMAIN],MAX_PATH*2,4,&inrefusedomdes))
+					{
+						sprintf_s(faildata.faildes,MAX_PATH,"%s%s%s%s%s%s%s",inrefusedomdes[0].c_str(),doMainname,inrefusedomdes[1].c_str(),
+							userName,inrefusedomdes[2].c_str(),tmpdata.domainname,inrefusedomdes[3].c_str());
+					}
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"不需要处理");     
+				}
+			}
+			
+			 CopyStructData(tmpdata,&faildata);
+			m_faildomaininfo.push_back(faildata);
+			m_faildomainnum++;
+			break;
+		}// if ( atoi(tmpdata.attriinfo.spolicyaction) == ALLOW )
+
+		domainiter++;
+	}// for (userexcpiter = m_domainInfo::begin();userexcpiter !=m_domainInfo; )
+}
+
+//计算机在配置的拒绝的域中进行提示
+BOOL  DomainUser::cmpInRefuseDomain(IN LANGUAGETYPE language,IN char* userName,IN char* doMainname,OUT BOOL* bSuccess)
+{
+	BOOL bmatchdomain = FALSE;
+	 list<XMLSFDOMAINEXEC>::iterator  domainiter;
+	//判断是不是在拒绝的域服务器中
+	for (domainiter = m_domainInfo.begin();domainiter !=m_domainInfo.end(); )
+	{
+		XMLSFDOMAINEXEC tmpdata;
+		tmpdata = *domainiter;
+
+		if ( atoi(tmpdata.attriinfo.spolicyaction) == REFUSE )
+		{
+			if ( _strnicmp(tmpdata.domainname,doMainname,MAX_PATH ) == 0 )
+			{
+				bmatchdomain = TRUE;
+				*bSuccess= false;
+
+				XMLSFDOMAINFAILINFO  faildata;
+				memset(&faildata,0,sizeof(XMLSFDOMAINFAILINFO));
+				memcpy(faildata.canrepair,"1",strlen("1"));
+				memcpy(faildata.domainname,doMainname,min(sizeof(faildata.domainname),strlen(doMainname)));
+				memcpy(faildata.username,userName,min(sizeof(faildata.username),strlen(userName)));
+
+				if (strcmp(tmpdata.customfailDes,"") && strcmp(tmpdata.customfailDes,"0"))
+				{  
+					sprintf_s(faildata.faildes,MAX_PATH,"%s",tmpdata.customfailDes);
+				}
+				else
+				{
+					vector<string> refusedomuserdes;
+					if (GetLangVectorByKeyA(language,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_INREFUSEDOMAIN],
+						(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_INREFUSEDOMAIN],MAX_PATH*2,4,&refusedomuserdes))
+					{
+						sprintf_s(faildata.faildes,MAX_PATH,"%s%s%s%s%s%s%s",refusedomuserdes[0].c_str(),doMainname,refusedomuserdes[1].c_str(),
+							userName,refusedomuserdes[2].c_str(),doMainname,refusedomuserdes[3].c_str());
+					}
+					else
+					{
+						sprintf_s(faildata.faildes,MAX_PATH,"计算机在拒绝登陆的域%s,用户为%s,电脑将会退出域%s,重启电脑生效",doMainname,userName,doMainname);
+					}
+				}				
+				 CopyStructData(tmpdata,&faildata);
+				m_faildomaininfo.push_back(faildata);
+
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"电脑在拒绝的域中");     
+				m_faildomainnum++;
+			}
+		}// if ( atoi(tmpdata.attriinfo.spolicyaction) == ALLOW )
+
+		domainiter++;
+	}// for (userexcpiter = m_domainInfo::begin();userexcpiter !=m_domainInfo; )
+	return bmatchdomain;
+}
+
+//COPY结构体数据
+void DomainUser::CopyStructData(XMLSFDOMAINEXEC srcdata,XMLSFDOMAINFAILINFO* dstdata)
+{
+	memcpy(dstdata->repairpath,srcdata.repairpath,strlen(srcdata.repairpath));
+	memcpy(dstdata->repairaction,srcdata.attriinfo.spolicyaction,strlen(srcdata.attriinfo.spolicyaction));
+	memcpy(dstdata->srcevent,srcdata.attriinfo.srcevent,strlen(srcdata.attriinfo.srcevent));
+	memcpy(dstdata->warningcont,srcdata.attriinfo.warningcont,strlen(srcdata.attriinfo.warningcont));
+	memcpy(dstdata->warninglevel,srcdata.attriinfo.warninglevel,strlen(srcdata.attriinfo.warninglevel));
+	memcpy(dstdata->warningmsg,srcdata.attriinfo.spromptinfo,strlen(srcdata.attriinfo.spromptinfo));
+}
+
+//获取服务器配置的允许和拒绝的域的个数
+void DomainUser::GetServDomainConfigNum()
+{
+	list<XMLSFDOMAINEXEC>::iterator  domainiter;
+	for (domainiter = m_domainInfo.begin();domainiter !=m_domainInfo.end(); )
+	{
+		XMLSFDOMAINEXEC tmpdata;
+		tmpdata = *domainiter;
+		if (atoi(tmpdata.attriinfo.spolicyaction) == ALLOW)
+		{
+			m_allowdomainnum++;
+		}
+		else
+		{
+			m_refusedomainnum++;
+		}
+		domainiter++;
+	}
+}
+
+//查询本地计算机加入的域是否在服务器端配置的允许的域中,存在则返回TRUE和该域的配置信息
+BOOL DomainUser::GetCompterDomainInServier(char* compterdomain,int icmpdomainlen,XMLSFDOMAINEXEC* domainconfig)
+{
+	BOOL bInConfigDoman = FALSE;
+
+	list<XMLSFDOMAINEXEC>::iterator  domainiter;
+	for (domainiter = m_domainInfo.begin();domainiter !=m_domainInfo.end(); )
+	{
+		XMLSFDOMAINEXEC tmpdata;
+		tmpdata = *domainiter;
+		if ( atoi(tmpdata.attriinfo.spolicyaction) == ALLOW )
+		{
+			if ( _strnicmp(tmpdata.domainname,compterdomain,icmpdomainlen ) == 0 )
+			{
+				*domainconfig = tmpdata;
+				bInConfigDoman = TRUE;
+				break;
+			}
+		}// if ( atoi(tmpdata.attriinfo.spolicyaction) == ALLOW )
+		domainiter++;
+	}// for (userexcpiter = m_domainInfo::begin();userexcpiter !=m_domainInfo; )
+	return bInConfigDoman;
+}
+
+//验证域用户信息
+BOOL DomainUser::IdentifyDomainMsg(LANGUAGETYPE language,SFSAFECHECKTYPE sfchecktype,char* cmpusername,char* cmpdomain,
+	XMLSFDOMAINEXEC domainconfig,char* identifyresult,int identifyresultlen)
+{
+	BOOL bIdentifyRet = FALSE;
+	try
+	{
+		const unsigned long SYSTEMSAFECHECKTIMEOUT = 15*60*1000;//服务器端设置的系统安检最长多长时间不会结果
+		CDomainIdentydlg  *idendlg = new CDomainIdentydlg();
+		BOOL balready = FALSE;
+
+		int identRes = DOMAINIDENTTIMEOUT;
+		char identifyuser[MAX_PATH] = {"0"};
+		char identifydomain[MAX_PATH] = {"0"};
+		DWORD starttime = GetTickCount();
+		vector<string> identifyVec;
+		unsigned long timeouttime = min(atol(domainconfig.identifyconf.dlgtimeouttime)*60000,SYSTEMSAFECHECKTIMEOUT);
+		if (timeouttime ==0)
+			timeouttime = SYSTEMSAFECHECKTIMEOUT;
+		
+		while( GetTickCount()-starttime <=timeouttime )
+		{
+			if ( g_domainidenResult != "0")
+			{
+				identifyVec = split(g_domainidenResult,";");
+				if (identifyVec.size())
+				{
+					/*if (strcmp(identifyVec[0].c_str(),m_servtimeval) == 0)
+					{
+						break;
+					}*/
+					break;
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,(char*)g_domainidenResult.c_str());
+				}
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"no domain identify data");
+			}
+			Sleep(100);
+		}
+		if (identifyVec.size() == 0 )
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"域用户验证超时");
+			EnterCriticalSection(&g_doaminidenlogcs);
+			g_domainidenResult="0";
+			LeaveCriticalSection(&g_doaminidenlogcs);
+		}
+		else
+		{
+			identRes = atoi(identifyVec[1].c_str());
+			sprintf_s(identifyuser,sizeof(identifyuser),"%s",identifyVec[2].c_str());
+			sprintf_s(identifydomain,sizeof(identifydomain),"%s",identifyVec[3].c_str());
+		}
+		if ((identRes == DOMAINIDENTSUCCESS) || (identRes == DOMAINIDENTFAIL))
+		{
+			int keynum = SF_SFDOMAIN_IDENTIFYFAIL;
+			if (identRes == DOMAINIDENTSUCCESS)
+			{
+				bIdentifyRet= TRUE;
+				int iret = HP_SUCCESS;
+				JudgeUserNameInBlackOrWriteList(language,identifyuser,identifydomain,&bIdentifyRet,&iret);
+				if (iret == HP_DOMAIN_BELONGDOMAINBLACK)
+				{
+					bIdentifyRet= FALSE;
+					keynum = SF_SFDOMAIN_IDENTIFYBLACKUSER;
+				}
+				else if (iret == HP_DOMAIN_BELONGDOMAINWHITE)
+				{
+					bIdentifyRet= TRUE;
+					keynum = SF_SFDOMAIN_IDENTIFYWHITEUSER;
+				}
+				else
+				{
+					keynum = SF_SFDOMAIN_IDENTIFYSUCCESS;
+				}
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"域用户名和密码验证成功");
+			}
+			else
+			{
+				bIdentifyRet= FALSE;
+				keynum = SF_SFDOMAIN_IDENTIFYFAIL;
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"域用户名和密码验证失败");
+			}
+
+			if (strcmp(domainconfig.customfailDes,"") && strcmp(domainconfig.customfailDes,"0"))
+			{
+				sprintf_s(identifyresult, identifyresultlen,"<subitem checkItemId=\"0\" checkItemAction=\"%s\" faildes=\"%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",
+					domainconfig.attriinfo.spolicyaction,domainconfig.customfailDes,domainconfig.domainname,
+					domainconfig.attriinfo.warningcont,domainconfig.attriinfo.warninglevel,domainconfig.attriinfo.srcevent);  
+			}
+			else
+			{
+				char titleA[MAX_PATH] = {"0"};
+				GetLangValueByKeyA((LANGUAGETYPE)language,SFDOMAINAPPNAME,SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYTIPTITLE],
+					SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYTIPTITLE],titleA,sizeof(titleA));
+
+				vector<string> identifyresdes;
+				if (GetLangVectorByKeyA(language,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[keynum],
+					(char*)SFDOMAINKEYSTR[keynum],MAX_PATH*3,5,&identifyresdes))
+				{
+					string symblestr = ConvertUniToAnsi(L"￥");
+					sprintf_s(identifyresult, identifyresultlen,"<subitem checkItemId=\"0\" checkItemAction=\"%s\" faildes=\"%s%s%s%s%s%s%s%s%s\" name=\"%s%s2\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%s\"/>",
+						domainconfig.attriinfo.spolicyaction,identifyresdes[0].c_str(),cmpusername,identifyresdes[1].c_str(),cmpdomain,identifyresdes[2].c_str(),identifyuser,identifyresdes[3].c_str(),
+						identifydomain,identifyresdes[4].c_str(),domainconfig.domainname,symblestr.c_str(),domainconfig.attriinfo.warningcont,
+						domainconfig.attriinfo.warninglevel,domainconfig.attriinfo.srcevent);   
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"获取验证结果的字符串到服务器失败");
+				}
+			}
+			 SendDomainIdentifyInfoToServer(identifyuser,identifydomain,sfchecktype,bIdentifyRet);
+
+			if (keynum != SF_SFDOMAIN_IDENTIFYSUCCESS)
+			{
+				EnterCriticalSection(&g_doaminidenlogcs);
+				g_domainidenResult="0";
+				LeaveCriticalSection(&g_doaminidenlogcs);
+			}
+		}
+		else
+		{
+			bIdentifyRet= FALSE;
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"没有进行验证");
+			EnterCriticalSection(&g_doaminidenlogcs);
+			g_domainidenResult="0";
+			LeaveCriticalSection(&g_doaminidenlogcs);
+		}
+	}
+	catch (...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"get domain identify result fail");
+	}
+	return bIdentifyRet;
+}
+
+void DomainUser::GetIdentifyDomainServer()
+{
+	list<XMLSFDOMAINEXEC>::iterator  getdomainiter;
+	for (getdomainiter = m_domainInfo.begin();getdomainiter != m_domainInfo.end(); )
+	{
+		XMLSFDOMAINEXEC tmpdata;
+		tmpdata = *getdomainiter;
+		if ( atoi(tmpdata.attriinfo.spolicyaction) == ALLOW)
+		{
+			ADSERVERNAMEIP  nameandip;
+			memset(&nameandip,0,sizeof(ADSERVERNAMEIP));
+			if ((strcmp(tmpdata.domainserv,""))&&(strcmp(tmpdata.domainserv,"0")))
+				nameandip.serverName =  tmpdata.domainserv;
+			else
+				nameandip.serverName =  tmpdata.domainname;
+			nameandip.serverIp = tmpdata.servip;
+			if((strcmp(tmpdata.secserviplist,""))&&(strcmp(tmpdata.secserviplist,"0")))
+			{
+				nameandip.serverIp += ",";
+				nameandip.serverIp += tmpdata.secserviplist;
+			}
+			nameandip.domainid = tmpdata.domainid;
+
+			m_servidendomain.push_back(nameandip);
+		}
+		getdomainiter++;
+	}
+	if (m_servidendomain.size()>1)
+	{
+		m_servidendomain.sort();
+	}
+}
+
+BOOL DomainUser::GetProcessUser(HANDLE  exeHandle, wchar_t *szUserName, DWORD nNameLen,
+	wchar_t *domainName,DWORD domainlen)
+{
+	BOOL fResult = FALSE;
+	TOKEN_USER *pTokenUser = NULL;
+	DWORD dwNeedLen = 0; 
+	fResult = GetTokenInformation(exeHandle,TokenUser, NULL, 0, &dwNeedLen);
+	if (dwNeedLen > 0)
+	{ 
+		pTokenUser = (TOKEN_USER*)new BYTE[dwNeedLen];
+		fResult = GetTokenInformation(exeHandle, TokenUser, pTokenUser, dwNeedLen, &dwNeedLen);
+		if (!fResult)
+		{ 
+		   WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"GetTokenInformation Fail");     
+		} 
+		else
+		{
+			SID_NAME_USE sn;
+			fResult = LookupAccountSid(NULL, pTokenUser->User.Sid, szUserName,&nNameLen, domainName, &domainlen, &sn);
+		}
+		if (pTokenUser) 
+			delete[] pTokenUser;
+	} 
+	else
+	{ 
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"GetTokenInformation fail");     
+	} 
+	return fResult;
+}
+
+void DomainUser::ShowOffLineTipToIdentify(int ontimeornot,DOMAINEXTERNCONFIGDATA servconf,char *swarnname,char *warninglevel,char* srcevent)
+{
+	try
+	{
+		DELAYOFFLINETIP *delayofflinetip = new DELAYOFFLINETIP;
+		memset(delayofflinetip,0,sizeof(DELAYOFFLINETIP));
+		delayofflinetip->idenperiod = atoi(servconf.identifyperiod);
+		delayofflinetip->idenperiodunit = atoi(servconf.identifyperiodunit);
+		delayofflinetip->advnotifytime = atoi(servconf.advnotifytime);
+		delayofflinetip->advnotifytimeunit = atoi(servconf.advnotifytimeunit);
+		delayofflinetip->tipnum = atoi(servconf.offlinetipNum);
+		delayofflinetip->identdlgtime = atoi(servconf.dlgtimeouttime);
+		delayofflinetip->identdlgtimeunit = atoi(servconf.dlgtimeoutunit);
+		memset(delayofflinetip->servsftimeval,0,sizeof(delayofflinetip->servsftimeval));
+		memcpy(delayofflinetip->servsftimeval,m_servtimeval,strlen(m_servtimeval));
+
+		memset(delayofflinetip->tiptext,0,sizeof(delayofflinetip->tiptext));
+		if (strcmp(servconf.offlineTip,"") && strcmp(servconf.offlineTip,"0"))
+		{
+			sprintf_s(delayofflinetip->tiptext,sizeof(delayofflinetip->tiptext),"%s",servconf.offlineTip);
+		}
+
+		memset(delayofflinetip->swarnname,0,sizeof(delayofflinetip->swarnname));
+		sprintf_s(delayofflinetip->swarnname,sizeof(delayofflinetip->swarnname),"%s",swarnname);
+		memset(delayofflinetip->warninglevel,0,sizeof(delayofflinetip->warninglevel));
+		sprintf_s(delayofflinetip->warninglevel,sizeof(delayofflinetip->warninglevel),"%s",warninglevel);
+		memset(delayofflinetip->srcevent,0,sizeof(delayofflinetip->srcevent));
+		sprintf_s(delayofflinetip->srcevent,sizeof(delayofflinetip->srcevent),"%s",srcevent);
+		memset(delayofflinetip->username,0,sizeof(delayofflinetip->username));
+		ConvertW2A(m_userName,delayofflinetip->username,sizeof(delayofflinetip->username));
+		memset(delayofflinetip->userdomain,0,sizeof(delayofflinetip->userdomain));
+		ConvertW2A(m_dnsDomain,delayofflinetip->userdomain,sizeof(delayofflinetip->userdomain));
+		list<XMLSFDOMAINEXEC>::iterator  domainiter;
+		for (domainiter = m_domainInfo.begin();domainiter != m_domainInfo.end(); ++domainiter)
+		{
+			XMLSFDOMAINEXEC tmpdata = *domainiter;
+			MergeExceptUser(tmpdata.whitelistuser,tmpdata.blacklistuser,delayofflinetip->whilteuser, delayofflinetip->blackuser);
+		}// for (userexcpiter = m_domainInfo::begin();userexcpiter !=m_domainInfo; )
+
+		int domainnum = m_servidendomain.size();
+		delayofflinetip->lastlen = domainnum+1;
+		delayofflinetip->ontimeornot = ontimeornot;
+		ADSERVERNAMEIP *adservnameip = new ADSERVERNAMEIP[domainnum+1];
+		memset(adservnameip,0,sizeof(ADSERVERNAMEIP)*(domainnum+1));
+		int index = 0;
+		list<ADSERVERNAMEIP>::iterator  servdomainipiter;
+		for ( servdomainipiter = m_servidendomain.begin(); servdomainipiter != m_servidendomain.end(); ++servdomainipiter)
+		{
+			ADSERVERNAMEIP adservnameandip = *servdomainipiter;
+			adservnameip[index].serverIp = adservnameandip.serverIp;
+			adservnameip[index].serverName = adservnameandip.serverName;
+			index++;
+		}
+
+		PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd,UM_DOMAINIDENTIFYTIP,(WPARAM)delayofflinetip,(LPARAM)adservnameip);
+	}
+	catch (...)
+	{
+#ifdef DEBUG
+		MessageBox(NULL,L"ShowOffLineTipToIdentify exception",L"ShowOffLineTipToIdentify exception",MB_OK);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"ShowOffLineTipToIdentify exception");     
+	}
+
+}
+
+void DomainUser::SendDomainIdentifyInfoToServer(string idenuser,string idendomain,SFSAFECHECKTYPE safechecktype,BOOL  idenRes)
+{
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"SendDomainIdentifyInfoToServer 开始");
+	char macvalue[MACADDRESSLEN] = {"0"};
+	GetLocalMac(macvalue);
+	char username[MAX_PATH] = {"0"};
+	char domainname[MAX_PATH] = {"0"};
+	if (m_IsLogOnDomain)//显示为域名加用户名的格式
+	{
+		wchar_t dirpathW[MAX_PATH] = {L"0"};
+		MultiByteToWideChar(CP_ACP,0,g_nacdirpath,-1,dirpathW,sizeof(dirpathW));
+		wchar_t  exepath[MAX_PATH] = {L"0"};
+		wsprintf(exepath,L"%s\\hpregister.exe",dirpathW);
+		if (PathFileExists(exepath))
+		{
+			HANDLE hUserToken = NULL;  
+			BOOL bIsOK = GetProcessUserToken( L"explorer.exe", &hUserToken );
+			if ( bIsOK )  
+			{  
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"WTSQueryUserToken success");
+				DWORD dwLength = 0;  
+				bIsOK = GetTokenInformation(hUserToken, TokenUser, NULL, 0, &dwLength );  
+				TOKEN_USER *pUser = static_cast<TOKEN_USER*>(malloc( dwLength + 1 ));  
+				if ( NULL == pUser )  
+				{  
+					WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"NULL == pUser");
+					CloseHandle(hUserToken);
+					hUserToken=NULL;
+				}  
+				if (hUserToken)
+				{
+					bIsOK = GetTokenInformation( hUserToken, TokenUser, pUser, dwLength, &dwLength );  
+					if ( !bIsOK )  
+					{  
+						WriteDebugInfomation(LEVEL_DEBUG,MODULE_SOFTWARE,LOGLOCATION,"GetTokenInformation Fail");
+						free(pUser);  
+						CloseHandle(hUserToken);
+						hUserToken=NULL;
+					}  
+				}
+				if (hUserToken)
+				{
+					wstring fullname = GetSidFullName(pUser->User.Sid,TRUE);
+					ConvertW2A(fullname.c_str(),username,sizeof(username));
+					free(pUser);  
+					CloseHandle(hUserToken);
+					hUserToken=NULL;
+				}
+			}  
+		}
+	}
+	if (!strcmp(username,"0"))
+	{
+		ConvertW2A(m_userName,username,sizeof(username));
+	}
+	ConvertW2A(m_dnsDomain,domainname,sizeof(domainname));
+	
+	string usernamestr = username;
+
+	string idendes=SERVER_FAILURE_STR;
+	if (idenRes)
+		idendes = SERVER_SUCCESS_STR;
+	
+	char sfchecktypestr[HP_C_USERCONTENTLEN] = {"0"};
+	sprintf_s(sfchecktypestr,sizeof(sfchecktypestr),"%d",(int)safechecktype);
+
+	string tmpstr;
+	tmpstr =  "<iman slocalaccount=\""+usernamestr+ 
+		"\" slocaldomain=\""+domainname+
+		"\" sdomain=\""+idendomain+
+		"\" sdomainuser=\""+idenuser+
+		"\" sdevicemac=\""+macvalue+
+		"\" sfsafechecktype=\""+sfchecktypestr+
+		"\" sauthstatusreason=\"" + idendes + "\"/>";
+
+	string xmlHeader= "<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+	string xmlTail= "</nac>";
+	string xmlstring = xmlHeader+tmpstr+xmlTail;
+	HandleJob1 sendidentifyinfo;
+	sendidentifyinfo.InitParam(g_EstliSocket.m_hComm,CLIENT_SEND_DOMAINIDENTIFYINFO,xmlstring.c_str());
+	sendidentifyinfo.execute();
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"SendDomainIdentifyInfoToServer end");
+}
+
+bool DomainUser::CompareRules(ADSERVERNAMEIP _X,  ADSERVERNAMEIP _Y)   
+{  
+	if (_X.domainid <= _Y.domainid)
+	{  
+		return true;  
+	}
+	else
+	{
+		return false;
+	}
+} 
+
+
+LSA_HANDLE DomainUser::HPGetLookupPolicyHandle(VOID)
+{
+	LSA_OBJECT_ATTRIBUTES oa = { 0 };
+	LSA_HANDLE lookupPolicyHandle = NULL;
+	if ( LsaOpenPolicy(
+		NULL,
+		&oa,
+		POLICY_LOOKUP_NAMES,
+		&lookupPolicyHandle
+		) >=0 )
+	{
+		return lookupPolicyHandle;
+	}
+	else
+	{
+		LsaClose(lookupPolicyHandle);
+		return NULL;
+	}
+}
+
+
+wstring DomainUser::GetSidFullName(
+	_In_ PSID Sid,
+	_In_ BOOLEAN IncludeDomain)
+{
+	NTSTATUS status;
+	wstring fullName;
+	LSA_HANDLE policyHandle;
+	PLSA_REFERENCED_DOMAIN_LIST referencedDomains;
+	PLSA_TRANSLATED_NAME names;
+
+	policyHandle = HPGetLookupPolicyHandle();
+
+	referencedDomains = NULL;
+	names = NULL;
+
+	if ((status = LsaLookupSids(
+		policyHandle,
+		1,
+		&Sid,
+		&referencedDomains,
+		&names
+		)) >=0)
+	{
+		if (names[0].Use != SidTypeInvalid && names[0].Use != SidTypeUnknown)
+		{
+			PWSTR domainNameBuffer;
+			ULONG domainNameLength;
+
+			if (IncludeDomain && names[0].DomainIndex >= 0)
+			{
+				PLSA_TRUST_INFORMATION trustInfo;
+
+				trustInfo = &referencedDomains->Domains[names[0].DomainIndex];
+				domainNameBuffer = trustInfo->Name.Buffer;
+				domainNameLength = trustInfo->Name.Length;
+			}
+			else
+			{
+				domainNameBuffer = NULL;
+				domainNameLength = 0;
+			}
+
+			if (domainNameBuffer && domainNameLength != 0)
+			{
+				fullName = domainNameBuffer;
+				fullName += L"\\";
+			}
+			if(names[0].Name.Length)
+			{
+				wchar_t * username = new wchar_t[names[0].Name.Length+1];
+				memset(username,0,(names[0].Name.Length+1)*sizeof(wchar_t));
+				wsprintf(username,L"%s",names[0].Name.Buffer);
+				username[names[0].Name.Length]=L'\0';
+				fullName += username;
+				if(username)
+				{
+					delete[] username;
+					username = NULL;
+				}
+			}
+		}
+	
+	}
+
+	if (referencedDomains)
+		LsaFreeMemory(referencedDomains);
+	if (names)
+		LsaFreeMemory(names);
+
+	return fullName;
+}

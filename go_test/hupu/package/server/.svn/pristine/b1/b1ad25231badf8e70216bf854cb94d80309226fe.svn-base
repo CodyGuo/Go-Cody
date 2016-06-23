@@ -1,0 +1,36 @@
+#pragma once
+
+#include "Job.h"
+#include <Windows.h>
+
+#include <string>
+using namespace std;
+
+#include "..\OpStgClass.h"
+
+#ifndef  HANDLEJOB2_H_
+#define HANDLEJOB2_H_
+
+class HandleJob2:public CJob
+{
+public:
+	HandleJob2(void);
+	virtual  ~HandleJob2(void);
+
+	virtual int execute();
+
+	void InitParam(HANDLE sock,int flag,DWORD len,  char* msg);
+
+	string m_outmsg;
+
+private:
+	int m_flag;
+	int m_msglen;
+	string m_msgstr;
+	OpStgClass  dbstg;
+	//
+	HANDLE m_sockhandle;
+
+};
+#endif
+

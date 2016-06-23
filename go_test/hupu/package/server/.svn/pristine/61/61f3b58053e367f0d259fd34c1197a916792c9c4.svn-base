@@ -1,0 +1,46 @@
+#pragma once
+
+#include <winsock2.h>
+#pragma comment(lib,"ws2_32")
+
+//Notification type
+typedef enum ENotification
+{
+	APCNotification,
+	EventNotification
+};
+
+typedef void (*APCNotificationCallback)(void *ptrNotificationContext);
+
+class CNLANetwork
+{
+public:
+	~CNLANetwork();
+	static CNLANetwork* GetNetworkAvailability();																	//Methode to get instance of the class
+	bool LookForConnectionChange(bool bIsBlocking = true);
+	void StopLookForConnectionChange();
+	bool InitializeNLA();																																				//Initialize NLA																																				//Function to test APC callbck
+	void SetNotificationType(ENotification notification);
+	ENotification GetNotificationType();
+	static void RegisterAPCNotification(APCNotificationCallback callback, void *notificationContext); //Registers notification callback
+
+private:
+	CNLANetwork();																																//Constructor
+	bool CleanUpNLA();																																					//Cleanup NLA
+	LPWSACOMPLETION SetNLAEventCallback();																											//Set NLA event for callback
+	LPWSACOMPLETION SetNLAAPCCallback();																												//Set APC for Callback
+
+private:
+	static CNLANetwork *m_ptrNetowrkAvailabilityCheck;														//single instance of class
+	HANDLE	m_hStopLookingForConnection;																												//Event handle to stop looking for the new connection
+	bool		m_bStop;																																						//Stop NLA
+	WSAEVENT m_hWsaEvent;
+	ENotification m_eNotification;
+	bool    m_bInitialized;                                                                     //Check for initiallization of NLA
+
+private:
+	static DWORD StartNewConnectionThreadProc(void *);																					//Thread procedure
+	bool StartLookingForConnectionChange(ENotification notification);														//Looks for new connection
+	void SetStopFlag(bool bStop);
+};
+

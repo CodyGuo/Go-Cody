@@ -1,0 +1,55 @@
+
+#pragma once
+#ifndef SRTCONVERT_H
+#define SRTCONVERT_H
+
+#define MAXFIELDLEN 256
+
+//将时间戳转化为当前的标准时间
+void TimeValToStandTime(IN char *timeval,OUT char *currdate, OUT char* weektime);
+
+//将ASCII字符串转化为Unicode字符串
+int ConvertA2W(IN const char* strIn,OUT wchar_t* strOut,IN int StrOutLen);
+
+//将Unicode字符串转化为ASCII字符串
+int ConvertW2A(IN const wchar_t* strIn,OUT char* strOut,IN int StrOutLen);
+
+//将ASCII格式的字符串转为UTF8格式的宽字节
+int ConvertA2UTF8W(IN const char* strIn,OUT wchar_t* strOut,IN int StrOutLen);
+
+//将ASCII格式的字符串转为UTF8格式的多字节字节
+int ConvertA2UTF8(IN const char* strIn,OUT char* strOut,IN int StrOutLen);
+
+//将Unicode格式的宽字节转化为UTF8格式的多字节
+int ConvertW2UTF8(IN const wchar_t* strIn,OUT char* strOut,IN int StrOutLen);
+
+/************************************************************ 
+ Description: 转换查询数据库字段为宽字符
+ input: pFieldValue[字段值]， wstrFieldValue[转后字段值]
+ Return: 
+*************************************************************/
+int ConvertDbFieldsToUni(IN char* pFieldValue, IN int iOutLen, OUT wchar_t* pWFieldValue);
+
+//从list中查找是否存在data数据
+bool BoolRepLs(IN list<string> ls,IN const char *data);
+
+//时间段中拆分时间段信息
+vector<string> split(IN string str,IN string pattern);
+
+vector<wstring> splitwstr(IN wstring str,IN wstring pattern);
+
+//字节类型转换
+void Convert(IN const char* strIn,OUT char* strOut, IN int strOutLen, IN int sourceCodepage, IN int targetCodepage);
+
+string ConvertUniToAnsi(IN wstring BufferW);
+
+wstring ConvertAnsiToUni(IN string buff);
+
+string ConvertSrcToDst(string buff,IN int sourceCodepage, IN int targetCodepage);
+
+ wstring  ConvertstringToWstring(string buff, IN int targetCodepage);
+
+ BOOL bFindWindowsTitle(wstring wintitle,BOOL bCloseWindows,WPARAM wparam);
+
+#endif
+

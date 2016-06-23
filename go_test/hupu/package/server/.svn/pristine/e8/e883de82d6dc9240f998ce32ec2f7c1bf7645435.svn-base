@@ -1,0 +1,208 @@
+#include "StdAfx.h"
+#include "SafeCheckRealTime.h"
+
+#include "SafeCheckFuntion.h"
+#include "..\JobThread\HandleJob1.h"
+#include "..\GlobalDate.h"
+#include  "..\DebugInfo.h"
+#include "..\CommPub.h"
+#include "TimeCalculation.h"
+
+//实时监测安检项和结果信息回传:现主要包括违规外联模块
+
+
+const int THREDSLEEPTIME = 60000;
+
+CSafeCheckRealTime::CSafeCheckRealTime(void):
+               m_exitFlag(FALSE),
+			  m_servicetimestr(INITIALSERVERTIME),
+			  m_timeOffset(0),
+			  m_illintLastStat(ALLOW),
+			  m_useridstr("0"),
+			  m_usertypestr("0"),
+			  m_hThread(NULL)
+{
+
+}
+
+
+CSafeCheckRealTime::~CSafeCheckRealTime(void)
+{
+
+}
+
+//初始化线程数据
+void CSafeCheckRealTime::init(char* servertime,int  iuserid,int iusertype)
+{
+	if (servertime )
+	{
+		m_servicetimestr = servertime;
+
+		time_t ltime;
+		// Get UNIX-style time and display as number and string. 
+		time( &ltime );
+
+		m_timeOffset =_atoi64(servertime)/1000-ltime;
+	}
+	char userid[HP_C_USERCONTENTLEN] ={"0"};
+	sprintf_s(userid,sizeof(userid),"%d",iuserid);
+	m_useridstr = userid;
+	char usertype[HP_C_USERCONTENTLEN] = {"0"};
+	sprintf_s(usertype,sizeof(usertype),"%d",iusertype);
+	m_usertypestr = usertype;
+}
+
+
+UINT WINAPI CSafeCheckRealTime::realtimeThreadProc(LPVOID pParam)
+{
+	try
+	{
+		CSafeCheckRealTime* pThis = reinterpret_cast<CSafeCheckRealTime*>(pParam);
+		_ASSERTE(pThis != NULL);
+		pThis->m_exitFlag = FALSE;
+
+		while ( TRUE )
+		{
+			if (pThis->m_exitFlag)
+			{
+				break;
+			}
+			pThis->execIllInetSafeCheck();
+			Sleep(THREDSLEEPTIME);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"RealtimeThreadProc Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "RealtimeThreadProc Exception");
+	}
+
+	return 1L;
+}
+
+void CSafeCheckRealTime::stopThread()
+{
+	if (m_hThread != NULL )
+	{
+		WaitForSingleObject(m_hThread,2000L);
+		CloseHandle(m_hThread);
+		m_hThread=NULL;
+	}
+}
+
+//创建线程每隔一段时间检测安检项
+BOOL CSafeCheckRealTime::execSafeCheckRealtime()
+{
+
+	UINT uiThreadId = 0;
+	m_hThread = (HANDLE)_beginthreadex(NULL, 
+		0,   
+		realtimeThreadProc,  
+		this,   
+		CREATE_SUSPENDED,   
+		&uiThreadId);  
+	if (NULL!=m_hThread)
+	{
+		ResumeThread(m_hThread);
+		return true;
+	}
+	return FALSE;
+}
+
+void CSafeCheckRealTime::setExitFlag(BOOL bFlag)
+{
+	m_exitFlag=bFlag;
+}
+
+//执行违规外联的安检项
+BOOL CSafeCheckRealTime::execIllInetSafeCheck()
+{
+	wchar_t dirpathW[MAX_PATH] = {L"0"};
+	ConvertA2W(g_nacdirpath,dirpathW,sizeof(dirpathW));
+
+	char currdata[MAX_PATH]={0};
+	char millisecdata[MAX_PATH]={0};
+	char weekday[50]={0};
+	
+	if (strcmp(m_servicetimestr.c_str(),INITIALSERVERTIME) == 0 )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION,"时间戳错误");
+		return FALSE;
+	}
+
+   struct tm servertime;
+
+	time_t currtime;
+	time(&currtime);
+	currtime += m_timeOffset;
+	char timebuf[26]={"0"};
+	errno_t err = _localtime64_s(&servertime, &currtime);
+	if (err)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "ctime_s fail");
+		return FALSE;
+	}
+
+	sprintf_s(currdata,sizeof(currdata),"%04d-%02d-%02d 00:00:00",
+		servertime.tm_year+1900,servertime.tm_mon+1,servertime.tm_mday);
+
+	long long millisec = servertime.tm_hour*3600 + servertime.tm_min*60 + servertime.tm_sec;
+	sprintf_s(millisecdata,sizeof(millisecdata),"%d",millisec);
+
+	if (servertime.tm_wday == 0 )
+	{
+		sprintf_s(weekday,sizeof(weekday),"%d",7);
+	}
+	else
+	{
+		sprintf_s(weekday,sizeof(weekday),"%d",servertime.tm_wday);
+	}
+    
+	char timeinfo[MAX_PATH]={"0"};
+	sprintf_s(timeinfo,MAX_PATH,"curruserid=%s,currusertype=%s,currdata=%s,millisecdata=%s,weekday=%s",
+		m_useridstr.c_str(),m_usertypestr.c_str(),currdata,millisecdata,weekday);
+	WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION,timeinfo);
+
+	m_illinternet.GetDataFromDB(dirpathW,const_cast<char*>(m_useridstr.c_str()),const_cast<char*>(m_usertypestr.c_str()),currdata,millisecdata,weekday,true);
+
+	if ( m_illinternet.m_numcount>0)
+	{
+		int stgaction = atoi(m_illinternet.m_illegalIntConf.spolicyaction);
+		if ( REFUSE == stgaction )
+		{
+			int iExecSucc = HP_SUCCESS;
+			char currmac[HP_C_MACLEN] = {"0"};
+			if ( HP_SUCCESS == GetLocalMac(currmac))
+			{
+				char servtimvalstr[20] ={"0"};
+				sprintf_s(servtimvalstr,"%I64d000",currtime);
+				string sendBuff = m_illinternet.ExecIllegalInternetItem(servtimvalstr,currmac,1,ILLEGALINTERNET,-1,FALSE,&iExecSucc);
+				if(sendBuff.length() > 0)
+				{
+					HandleJob1 checkJob;
+
+					checkJob.InitParam(g_EstliSocket.m_hComm, CLIENT_SEND_CHECKRESULT_FLAG, sendBuff.c_str());
+					checkJob.execute();
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "不需要回传安检数据");
+				}
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "获取本地mac失败");
+			}
+		}
+	}
+	return FALSE;
+}
+
+//退出违规外联
+void CSafeCheckRealTime::Canceillinternetsafecheck()
+{
+	m_illinternet.StopIllegalInternet();
+}
+

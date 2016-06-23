@@ -28,6 +28,7 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
+	goconfig.PrettyFormat = false
 
 	/*ini cfg配置文件读取*/
 	fmt.Println(read.GetSectionList())              // 获取选项名称

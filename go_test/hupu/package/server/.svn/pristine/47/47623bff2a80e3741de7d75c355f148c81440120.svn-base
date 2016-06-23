@@ -1,0 +1,100 @@
+#include "stdafx.h"
+#include "HandleJob1.h"
+#include "..\GlobalDate.h"
+#include "..\SafeCheckItem\SafeCheckFuntion.h"
+#include "..\DebugInfo.h"
+
+HandleJob1::HandleJob1():m_flag(0)
+{
+
+	memset(m_outmsg,0,sizeof(m_outmsg));
+    m_msgStr = "";
+	m_sockhandle =INVALID_HANDLE_VALUE;
+}
+
+HandleJob1::~HandleJob1()
+{
+
+}
+
+void HandleJob1::InitParam(HANDLE sock,int flag, const char*  parammsg)
+{
+	if ( sock != INVALID_HANDLE_VALUE )
+	{
+		m_sockhandle = sock;
+	}
+
+	m_flag=flag;
+	if (parammsg!=NULL)
+        m_msgStr = parammsg;
+}
+
+int HandleJob1::execute()
+{  
+    int sendRes = HP_MSG_SENDDATAFAIL;
+
+    try
+    {
+        if ( (m_sockhandle == g_EstliSocket.m_hComm) &&
+			(g_EstliSocket.IsOpen())&&
+			m_sockhandle != INVALID_HANDLE_VALUE )
+        {     
+			char ac[HP_C_SENDLEN+HP_C_SENDSTRHEADER+1]={0};
+
+            memset(ac, 0, sizeof(ac));
+
+            char *inputparamstr = NULL;
+
+			RECVMSG *recvMsg=NULL;
+			int Res = 0;
+			int SendLen=0;
+             int tmplen = m_msgStr.length();
+            if ( tmplen*3 < HP_C_SENDLEN )
+            {
+                recvMsg = (RECVMSG*)ac;
+            }
+            else
+            {
+                inputparamstr = new char[tmplen*3+HP_C_SENDSTRHEADER+1];
+                memset(inputparamstr,0,tmplen*3+HP_C_SENDSTRHEADER+1);
+                recvMsg = (RECVMSG*)inputparamstr;
+            }
+
+			Res = GetSendData(m_flag, recvMsg, const_cast<char*>(m_msgStr.c_str()), m_outmsg);
+
+            if (Res==HP_SUCCESS)
+            {
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, recvMsg);
+                SendLen = g_EstliSocket.WriteComm((LPBYTE)recvMsg, HP_C_SENDSTRHEADER+recvMsg->TotalLen, HP_C_SELECTMODETIMEOUT);
+
+                if(SendLen <= 0)
+                    SendLen = g_EstliSocket.WriteComm((LPBYTE)recvMsg, HP_C_SENDSTRHEADER+recvMsg->TotalLen, HP_C_SELECTMODETIMEOUT);
+                else
+                    sendRes = HP_SUCCESS;
+            }
+            else
+            {
+                sendRes = HP_MSG_SENDDATAFAIL;
+            }
+            if ( inputparamstr != NULL )
+            {
+                delete[] inputparamstr;
+                inputparamstr = NULL;
+            }
+        }
+		else
+		{
+          WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "socket连接断开,不需要发送数据");
+		}
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        ::MessageBox(NULL, L"HandleJob1::execute Exception", L"Msg", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleJob1::execute Exception");
+    }
+
+  return sendRes;
+
+}

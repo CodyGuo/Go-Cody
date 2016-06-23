@@ -1,0 +1,674 @@
+#include "StdAfx.h"
+#include "Download.h"
+#include "MD5Checksum.h"
+#include  "..\DebugInfo.h"
+#include "..\strconvert.h"
+
+#include "tlhelp32.h"
+#include <sddl.h>
+#pragma comment(lib,"Advapi32.lib")
+
+#include <Wtsapi32.h>
+#pragma comment(lib,"Wtsapi32.lib")//PWTS_SESSION_INFO
+
+#include <UserEnv.h>
+#pragma comment(lib,"UserEnv.lib")
+
+#include <lm.h>  
+#pragma comment (lib,"Netapi32.lib")   
+
+
+CDownload::CDownload(char* pdownloadUrl,int iurlLen)
+{
+    try
+    {
+        if (iurlLen != 0)
+        {
+            m_Url.Format(L"");
+            m_ServFilesize = 0;
+            m_ServFileMd5.Format(L"");
+
+            ASSERT(pdownloadUrl != NULL);
+            wchar_t *pdownloadW = new wchar_t[iurlLen*2+1];
+            memset(pdownloadW,0,iurlLen*2+1);
+            ConvertA2W(pdownloadUrl,pdownloadW,iurlLen*2+1);
+            m_Url.Format(L"%s",pdownloadW);
+            delete[] pdownloadW;
+            pdownloadW = NULL;
+        }
+        
+    }
+    catch (...)
+    {
+#ifdef  _DEBUG
+        MessageBox(NULL,L"CDownload Exception",L"error",MB_OK);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"CDownload Exception");
+    }
+}
+
+CDownload::~CDownload()
+{
+	
+}
+
+ //解析URL
+void CDownload::ParseURL(CString URL,CString &host,CString &Port,CString &path,CString &filename)
+{
+    try
+    {
+        URL.TrimLeft();
+        URL.TrimRight();
+        CString str=URL;
+        CString strFind =_T("http://");
+        int n=str.Find(strFind);
+        if(n!=-1){
+            str.Delete(0, n+strFind.GetLength());
+        }
+
+        int portpos = str.Find(':',n+strFind.GetLength()+1);
+        n=str.Find('/');
+        if ( portpos != -1 )
+        {
+            if (portpos < n)// 端口不是80端口
+            {
+                host = str.Left(portpos);
+                Port=str.Mid(portpos+1,n-portpos-1);
+            }
+
+        }
+        else
+        {
+            host = str.Left(n);
+        }
+        n=URL.ReverseFind('=');
+        if ( n != -1 )
+        {
+            path = URL.Left(n+1);
+            filename = URL.Right(URL.GetLength()-n-1);
+        }
+        else
+        {
+            n=URL.ReverseFind('/');
+            path = URL.Left(n+1);
+            filename = URL.Right(URL.GetLength()-n-1);
+        }
+    }
+    catch (...)
+    {
+#ifdef  _DEBUG
+        MessageBox(NULL,L"ParseURL Exception",L"error",MB_OK);
+#endif
+    	WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"ParseURL Exception");
+    }
+}
+
+//判断当前系统有几个盘符,选取可以将文件下载到本地的文件路径
+//返回HP_SUCCESS表示找到路径成功,返回其他值表示获取下载路径失败，可能是由于磁盘空间太小
+int CDownload::GetSuitableDownlaodPath(IN char* fileName,IN DWORD64  filesize,OUT char* downloadname,IN int downloadnamelen)
+{
+    int Res = -1;
+    try
+    {
+        ULARGE_INTEGER lpFreeBytesAvailableToCaller = {0};
+        ULARGE_INTEGER lpTotalNumberOfBytes = {0};
+        ULARGE_INTEGER lpTotalNumberOfFreeBytes = {0};
+
+        bool bsystemdisksuit = FALSE;//系统盘符满足要求
+        bool bnotsystemdisksuit = FALSE;//非系统盘符满足要求
+
+        char  systemdriverName='0';
+        wchar_t szRoot[4] = {L"0"};
+        char  driverName='0';
+
+        int driverFlag = 0;
+        DWORD allDrives = GetLogicalDrives();
+        wchar_t systemDir[MAX_PATH] = {L"0"};
+
+        if (allDrives == 0)
+            return Res; 
+
+        if (allDrives!=0)
+        {
+            GetSystemDirectory(systemDir, MAX_PATH);
+
+            for(int i=0; i<26; i++) 
+            { 
+                if ((allDrives & 1)==1)
+                {
+                    wsprintf(szRoot, L"%c:\\", i+'A');
+
+                    if(GetDriveType(szRoot) == DRIVE_FIXED)
+                    {
+                        driverName= (char)(i+'A');
+
+                        if (GetDiskFreeSpaceEx(szRoot, &lpFreeBytesAvailableToCaller, &lpTotalNumberOfBytes, &lpTotalNumberOfFreeBytes))
+                        {
+                            double lpfreeBytes = (double)lpFreeBytesAvailableToCaller.QuadPart;
+
+                            if ( lpfreeBytes > filesize*2)
+                            {
+                                char diskinfo[MAX_PATH] = {0};
+                                sprintf_s(diskinfo,sizeof(diskinfo),"%c盘空间为%0f",driverName,lpfreeBytes);
+                                WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, diskinfo);
+
+                                if (wcsstr(systemDir, szRoot))
+                                {
+                                    systemdriverName = (char)(i+'A');
+
+                                    bsystemdisksuit = TRUE;
+                                    Res = HP_SUCCESS;
+                                    WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "系统盘符满足空间要求");
+                                }
+                                else
+                                {
+                                    bnotsystemdisksuit = TRUE;
+                                    Res = HP_SUCCESS;
+                                    WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "非系统盘满足要求");
+                                    break;
+                                }
+                            }
+                        }
+                        driverFlag++;
+                    }
+                }
+                allDrives = allDrives >> 1;
+            } 
+
+            if ( bnotsystemdisksuit ||  bsystemdisksuit )
+            {
+                char downloadpath[MAX_PATH] = {0};
+                if (bnotsystemdisksuit)
+                {
+                    sprintf_s(downloadpath,sizeof(downloadpath),"%c:\\iman",driverName);
+                }
+                else
+                {
+                    sprintf_s(downloadpath,sizeof(downloadpath),"%c:\\iman",systemdriverName);
+                }
+                if (!PathFileExistsA(downloadpath))
+                {
+                    CreateDirectoryA(downloadpath, NULL);
+                }
+                char downloadsoftpath[MAX_PATH] = {0};
+                char namewhiteext[MAX_PATH] = {0};
+                int err = _splitpath_s(fileName,NULL,0,NULL,0,namewhiteext,sizeof(namewhiteext),NULL,0);
+                if ( err != 0 )
+                {
+                    return Res;
+                }
+                sprintf_s(downloadsoftpath,sizeof(downloadsoftpath),"%s\\%s",downloadpath,namewhiteext);
+                if (!PathFileExistsA(downloadsoftpath))
+                {
+                    CreateDirectoryA(downloadsoftpath,NULL);
+                }
+                sprintf_s(downloadname,downloadnamelen,"%s\\%s",downloadsoftpath,fileName);
+            }
+        }
+    }
+    catch (...)
+    {
+#ifdef  _DEBUG
+        MessageBox(NULL,L"GetSuitableDownlaodPath Exception",L"error",MB_OK);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"GetSuitableDownlaodPath Exception");
+    }
+    return Res;
+}
+
+//获取服务器端文件的大小和MD5值
+BOOL CDownload::GetFileSizeAndMd5Value(CHttpGet httpget,CString host,int Port,CString path,CString filename)
+{
+    try
+    {
+        SOCKET hSocket;
+        hSocket = httpget.ConnectHttpNonProxy(host,Port);
+        if (INVALID_SOCKET == hSocket )
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "ConnectHttpNonProxy Fail");
+            return FALSE;
+        }
+        if ( !httpget.SendHttpHeader(hSocket,host,path,filename,(DWORD64)-1,(DWORD64)-1) )
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendHttpHeader Fail");
+            closesocket(hSocket);
+            return FALSE;
+        }
+
+        closesocket(hSocket);
+        m_ServFilesize = CHttpGet::m_nFileLength;
+        m_ServFileMd5 = CHttpGet::m_filemd5;
+        if ( (m_ServFileMd5 == L" ") || ( m_ServFilesize == 0 ))
+        {
+             WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "获取文件信息失败 ");
+             return FALSE;
+        }
+        return TRUE;
+    }
+    catch (...)
+    {
+#ifdef  _DEBUG
+        MessageBox(NULL,L"GetFileSizeAndMd5Value Exception",L"error",MB_OK);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"GetFileSizeAndMd5Value Exception");
+    	return FALSE;
+    }
+}
+
+//比较文件大小和MD5值
+BOOL CDownload::CompareFile(wchar_t *pFilePath)
+{
+    try
+    {
+        if ( !PathFileExists(pFilePath) )
+        {
+            return FALSE;
+        }
+        BOOL  bFileSizeSame = TRUE;
+        //首先判断文件的大小是否一样
+        WIN32_FIND_DATA fd = { 0 };
+        HANDLE hFind = ::FindFirstFile(pFilePath,&fd);
+        if( hFind != INVALID_HANDLE_VALUE )
+        {
+            DWORD64  totalFilesize = fd.nFileSizeHigh*(MAXDWORD+1)+fd.nFileSizeLow;
+            if (m_ServFilesize == totalFilesize )
+            {
+                bFileSizeSame = TRUE;
+            }
+            ::FindClose(hFind);
+            hFind = NULL;
+        }
+        if (bFileSizeSame)
+        {
+            //比较MD5值是否一样；
+            CString LocalMd5 = CMD5Checksum::GetMD5((CString)pFilePath);
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, L"LocalFileMd5",LocalMd5.AllocSysString());
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, L"ServiceFileMd5",m_ServFileMd5.AllocSysString());
+            if (LocalMd5 != "[OPEN.FILE.FAIL]")
+            {
+               if ( LocalMd5.CompareNoCase(m_ServFileMd5) == 0 )
+               {
+                   return TRUE;
+               }
+               else 
+               {
+                   return FALSE;
+               }
+            }
+            else
+            {
+                return FALSE;
+            }
+        }
+    }
+    catch (...)
+    {
+#ifdef  _DEBUG
+        MessageBox(NULL,L"CompareFile Exception",L"error",MB_OK);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"CompareFile Exception");
+        return FALSE;
+    }
+    return TRUE;
+}
+
+//下载文件
+BOOL CDownload::StartDownLoad(char* pLocalPath, int ilocalPathLen)
+{
+    BOOL downloadSuccess = FALSE;
+    try
+    {
+        if ( m_Url.IsEmpty())
+        {
+            return FALSE;
+        }
+        CString strHostAddr;
+        CString strPort;
+        CString strHttpAddr;
+        CString strFilename;
+        CString strWriteFilePath;
+
+        CHttpGet httpget;
+
+        ParseURL(m_Url, strHostAddr, strPort, strHttpAddr, strFilename);
+        int nHostPort = 80;
+        if (strPort.GetLength())
+        {
+            nHostPort = _wtoi(strPort.GetBuffer());
+            strPort.ReleaseBuffer();
+        }
+
+        if ( !GetFileSizeAndMd5Value(httpget,strHostAddr,nHostPort,strHttpAddr,strFilename))
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetFileSizeAndMd5Value Fail");
+            return FALSE;
+        }
+
+        int threadnum = 1;
+        if (m_ServFilesize >500*1024)
+        {
+            threadnum = 3;
+        }
+
+        char localfilepath[MAX_PATH] = {0};
+        char servfilename[MAX_PATH] = {0};
+        ConvertW2A(strFilename,servfilename,MAX_PATH);
+        if ( GetSuitableDownlaodPath(servfilename,m_ServFilesize,localfilepath,MAX_PATH) == HP_SUCCESS )
+        {
+            sprintf_s(pLocalPath,ilocalPathLen,"%s",localfilepath);
+            wchar_t LocalFilePathW[MAX_PATH] = {0};
+            ConvertA2W(localfilepath,LocalFilePathW,MAX_PATH);
+
+            if (PathFileExists(LocalFilePathW))
+            {
+                downloadSuccess = CompareFile(LocalFilePathW);
+            }
+            if(!downloadSuccess)
+            {
+                DeleteFile(LocalFilePathW);
+                downloadSuccess=httpget.HttpDownLoad(L"",0,strHostAddr,nHostPort,strHttpAddr,strFilename,LocalFilePathW,threadnum,FALSE);
+                if ( downloadSuccess )
+                {
+                    //比较MD5值是否一样,若是一样则执行下面的操作
+                    downloadSuccess = CompareFile(LocalFilePathW);
+                    if ( !downloadSuccess)
+                    {
+                        DeleteFile(LocalFilePathW);
+                    }
+                }
+            }
+        }
+    }
+    catch (...)
+    {
+#ifdef  _DEBUG
+        MessageBox(NULL,L"StartDownLoad Exception",L"error",MB_OK);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"StartDownLoad Exception");
+        return FALSE;
+    }
+    return downloadSuccess;
+}
+
+//执行下载文件
+BOOL CDownload::RunDownLoadFile(char* filepath,char* fileParam,bool bCurrUser)
+{
+    try
+    {
+        if ( !PathFileExistsA(filepath) )
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "需要启动的文件不存在");
+            return FALSE;
+        }
+		ExecProgram(filepath,fileParam,bCurrUser);
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL, L"RunDownLoadFile except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "RunDownLoadFile except");
+    }
+    return TRUE;
+}
+
+
+BOOL CDownload::IsUserAdminPrivilege(VOID)
+{
+	BOOL b;
+	SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;
+	PSID AdministratorsGroup; 
+	b = AllocateAndInitializeSid(
+		&NtAuthority,
+		2,
+		SECURITY_BUILTIN_DOMAIN_RID,
+		DOMAIN_ALIAS_RID_ADMINS,
+		0, 0, 0, 0, 0, 0,
+		&AdministratorsGroup); 
+	if(b) 
+	{
+		if (!CheckTokenMembership( NULL, AdministratorsGroup, &b)) 
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "CheckTokenMembership FAIL");
+			b = FALSE;
+		} 
+		FreeSid(AdministratorsGroup); 
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "AllocateAndInitializeSid Fail");
+	}
+	return(b);
+}
+
+
+BOOL CDownload::ExecProgram(char* filepath,char* fileParam,bool bCurrUser)
+{
+	try
+	{
+		wchar_t processName[MAX_PATH] = {L"0"};
+		if (bCurrUser)
+		{
+			memcpy(processName,L"explorer.exe",wcslen(L"explorer.exe")*sizeof(wchar_t));
+		}
+		else
+		{
+			if (IsUserAdminPrivilege())
+			{
+				WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "当前用户具有管理员权限");
+				memcpy(processName,L"explorer.exe",wcslen(L"explorer.exe")*sizeof(wchar_t));
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "当前用户不具有管理员权限");
+				memcpy(processName,L"winlogon.exe",wcslen(L"winlogon.exe")*sizeof(wchar_t));
+			}
+		}
+		
+		PROCESS_INFORMATION pi;
+		STARTUPINFO si;
+		BOOL bResult = FALSE;
+		DWORD dwSessionId, winlogonPid;
+		HANDLE /*hUserToken,*/hUserTokenDup,hPToken,hProcess;
+		DWORD dwCreationFlags;
+
+		// Log the client on to the local computer.
+		PWTS_SESSION_INFO  pSessionInfo = 0;  
+		DWORD dwCount = 0;   
+
+		::WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionInfo, &dwCount);  
+
+		int session_id = 0;  
+
+		for (DWORD i = 0; i < dwCount; ++i) 
+		{        
+			WTS_SESSION_INFO si = pSessionInfo[i];   
+			if (WTSActive == si.State)    
+			{          
+				session_id = si.SessionId;    
+				break;      
+			}  
+		}    ::WTSFreeMemory(pSessionInfo); 
+		dwSessionId=session_id;
+
+		PROCESSENTRY32 procEntry;
+
+		HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+		if (hSnap == INVALID_HANDLE_VALUE)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CreateToolhelp32Snapshot Fail");
+			return FALSE ;
+		}
+
+		procEntry.dwSize = sizeof(PROCESSENTRY32);
+
+		if (!Process32First(hSnap, &procEntry))
+		{
+			CloseHandle(hSnap);
+			hSnap=NULL;
+			return FALSE ;
+		}
+		do
+		{
+			if (_wcsicmp(procEntry.szExeFile, processName) == 0)
+			{
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"Find ",processName);
+				DWORD winlogonSessId = 0;
+				if (ProcessIdToSessionId(procEntry.th32ProcessID, &winlogonSessId) && winlogonSessId == dwSessionId)
+				{
+					winlogonPid = procEntry.th32ProcessID;
+					WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"为winlogonPid赋值");
+					break;
+				}
+			}
+
+		} while (Process32Next(hSnap, &procEntry));
+
+		dwCreationFlags = NORMAL_PRIORITY_CLASS|CREATE_NEW_CONSOLE;
+		ZeroMemory(&si, sizeof(STARTUPINFO));
+		si.cb= sizeof(STARTUPINFO);
+		si.lpDesktop = L"winsta0\\default";
+		ZeroMemory(&pi, sizeof(pi));
+
+		TOKEN_PRIVILEGES tp;
+		LUID luid;
+
+		hProcess = OpenProcess(MAXIMUM_ALLOWED, FALSE, winlogonPid);
+
+		if(!::OpenProcessToken(hProcess,TOKEN_ADJUST_PRIVILEGES|TOKEN_QUERY
+			|TOKEN_DUPLICATE|TOKEN_ASSIGN_PRIMARY|TOKEN_ADJUST_SESSIONID
+			|TOKEN_READ|TOKEN_WRITE,&hPToken))
+		{
+			char ErrMsg[MAX_PATH]={0};
+
+			sprintf(ErrMsg,"Process token open Error: %u\n",GetLastError()); 
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,ErrMsg);
+			CloseHandle(hSnap);
+			hSnap=NULL;
+			return FALSE;
+		}
+
+		DuplicateTokenEx(hPToken,MAXIMUM_ALLOWED,NULL,SecurityIdentification,TokenPrimary,&hUserTokenDup);
+
+		SetTokenInformation(hUserTokenDup,TokenSessionId,(void*)dwSessionId,sizeof(DWORD));
+
+		if (bCurrUser )
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "是当前用户,不需要权限");
+		}
+		else
+		{
+			if (!LookupPrivilegeValue(NULL,SE_DEBUG_NAME,&luid))
+			{
+				char ErrMsg[MAX_PATH]={0};
+				sprintf(ErrMsg,"Lookup Privilege value Error: %u\n",GetLastError()); 
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,ErrMsg);
+				CloseHandle(hSnap);
+				hSnap=NULL;
+				CloseHandle(hProcess);
+				hProcess=NULL;
+			}
+			tp.PrivilegeCount =1;
+			tp.Privileges[0].Luid =luid;
+			tp.Privileges[0].Attributes =SE_PRIVILEGE_ENABLED;
+
+			if (!AdjustTokenPrivileges(hUserTokenDup,FALSE,&tp,sizeof(TOKEN_PRIVILEGES),(PTOKEN_PRIVILEGES)NULL,NULL))
+			{
+				char ErrMsg[MAX_PATH]={0};
+				sprintf(ErrMsg,"Adjust Privilege value Error: %u\n",GetLastError()); 
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,ErrMsg);
+				CloseHandle(hSnap);
+				hSnap=NULL;
+				CloseHandle(hProcess);
+				hProcess=NULL;
+				CloseHandle(hUserTokenDup);
+				hUserTokenDup=NULL;
+			}
+
+			if (GetLastError()== ERROR_NOT_ALL_ASSIGNED)
+			{
+				char ErrMsg[MAX_PATH]={0};
+				sprintf(ErrMsg,"Token does not have the provilege Error: %u\n",GetLastError()); 
+				WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, ErrMsg);
+
+				CloseHandle(hSnap);
+				hSnap=NULL;
+				CloseHandle(hProcess);
+				hProcess=NULL;
+				CloseHandle(hUserTokenDup);
+				hUserTokenDup=NULL;
+			}
+		}
+
+		LPVOID pEnv =NULL;
+
+		if(CreateEnvironmentBlock(&pEnv,hUserTokenDup,TRUE))
+		{
+			dwCreationFlags|= CREATE_UNICODE_ENVIRONMENT;
+		}
+		else
+			pEnv=NULL;
+
+		// Launch the process in the client's logon session
+		int len = MultiByteToWideChar(CP_ACP,0,filepath,-1,NULL,0);
+		wchar_t wsoftpath[MAX_PATH] = {L"0"};
+		MultiByteToWideChar(CP_ACP,0,filepath,-1,wsoftpath,len);
+		wsoftpath[len]=L'\0';
+
+		wchar_t wparam[MAX_PATH] = {0};
+		if (fileParam !=NULL)
+		{
+			wchar_t wparamvalue[MAX_PATH] = {0};
+			MultiByteToWideChar(CP_ACP,0,fileParam,-1,wparamvalue,MAX_PATH);
+			_snwprintf_s(wparam,MAX_PATH,MAX_PATH-1,L" %s",wparamvalue);
+		}
+		bResult = CreateProcessAsUser(
+			hUserTokenDup,            // client's access token
+			wsoftpath,                /*_T("C:\\ModifyTTL.exe")*/           // file to execute
+			wparam,               // command line
+			NULL,              // pointer to process SECURITY_ATTRIBUTES
+			NULL,              // pointer to thread SECURITY_ATTRIBUTES
+			FALSE,             // handles are not inheritable
+			dwCreationFlags,  // creation flags
+			pEnv,              // pointer to new environment block 
+			NULL,              // name of current directory 
+			&si,               // pointer to STARTUPINFO structure
+			&pi                // receives information about new process
+			);
+		DWORD  dwres = GetLastError();
+		char CreateProcmsg[MAX_PATH] = {"0"};
+		sprintf_s(CreateProcmsg,sizeof(CreateProcmsg),"CreateProcessAsUser=%d",dwres);
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, CreateProcmsg);
+
+		if ( bResult )
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "进程已经启动");
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "进程启动失败");
+		}
+		WaitForSingleObject(pi.hProcess, 100);
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+
+		DestroyEnvironmentBlock(pEnv);
+
+		//Perform All the Close Handles task
+		CloseHandle(hProcess);
+		hProcess=NULL;
+		CloseHandle(hUserTokenDup);
+		hUserTokenDup=NULL;
+		CloseHandle(hPToken);
+		hPToken=NULL;
+
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"RunDownLoadFile except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "RunDownLoadFile except");
+	}
+	return TRUE;
+}

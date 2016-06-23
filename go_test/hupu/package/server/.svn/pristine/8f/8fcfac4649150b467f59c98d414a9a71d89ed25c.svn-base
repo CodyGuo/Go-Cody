@@ -1,0 +1,39 @@
+#pragma once
+
+#include "RegisterInfo.h"
+#include "Antivirus.h"
+
+class CGetAntivirusInfo
+{
+public:
+    CGetAntivirusInfo(void);
+    ~CGetAntivirusInfo(void);
+};
+
+
+  bool GetMseAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod,bool bisX64 );
+  bool GetMseLibVersionInfo(char* libversioninfo,int libversionlen,bool bisX64);
+  bool GetWin8MSEVersionInfo(char*  versioninfo,int versioninfolen,bool bisX64);
+
+  DWORD  xstrtodword(char *str,int len);
+
+  bool GetSymantecAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod,bool bisX64);
+  bool GetSymantecLibVersionInfo(char* libversioninfo,int libversionlen,bool bisX64);
+
+  bool Get360AntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod);
+
+ bool GetbaiduAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod);
+
+ bool GetjinshanAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod);
+
+ bool GetRAVVersionAndDataPath(char* version,int versionlen,char* installpath,int installpathlen);
+  bool GetruixingAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod);
+
+  bool GetQQPCMgrAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod);
+  bool GetQQPCMgrLibVersionInfo(char *installpath,char* libversioninfo,int libversionlen);
+
+  bool GetMcAfeeUninstallKeyValue(UninstallSoftwareInfo *softwareinfo,wchar_t *keyname);
+
+  bool GetMcAfeeAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod);
+
+  bool GetNod32AntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod);

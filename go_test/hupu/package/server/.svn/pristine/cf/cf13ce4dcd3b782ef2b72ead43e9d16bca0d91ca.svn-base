@@ -1,0 +1,98 @@
+#include "StdAfx.h"
+#include "OperationSystem.h"
+#include <Strsafe.h>
+
+OperationSystem::OperationSystem(void)
+{
+
+}
+
+
+OperationSystem::~OperationSystem(void)
+{
+
+}
+
+BOOL OperationSystem::GetNtVersion(DWORD& dwMajorVer, DWORD& dwMinorVer,DWORD& dwBuildNumber)
+{
+    try
+    {
+        BOOL  bRet= FALSE;
+        HMODULE hModNtdll= NULL;
+        if (hModNtdll= ::LoadLibraryW(L"ntdll.dll"))
+        {
+            typedef void (WINAPI *pfRTLGETNTVERSIONNUMBERS)(DWORD*,DWORD*, DWORD*);
+            pfRTLGETNTVERSIONNUMBERS pfRtlGetNtVersionNumbers;
+            pfRtlGetNtVersionNumbers = (pfRTLGETNTVERSIONNUMBERS)::GetProcAddress(hModNtdll, "RtlGetNtVersionNumbers");
+            if (pfRtlGetNtVersionNumbers)
+            {
+                pfRtlGetNtVersionNumbers(&dwMajorVer, &dwMinorVer,&dwBuildNumber);
+                dwBuildNumber&= 0x0ffff;
+                bRet = TRUE;
+            }
+            ::FreeLibrary(hModNtdll);
+            hModNtdll = NULL;
+        }
+        return bRet;
+    }
+    catch (...)
+    {
+    	return FALSE;
+    }
+}
+
+
+OPSYSTEMTYPE  OperationSystem::GetOSVersion()
+{
+	OPSYSTEMTYPE ostype = WINERROR;
+
+	DWORD MajorInfo = 0;
+	DWORD MinorInfo = 0;
+	DWORD BuildInfo = 0;
+
+	BOOL bOsVersionInfoEx = GetNtVersion(MajorInfo,MinorInfo,BuildInfo);
+	if ( !bOsVersionInfoEx)
+	{
+		return ostype;
+	}
+	//下面根据版本信息判断操作系统名称
+	switch(MajorInfo)//主版本号
+	{
+	case 4:
+		{
+			ostype = WINXPBLOW;
+		}
+		break;
+	case 5:
+		{
+			switch(MinorInfo)
+			{
+			case 0:
+				{
+					ostype = WINXPBLOW;
+				}
+				break;
+			case 1:
+			case 2:
+				{
+					ostype = WINXPORSERV2003;
+				}
+				break;
+			}
+		}
+		break;
+	case 6:
+		{
+			ostype = WINVISTATOWIN8;
+		}
+		break;
+	case 10:
+		{
+			ostype = WIN10;
+		}
+	default :
+		ostype = WIN10HIGHT;
+		break;
+	}
+	return ostype;
+}

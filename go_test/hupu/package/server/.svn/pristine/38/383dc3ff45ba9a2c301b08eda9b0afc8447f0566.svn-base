@@ -1,0 +1,29 @@
+#pragma once
+
+#define  STRINGIFY(x) #x
+#define  TOSTRING(x) STRINGIFY(x)
+#define  LOGLOCATION  __FILE__"[" TOSTRING(__LINE__) "]:"__FUNCTION__ 
+
+
+typedef enum LEVEL_TYPE
+{
+    //不打印Log
+    LEVEL_NONE = 0,
+
+    //打印出错日志
+    LEVEL_RELEASE,
+
+    //打印详细信息日志
+    LEVEL_DEBUG
+
+}_LEVEL_TYPE;
+
+
+int ConvertW2A( const wchar_t* strIn, char* strOut, int StrOutLen);
+
+
+bool  isShouldWriteLog(LEVEL_TYPE level,wchar_t*  dirpath);
+
+
+void  WriteDebugInfomation(LEVEL_TYPE level,const char* loglocation, char *WriteString,wchar_t *dirpath);
+

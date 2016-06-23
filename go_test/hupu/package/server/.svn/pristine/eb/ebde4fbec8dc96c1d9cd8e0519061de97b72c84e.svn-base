@@ -1,0 +1,22 @@
+#ifndef _GLOBALFUNCTION_H  
+#define _GLOBALFUNCTION_H 1
+
+#include <string>
+#include <list>
+using namespace std;
+
+/************************************************************
+ Description: LPCWSTR转String
+ input: wstr[转换的字符串]
+ Return:  返回转换的string
+*************************************************************/
+std::string WCharToAnsi(LPCWSTR pwszSrc);
+
+/************************************************************
+ Description: char*转wstring
+ input: pszSrc[转换的字符串]
+ Return:  返回转换的wstring
+*************************************************************/
+std::wstring AnsiToWChar(IN const char* pszSrc);
+
+#endif

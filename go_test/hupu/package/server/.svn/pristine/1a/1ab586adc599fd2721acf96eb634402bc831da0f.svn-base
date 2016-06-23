@@ -1,0 +1,173 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKIEEXTENSIONS_H
+#define _CHECKIEEXTENSIONS_H 1
+
+#define MUST_INSTALL_EXTENSION_FLAG 1
+#define PROHIBIT_INSTALL_EXTENSION_FLAG 2
+
+#define IEEXTENSIONS_DISABLE_FLAG 1
+#define IEEXTENSIONS_ENABLE_FLAG 2
+
+#define CLSID_NAME_LEN 64
+
+#define WM_CHECKIEEXTENSIONS_MSG WM_USER+5
+
+#include "..\OpStgClass.h"
+
+#include <Windows.h>
+#include <vector>
+#include <string>
+#include "..\CustomCheck\CommData.h"
+
+using namespace std;
+
+#define IE_EXTENSIONS_TABLE_NAME "tstgieextensions"
+#define IE_EXTENSIONS_CONTENT_TABLE_NAME "tstgieextensionscontent"
+
+//tstgieextensionscontentb表字段结构
+typedef struct _IEEXTENSIONSCONTENT
+{
+    //策略ID
+    int m_iPolicyauthid;
+
+    //控制标志:1[必须安装的控件]; 2[禁止安装控件]
+    int m_iControlflag;
+
+    //控件名称
+    string m_strExtensionName;
+
+    //修复方法：1[通过指定的安装包直接修复]; 2[访问指定网站进行安装]
+    int m_iRepairmethod;
+
+    //修复路径
+    string m_strRepairpath;
+
+    //修复参数
+    string m_strRepairparam;
+
+}IEEXTENSIONSCONTENT, *PIEEXTENSIONSCONTENT;
+
+//控件基本信息结构
+typedef struct _EXTENSIONINFO
+{
+    //加载项名称
+    char m_strExtensionName[MAX_BUF_LEN];
+
+    //加载项CLSID
+    char m_strExtensionClsid[CLSID_NAME_LEN*3];
+
+}EXTENSIONINFO, *PEXTENSIONINFO;
+
+//必须安装控件策略结构
+typedef struct _MUSTINSTALLEXTENSIONINFOPOLICY 
+{
+    EXTENSIONINFO extensionInfo;
+
+    //修复方法：1[通过指定的安装包直接修复]; 2[访问指定网站进行安装]
+    int m_iRepairmethod;
+
+    //修复路径
+    char m_strRepairPath[MAX_BUF_LEN];
+
+    //修复参数
+    char m_strRepairCmd[MIDDLE_BUF_LEN];
+
+}MUSTINSTALLEXTENSIONINFOPOLICY, *PMUSTINSTALLEXTENSIONINFOPOLICY;
+
+//ie加载项策略
+typedef struct _IEEXTENSIONSPOLICY
+{
+    list<MUSTINSTALLEXTENSIONINFOPOLICY> mustInstallExtensionVector;
+    list<EXTENSIONINFO> needUninstallExtension;
+    list<EXTENSIONINFO> needEnabledExtension;
+	list<EXTENSIONINFO> installedExtension;
+
+}IEEXTENSIONSPOLICY, *PIEEXTENSIONSPOLICY;
+
+//加载项clsid结构
+typedef struct _EXTENSIONCLSID
+{
+    //操作标志：1[获取控件是否禁用]; 2[启用控件]
+    int m_iFlag;
+
+    //控件clsid
+    char m_strClsid[CLSID_NAME_LEN];
+
+}EXTENSIONCLSID, *PEXTENSIONCLSID;
+
+/************************************************************
+Function Name: SaveIEExtensionsContentTable
+Description: 拼接ie控件检查的sql语句
+Input and output:  
+          policyId: 自定义的策略id号
+          pDb: 数据库句柄
+          thirditemattri: thirditem中的xml数据
+          pOsc: OpStgClass类对象
+RetVal:成功返回HP_SUCCESS
+       失败返回HP_DB_OPFAIL
+*************************************************************/
+int SaveIEExtensionsContentTable(IN int policyId, IN sqlite3 *pDb, IN list<XMLNAMEANDVALUECON> thirditemattri, IN OpStgClass *pOsc);
+
+/************************************************************ 
+ Description: 从数据库中获取IE控件策略
+ input: 
+ Return: 
+*************************************************************/
+int GetIeExtensionsDataFromDB(  IN wchar_t *pDirPath, 
+                                IN char *pUserId, 
+                                IN char* pUserType, 
+                                IN char *pCurrdata, 
+                                IN char *pMilliSecond, 
+                                IN char *pWeekday, 
+                                OUT PIEEXTENSIONSPOLICY pIeExtensionsPolicy,
+                                OUT safecheckattr *pExtensionsAttriInfo );
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input: 
+ Return: 
+*************************************************************/
+bool IEExtensionsRetShowMsg(IN int iCheckState, IN safecheckattr checkItem, IN PIEEXTENSIONSPOLICY pIeExtensionsPolicy, OUT int* pFailNum, IN LANGUAGETYPE language, OUT std::string& strErrorMsg);
+
+ /************************************************************ 
+ Description: 检查IE控件是否被禁用
+ input: strExtensionClsid[IE控件Clsid]
+ Return: TRUE[检查IE控件被禁用]
+         FALSE[检查IE控件没有被禁用];
+*************************************************************/
+int CheckIEExtensionsIsDisable(IN char* pIeExtensionClsid);
+
+ /************************************************************ 
+ Description: 启用禁用的IE控件
+ input: strExtensionClsid[IE控件Clsid]
+ Return: TRUE[启用成功]
+         FALSE[启用失败];
+*************************************************************/
+int EnableIEExtensions(IN char* pIeExtensionClsid);
+
+ /************************************************************
+ Description: 卸载加载项
+ input: 
+ Return: 
+*************************************************************/
+ LONG UninstallExtension(IN char* pClsid);
+
+/************************************************************ 
+ Description: 检查IE控件或修复
+ input: fixFlag[修复标志]
+        ieExtensionsPolicy[控件策略]
+ Return: TRUE(1)[检查IE控件不符合要求或修复成功]
+         FALSE(0)[检查IE控件符合要求或修复失败];
+*************************************************************/
+int CheckIEExtensions(IN int fixFlag, IN PIEEXTENSIONSPOLICY pIeExtensionsPolicy, int iRepairIndex);
+
+typedef BOOL(*pSetIEExtensionsPolicy)(IN EXTENSIONCLSID extensionClsid );
+
+#endif

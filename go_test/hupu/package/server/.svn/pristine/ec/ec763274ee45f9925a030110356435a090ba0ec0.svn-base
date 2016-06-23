@@ -1,0 +1,68 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKPWDCONFIGURATION_H
+#define _CHECKPWDCONFIGURATION_H 1
+
+#define  MAX_WRITE_BUF 64
+#define MAX_READBUF_LEN 100
+
+#define PWD_POLICY_TABLE_NAME "tstgpwdpolicy"
+
+const char pwdPolicyTableItem[] = {"ipolicyauthid, spolicyname, dmodifytime, sstarttime, sendtime, dstartdate,"
+	"denddate, iintervaldays, spolicyaction, ipriority, istate, iuserid, stimeperiod, sweekday,"
+	"spromptitle, spromptinfo, ipwdcomplexity, iminlength, imaxretentionperiod, warningcont, warninglevel, srcevent, usertype"};
+
+const char selectpwdPolicyTable[] = {"SELECT spolicyaction, ipriority, spromptinfo, ipwdcomplexity, iminlength, imaxretentionperiod,"
+	"warningcont,warninglevel,srcevent FROM  %s a WHERE  (a.iuserid=\'%s\') AND (usertype=\'%s\') AND (dstartdate<=\'%s\') AND (denddate>=\'%s\')"
+	"AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\") ORDER BY a.ipriority ASC"};
+
+typedef struct _CHECKPWDPOLICY
+{
+	int iPwdComplexity;
+	int iPwdMinLen;
+	int iPwdMaxAge;
+
+}CHECKPWDPOLICY, *PCHECKPWDPOLICY;
+
+typedef struct _PWDPOLICYCHECKRESULT
+{
+	BOOL bPwdComplexity;
+	BOOL bPwdMinLen;
+	BOOL bPwdMaxAge;
+
+}PWDPOLICYCHECKRESULT, *PPWDPOLICYCHECKRESULT;
+
+typedef struct _PWDPOLICYPOLICY
+{
+	CHECKPWDPOLICY checkPwdPolicy;
+	PWDPOLICYCHECKRESULT pwdPolicyCheckResult;
+
+}PWDPOLICYPOLICY, *PPWDPOLICYPOLICY;
+
+/************************************************************ 
+Description: 初始化主页策略
+input: pItemName[字段名]、pItemValue[字段值]、pDiskSpacePolicy[密码检查策略]
+*************************************************************/
+void InitCheckPwdPolicy(IN char* pItemName, IN char* pItemValue, OUT PCHECKPWDPOLICY pCheckPwdPolicy);
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input: 
+ Return: 
+*************************************************************/
+bool PwdPolicyRetShowMsg(IN int iCheckState,  IN safecheckattr checkItem,  IN PPWDPOLICYCHECKRESULT pPwdPolicyCheckResult, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language);
+
+/************************************************************
+ Description: 检查策略
+ input: fixFlag[修复标志：TRUE,修复;FALSE,不修复]
+ Return: TRUE[不符合要求需要修复或修复成功]；FALSE[符合要求或修复失败]
+*************************************************************/
+BOOL CheckPwdPolicy(IN char* pCurPath, IN BOOL fixFlag, _Inout_ PPWDPOLICYPOLICY pPwdPolicy);
+
+#endif

@@ -1,0 +1,49 @@
+#pragma once
+#include <Windows.h>
+
+
+//安装驱动:成功返回HP_DRIVER_SUCCESS,失败返回定义的errcode
+int  InstallDriver();
+
+DWORD UninstallDriver();
+
+HRESULT InstallSpecifiedComponent ( __in LPWSTR lpszInfFile,
+    __in LPWSTR lpszPnpID,
+    const GUID *pguidClass);
+
+//判断是否是64位的操作系统
+BOOL IsWin64Os();
+
+BOOL CopyFileToSystemPath(char *sysdrivepath);
+
+//删除服务
+BOOL hpDriverDeleteService(char* serviceName);
+
+//程序提升权限
+BOOL EnablePrivilege(LPCTSTR pszPrivName, BOOL fEnable= TRUE); 
+
+void SetprogramPrivilege();
+
+//写数字证书到注册表中
+BOOL  WriteRegCertificatInfo();
+
+BOOL ImportCertToSystem();
+
+BOOL DeleteOemInfFile();
+
+//判断服务状态
+BOOL GetDriverServiceState(const wchar_t* servicename);
+
+//判断是否需要重新安装驱动
+BOOL NeedUpdateDriver(char* srcfilepath);
+
+//update sys name by different os
+BOOL RenameSysFileName(
+	char* renamename,
+	int renamenamelen);
+
+BOOL IsWow64();
+
+BOOL  IsUsing32BitInWin64();
+
+BOOL DebugInstallDriver(char* installdriverDes);

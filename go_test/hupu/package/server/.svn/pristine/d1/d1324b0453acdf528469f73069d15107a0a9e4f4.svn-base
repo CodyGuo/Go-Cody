@@ -1,0 +1,1417 @@
+#include "StdAfx.h"
+#include "GetAntivirusInfo.h"
+#include "..\DebugInfo.h"
+#include "OperationSystem.h"
+#include "ProcessInfo.h"
+#include "SafeCheckFuntion.h"
+
+CGetAntivirusInfo::CGetAntivirusInfo(void)
+{
+}
+
+CGetAntivirusInfo::~CGetAntivirusInfo(void)
+{
+
+}
+
+//微软MSE
+bool GetMseAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod,bool bisX64)
+{
+    bool bRes = false;
+    UninstallSoftwareInfo  softinfo;
+    memset(&softinfo,0,sizeof(UninstallSoftwareInfo));
+
+    if ( GetUninstallKey(&softinfo,L"Microsoft Security Client",bisX64) )
+    {
+        bRes = true;
+
+        memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+        memcpy(installedprod->antivirussetting.softverdes,softinfo.displayVersion,strlen(softinfo.displayVersion));
+
+        memset(installedprod->installpath,0,sizeof(installedprod->installpath));
+        memcpy(installedprod->installpath,softinfo.installLocation,strlen(softinfo.installLocation));
+
+    }
+    else
+    {
+        //若是WIN8操作系统，则已经安装MSE
+        try
+        {
+            OSVERSIONINFOEX2 osvi;  
+            ZeroMemory(&osvi, sizeof(OSVERSIONINFOEX));  
+            osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);  
+            BOOL bOsVersionInfoEx = GetVersionEx((OSVERSIONINFO *)&osvi);  
+            if (bOsVersionInfoEx)  
+            {
+                if (VER_PLATFORM_WIN32_NT == osvi.dwPlatformId )  
+                {
+                    if ( (osvi.dwMajorVersion >= 6) )  
+                    {
+                        if (osvi.wProductType == VER_NT_WORKSTATION)  
+                        {
+                           
+                            bRes = true;
+
+                            char versioninfo[MAX_PATH] = {0};
+                            if ( GetWin8MSEVersionInfo(versioninfo,sizeof(versioninfo),bisX64) )
+                            {
+                                memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+                                memcpy(installedprod->antivirussetting.softverdes,versioninfo,strlen(versioninfo));
+                            }
+
+                            char relativepath[MAX_PATH] = {0};
+                            sprintf_s(relativepath,sizeof(relativepath),"%s",installedprod->installpath);
+
+                            string cleanuprelatestr = relativepath;
+                            int programpos = cleanuprelatestr.find("%ProgramFiles%");
+                            if( programpos != string::npos )
+                            {
+                                string tempstr= cleanuprelatestr;
+                                cleanuprelatestr = tempstr.replace(programpos,strlen("%ProgramFiles%"),"Program Files");
+                            }
+
+                            char systemDir[MAX_PATH] = {0};
+                            GetSystemDirectoryA(systemDir, MAX_PATH);
+                            memset(installedprod->installpath,0,sizeof(installedprod->installpath));
+                            sprintf_s(installedprod->installpath,"%c:\\%s",systemDir[0],cleanuprelatestr.c_str());
+
+                            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,installedprod->installpath);
+                        }
+                    }
+                }
+            }
+        }
+        catch (...)
+        {
+            WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"获取win8的MSE异常");
+        }
+    }
+    if ( bRes )
+    {
+        //获取病毒库版本
+        char libversinfo[HP_C_USERCONTENTLEN] = {0};
+
+        char errmsg[MAX_PATH] = {0};
+        sprintf_s(errmsg,sizeof(errmsg),"bisX64 = %d",bisX64);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,errmsg);
+
+        if ( GetMseLibVersionInfo(libversinfo,HP_C_USERCONTENTLEN,bisX64) )
+        {
+            memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+            memcpy(installedprod->antivirussetting.libverdes,libversinfo,strlen(libversinfo));
+        }
+
+        char mainservpath[MAX_PATH] = {0};
+        sprintf_s(mainservpath,MAX_PATH,"%s\\MsMpEng.exe",installedprod->installpath);
+
+        char Mssecespath[MAX_PATH] = {0};
+        sprintf_s(Mssecespath,MAX_PATH,"%s\\msseces.exe",installedprod->installpath);
+
+        char MSASCuipath[MAX_PATH] = {0};
+        sprintf_s(MSASCuipath,MAX_PATH,"%s\\MSASCui.exe",installedprod->installpath);
+
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"mainexepath",mainservpath);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"Mssecespath",Mssecespath);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"MSASCuipath",MSASCuipath);
+
+        char runexepath[MAX_PATH] = {0};
+        if ( PathFileExistsA(Mssecespath) )
+        {
+            memset(runexepath,0,sizeof(runexepath));
+            if ( GetRunProcessFilePath("msseces.exe",runexepath,MAX_PATH,Mssecespath) )
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+            }
+            else
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+                memset(installedprod->mainexe,0,sizeof(installedprod->mainexe));
+                memcpy(installedprod->mainexe,"msseces.exe",strlen("msseces.exe"));
+            }
+        }
+        if ( PathFileExistsA(MSASCuipath) )
+        {
+            memset(runexepath,0,sizeof(runexepath));
+            if ( GetRunProcessFilePath("MSASCui.exe",runexepath,MAX_PATH,MSASCuipath) )
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+            }
+            else
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+                memset(installedprod->mainexe,0,sizeof(installedprod->mainexe));
+                memcpy(installedprod->mainexe,"MSASCui.exe",strlen("MSASCui.exe"));
+            }
+        }
+
+    }
+    return bRes;
+}
+
+bool GetMseLibVersionInfo(char* libversioninfo,int libversionlen,bool bisX64)
+{
+    bool bres = false;
+    //读写注册表中的二进制键值
+    const int  MAX_LEG = 256 * sizeof(TCHAR);
+    HKEY hKey = NULL;
+
+    REGSAM samdesired = KEY_READ;
+    if (bisX64)
+    {
+        samdesired=samdesired|KEY_WOW64_64KEY;
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"64位电脑程序");
+    }
+
+    if(RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+        _T("SOFTWARE\\Microsoft\\Microsoft Antimalware\\Signature Updates"),
+        NULL,
+        samdesired,
+        &hKey) != ERROR_SUCCESS  )
+    {
+        if(RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+            _T("SOFTWARE\\Microsoft\\Windows Defender\\Signature Updates"),
+            NULL,
+            samdesired,
+            &hKey) != ERROR_SUCCESS )
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"打开注册表键值失败");
+            return bres;
+        }
+    }
+
+    DWORD dwType = REG_BINARY;
+    DWORD dwsize =0;
+
+    TCHAR regBufferValue[MAX_LEG] = {_T("0")};
+    //AVSignatureApplied
+    if( RegQueryValueEx(hKey, _T("SignaturesLastUpdated"),NULL,&dwType,NULL,&dwsize) == ERROR_SUCCESS )
+    {
+        if ( RegQueryValueEx(hKey, _T("SignaturesLastUpdated"), 0, &dwType, (LPBYTE)regBufferValue, &dwsize) == ERROR_SUCCESS )
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"找到注册表键值");
+            bres = true;
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"不存在这样的键值2");
+        }
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"不存在这样的键值1");
+
+        if( RegQueryValueEx(hKey, _T("AVSignatureApplied"),NULL,&dwType,NULL,&dwsize) == ERROR_SUCCESS )
+        {
+            if ( RegQueryValueEx(hKey, _T("AVSignatureApplied"), 0, &dwType, (LPBYTE)regBufferValue, &dwsize) == ERROR_SUCCESS )
+            {
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"找到注册表键值");
+                bres = true;
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"不存在这样的键值2");
+            }
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"不存在这样的键值AVSignatureApplied");
+        }
+    }
+    if (hKey != NULL)
+    {
+        RegCloseKey(hKey);
+        hKey = NULL;
+    }
+
+    if ( bres)
+    {
+        char lowtime[MAX_PATH] = {0};
+        char hightime[MAX_PATH] = {0};
+
+        sprintf_s(lowtime,sizeof(hightime),"%02X%02X",regBufferValue[1],regBufferValue[0]);
+
+        sprintf_s(hightime,sizeof(hightime),"%02X%02X",regBufferValue[3],regBufferValue[2]);
+
+        FILETIME ft;
+        ft.dwLowDateTime = xstrtodword(lowtime,strlen(lowtime));
+        ft.dwHighDateTime = xstrtodword(hightime,strlen(hightime));
+
+        SYSTEMTIME st;
+        FileTimeToSystemTime(&ft,&st);
+
+        SYSTEMTIME outst;
+        TIME_ZONE_INFORMATION DEFAULT_TIME_ZONE_INFORMATION = {-480};  
+        SystemTimeToTzSpecificLocalTime(&DEFAULT_TIME_ZONE_INFORMATION, &st, &outst);  
+
+        sprintf_s(libversioninfo, libversionlen, "%04d-%02d-%02d", outst.wYear, outst.wMonth, outst.wDay);
+    }
+    return bres;
+}
+
+
+bool GetWin8MSEVersionInfo(char*  versioninfo,int versioninfolen,bool bisX64)
+{
+
+    bool bRes = false;
+    try
+    {
+        const wchar_t  MSEREGMAKE[] = {L"msil_system.security"};
+
+        const int  MAX_LEG = MAX_PATH * sizeof(TCHAR);
+        HKEY hKey = NULL;
+        DWORD dwRegNum = MAX_LEG;
+        TCHAR regBufferName[MAX_LEG] = {_T("0")};
+
+        REGSAM flag = KEY_READ;
+        if (bisX64)
+        {
+            flag=flag|KEY_WOW64_64KEY;
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"64位电脑");
+        }
+
+        LONG openRes = RegOpenKeyEx(HKEY_LOCAL_MACHINE, 
+            _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\SideBySide\\Winners"),
+            NULL, flag, &hKey); 
+         if( openRes == ERROR_SUCCESS)
+        {
+            if(RegQueryInfoKey(hKey, NULL, NULL, NULL, &dwRegNum, NULL, NULL, NULL, 
+                NULL, NULL, NULL, NULL)	==	ERROR_SUCCESS)
+            {
+                for(unsigned int i = 0; i < dwRegNum; i++)	
+                {	
+                    DWORD dwRegSize = MAX_LEG;
+
+                    RegEnumKeyEx(hKey, i, regBufferName, &dwRegSize, NULL, NULL, 
+                        NULL, NULL);
+
+                    bool bfindvers = FALSE;
+                    if ( wcsstr(regBufferName,MSEREGMAKE))
+                    {
+                        HKEY hSubKey = NULL;
+                        if( RegOpenKeyEx(hKey, regBufferName, NULL, flag, &hSubKey) == ERROR_SUCCESS )
+                        {
+                            HKEY hhThirdKey = NULL;
+
+                            dwRegSize = MAX_LEG;
+                            RegEnumKeyEx(hSubKey, 0, regBufferName, &dwRegSize, NULL, NULL, 
+                                NULL, NULL);
+
+                            if ( RegOpenKeyEx(hSubKey, regBufferName, NULL, flag, &hhThirdKey) == ERROR_SUCCESS )
+                            {
+                                TCHAR regBufferValue[MAX_LEG] = {_T("0")};
+                                DWORD dwType = REG_SZ;
+                                dwRegSize = MAX_LEG;
+                                RegQueryValueEx(hhThirdKey, _T(""), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize);
+                                ConvertW2A(regBufferValue, versioninfo, versioninfolen);
+                                if ( hhThirdKey != NULL )
+                                {
+                                    RegCloseKey(hhThirdKey);
+                                    hhThirdKey = NULL;
+                                }
+                                bfindvers = TRUE;
+                                bRes = true;
+                            } 
+
+                        } 
+                        else
+                        {
+                            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"RegOpenKeyEx subkey Fail");
+                        }
+                        if ( hSubKey != NULL )
+                        {
+                            RegCloseKey(hSubKey);
+                            hSubKey = NULL;
+                        }
+
+                        if (bfindvers)
+                        {
+                            break;
+                        }
+                    }// if ( wcsstr(regBufferName,MSEREGMAKE))
+                }//for(unsigned int i = 0; i < dwRegNum; i++)	
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"RegQueryInfoKey Fail");
+            }
+        }
+        else 
+        {
+            char errmsg[MAX_PATH] = {0};
+            sprintf_s(errmsg,sizeof(errmsg),"WIN8下查找MSE版本打开注册表失败结果为%d",openRes);
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,errmsg);
+            return bRes; 
+        }
+        if (hKey != NULL)
+        {
+            RegCloseKey(hKey);
+            hKey = NULL;
+        }
+
+        return bRes;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetWin8MSEVersionInfo except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetWin8MSEVersionInfo except");
+        return bRes;
+    }
+}
+
+DWORD  xstrtodword(char *str,int len)
+{
+    DWORD ivalue = 0;
+    try
+    {
+        for (int i = 0; i < len; i++)
+        {
+            if ((str[i] <= '9' && str[i] >= '0'))
+            {
+                ivalue = ivalue * 16 + (str[i] - '0'); 
+            }
+            else if ((str[i] >= 'a' && str[i] <= 'f'))
+            {
+                ivalue = ivalue * 16 + (str[i] - 'a') + 10;
+            }
+            else if ((str[i] >= 'A' && str[i] <= 'F'))
+            {
+                ivalue = ivalue * 16 + (str[i] - 'A') + 10;
+            }
+
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"xstrtodword except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "xstrtodword except");
+    }
+    return ivalue;
+}
+
+
+//赛门铁克 ,界面程序SymCorpUI.exe,服务程序ccSvcHst.exe
+bool GetSymantecAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod,bool bisX64)
+{
+    bool  bRes = false;
+
+    const int  MAX_LEG = 256 * sizeof(TCHAR);
+    HKEY hKey;
+    REGSAM flag = KEY_READ;
+    if (bisX64)
+    {
+        flag=flag|KEY_WOW64_64KEY;
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"64位电脑");
+    }
+
+    DWORD dwRegNum = MAX_LEG;
+    TCHAR regBufferName[MAX_LEG] = {_T("0")};
+
+    if(RegOpenKeyEx(HKEY_LOCAL_MACHINE, 
+        _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+        NULL, 
+        flag, 
+        &hKey) == ERROR_SUCCESS	)
+    {
+        if(RegQueryInfoKey(hKey, NULL, NULL, NULL, &dwRegNum, NULL, NULL, NULL, 
+            NULL, NULL, NULL, NULL)	==	ERROR_SUCCESS)
+        {
+            for(unsigned int i = 0; i < dwRegNum; i++)	
+            {	
+                DWORD dwRegSize = MAX_LEG;
+                RegEnumKeyEx(hKey, i, regBufferName, &dwRegSize, NULL, NULL, 
+                    NULL, NULL);
+
+                DWORD dwType;	
+                HKEY hSubKey;
+                if( RegOpenKeyEx(hKey, regBufferName, NULL, KEY_READ, &hSubKey) == ERROR_SUCCESS)
+                {
+
+                    TCHAR regBufferValue[MAX_LEG] = {_T("0")};
+                    char   buffVal[MAX_PATH]={0};
+
+                    dwRegSize = MAX_LEG;
+                    RegQueryValueEx(hSubKey, _T("DisplayName"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize);
+                    ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+
+                    if ( !strcmp(buffVal,"Symantec Endpoint Protection") )
+                    {
+                        bRes = true;
+
+                        memset(installedprod->antivirussetting.santname,0,sizeof(installedprod->antivirussetting.santname));
+                        memcpy(installedprod->antivirussetting.santname,"赛门铁克",strlen("赛门铁克"));
+
+                        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"存在Symantec Endpoint Protection键值");
+
+                        dwRegSize = MAX_LEG;
+                        _tcscpy_s(regBufferValue,_T(""));
+                        strcpy_s(buffVal,"");
+                        RegQueryValueEx(hSubKey, _T("DisplayVersion"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize);
+                        ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+                        memcpy(installedprod->antivirussetting.softverdes, buffVal, strlen(buffVal));//版本
+
+                        dwRegSize = MAX_PATH;
+                        dwType = REG_SZ;
+                        _tcscpy_s(regBufferValue,_T(""));
+                        strcpy_s(buffVal,"");
+                        if (RegQueryValueEx(hSubKey, _T("InstallLocation"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+                        {
+                            ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+                            int copylen = strlen(buffVal);
+                            if (buffVal[copylen-1] == '\\')
+                            {
+                                copylen = strlen(buffVal)-1;
+                            }
+                            memcpy(installedprod->installpath, buffVal, copylen); //安装路径
+                        }
+                        memset(installedprod->mainexe,0,sizeof(installedprod->mainexe));
+                        memcpy(installedprod->mainexe,"ccSvcHst.exe",strlen("ccSvcHst.exe"));
+
+                        //获取病毒库版本
+                        char libversinfo[HP_C_USERCONTENTLEN] = {0};
+                        if ( GetSymantecLibVersionInfo(libversinfo,HP_C_USERCONTENTLEN,bisX64) )
+                        {
+                            memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+                            memcpy(installedprod->antivirussetting.libverdes,libversinfo,strlen(libversinfo));
+                        }
+
+                        char mainexepath[MAX_PATH] = {0};
+                        sprintf_s(mainexepath,MAX_PATH,"%s\\ccSvcHst.exe",installedprod->installpath);
+
+                        char runexepath[MAX_PATH] = {0};
+
+                        if ( GetRunProcessFilePath("ccSvcHst.exe",runexepath,MAX_PATH,mainexepath) )
+                        {
+                            memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                            memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+                        }
+                        else
+                        {
+                            if (PathFileExistsA(mainexepath))
+                            {
+                                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+                            }
+                        }
+                        break;
+                    }
+
+                } 		
+                RegCloseKey(hSubKey);
+            }//end for(; ;)
+        }
+    }
+    else 
+    {
+        RegCloseKey(hKey);
+        return false; //打开键失败
+    }
+    RegCloseKey(hKey);
+
+    return bRes;
+}
+
+bool GetSymantecLibVersionInfo(char* libversioninfo,int libversionlen,bool bisX64)
+{
+    bool bRes = false;
+
+    const int  MAX_LEG = 256 * sizeof(TCHAR);
+    HKEY hKey;
+    REGSAM flag = KEY_READ;
+    if (bisX64)
+    {
+        flag=flag|KEY_WOW64_64KEY;
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"64位电脑");
+    }
+
+    if(RegOpenKeyEx(HKEY_LOCAL_MACHINE, 
+        _T("SOFTWARE\\Symantec\\Symantec Endpoint Protection\\CurrentVersion\\public-opstate"),
+        NULL, 
+        flag, 
+        &hKey) == ERROR_SUCCESS	)
+    {
+        DWORD dwType = REG_SZ;
+
+        TCHAR regBufferValue[MAX_LEG] = {_T("0")};
+        char   buffVal[MAX_PATH]={0};
+
+        DWORD  dwRegSize = MAX_LEG;
+        if ( RegQueryValueEx(hKey, _T("LatestVirusDefsDate"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            bRes = TRUE;
+            ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"LatestVirusDefsDate",buffVal);
+            sprintf_s(libversioninfo,libversionlen,"%s",buffVal);
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"不存在LatestVirusDefsDate键值");
+        }
+    }
+    else 
+    {
+        RegCloseKey(hKey);
+        return false; 
+    }
+    RegCloseKey(hKey);
+    return bRes;  
+}
+
+ /*************************************************
+Function Name: Get360AntivirusRegInfo
+Description: 获取360杀毒的详细信息,包括版本信息，病毒库信息及是否正在运行 
+Input and output:  
+Return:
+      成功返回true
+      失败返回false:360SD键值不存在
+备注：360杀毒病毒库信息,成功时返回libversioninfo为2014-03-16
+**************************************************/
+bool Get360AntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod)
+{
+    bool bRes = false;
+    UninstallSoftwareInfo  softinfo;
+    memset(&softinfo,0,sizeof(UninstallSoftwareInfo));
+
+    if ( GetUninstallKey(&softinfo,L"360SD") )
+    {
+        bRes = TRUE;
+        memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+        memcpy(installedprod->antivirussetting.softverdes,softinfo.displayVersion,strlen(softinfo.displayVersion));
+
+        memset(installedprod->installpath,0,sizeof(installedprod->installpath));
+        memcpy(installedprod->installpath,softinfo.installLocation,strlen(softinfo.installLocation));
+
+        memset(installedprod->mainexe,0,sizeof(installedprod->mainexe));
+        memcpy(installedprod->mainexe,"360sd.exe",strlen("360sd.exe"));
+
+        char mainexepath[MAX_PATH] = {0};
+        sprintf_s(mainexepath,MAX_PATH,"%s\\360sd.exe",installedprod->installpath);
+
+        char runexepath[MAX_PATH] = {0};
+
+        if ( GetRunProcessFilePath("360sd.exe",runexepath,MAX_PATH,mainexepath) )
+        {
+            memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+            memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+        }
+        else
+        {
+            if (PathFileExistsA(mainexepath))
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+            }
+        }
+
+        //获取病毒库版本
+        wchar_t UserTokenstr[MAX_PATH] = {L"0"};  
+        BOOL bIsOK =FALSE;
+        HANDLE  hUserToken = NULL;
+        if (atoi(installedprod->antivirussetting.runant) )
+        {
+            bIsOK = GetProcessUserToken(L"360sd.exe",&hUserToken,FALSE);
+        }
+        else
+        {
+            bIsOK = GetProcessUserToken(L"explorer.exe",&hUserToken);
+        }
+        if(bIsOK)
+        {
+            bIsOK = GetCurrentUserStringSid(hUserToken,UserTokenstr,MAX_PATH);
+            if(bIsOK)
+            {
+                wchar_t  strReg[MAX_PATH] = {L"0"};  
+                _snwprintf_s(strReg,MAX_PATH,MAX_PATH-1,L"%s\\SOFTWARE\\360SD",UserTokenstr);
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"注册表路径",strReg);
+                char libinfo[HP_C_USERCONTENTLEN] = {0};
+                if (GetKeyValueFromRegedit(4,strReg,L"LibDate",libinfo,sizeof(libinfo) ))
+                {
+                    memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+                    memcpy(installedprod->antivirussetting.libverdes,libinfo,sizeof(libinfo));
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"获取360杀毒病毒库版本成功");
+                }
+                else
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"获取360杀毒病毒库版本失败");
+                }
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"GetCurrentUserStringSid Fail");
+            }
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"GetProcessUserToken Fail");
+        }
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有安装360杀毒软件");
+    }
+    return bRes;
+}
+
+//病毒库版本格式为2015.02.27 1219
+bool GetbaiduAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod)
+{
+    bool bRes = false;
+    UninstallSoftwareInfo  softinfo;
+
+    memset(&softinfo,0,sizeof(UninstallSoftwareInfo));
+
+    if ( GetUninstallKey(&softinfo,L"百度杀毒") )
+    {
+        bRes = true;
+
+        memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+        memcpy(installedprod->antivirussetting.softverdes,softinfo.displayVersion,strlen(softinfo.displayVersion));
+
+        memset(installedprod->installpath,0,sizeof(installedprod->installpath));
+        memcpy(installedprod->installpath,softinfo.installLocation,strlen(softinfo.installLocation));
+
+        memset(installedprod->mainexe,0,sizeof(installedprod->mainexe));
+        memcpy(installedprod->mainexe,"BaiduSd.exe",strlen("BaiduSd.exe"));
+
+        //获取病毒库版本
+        char libversinfo[MAX_PATH] = {0};
+        if ( GetKeyValueFromRegedit(3,L"SOFTWARE\\baidu\\BaiduSd",L"VirusTime",libversinfo,sizeof(libversinfo)) )
+        {
+            string updatetimestr = libversinfo;
+            int pos = updatetimestr.find(" ",0);
+            if ( pos != string::npos )
+            {
+                string updatatime = updatetimestr.substr(0,pos);
+                vector<string> subupdatetime;
+                subupdatetime = split(updatatime,".");
+                memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+                sprintf_s(installedprod->antivirussetting.libverdes,sizeof(installedprod->antivirussetting.libverdes),"%s-%s-%s",
+                    subupdatetime[0].c_str(),subupdatetime[1].c_str(),subupdatetime[2].c_str());
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"百度杀毒时间格式有误");
+            }
+        }
+        else
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"获取百度杀毒病毒库版本失败");
+        }
+
+        char mainexepath[MAX_PATH] = {0};
+        sprintf_s(mainexepath, MAX_PATH, "%s\\BaiduSd.exe", installedprod->installpath);
+
+        char runexepath[MAX_PATH] = {0};
+        char baidutraypath[MAX_PATH] = {0};
+        sprintf_s(baidutraypath,MAX_PATH,"%s\\BaiduSdTray.exe",installedprod->installpath);
+
+        if ( GetRunProcessFilePath("BaiduSd.exe",runexepath,MAX_PATH,mainexepath) )
+        {
+            memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+            memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+        }
+        else if ( GetRunProcessFilePath("BaiduSdTray.exe",runexepath,MAX_PATH,baidutraypath) )
+        {
+            memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+            memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+        }
+        else
+        {
+            if (PathFileExistsA(mainexepath))
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+            }
+        }
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有安装百度杀毒软件");
+    }
+    return bRes;
+}
+
+//备注：版本格式为2015:03:06 14:16:50
+bool GetjinshanAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod)
+{
+    bool bRes = false;
+    UninstallSoftwareInfo  softinfo;
+    memset(&softinfo,0,sizeof(UninstallSoftwareInfo));
+
+    if ( GetUninstallKey(&softinfo,L"Kingsoft Internet Security") )
+    {
+        bRes = true;
+
+        memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+        memcpy(installedprod->antivirussetting.softverdes,softinfo.displayVersion,strlen(softinfo.displayVersion));
+
+        memset(installedprod->installpath,0,sizeof(installedprod->installpath));
+        memcpy(installedprod->installpath,softinfo.installLocation,strlen(softinfo.installLocation));
+
+        memset(installedprod->mainexe,0,sizeof(installedprod->mainexe));
+        memcpy(installedprod->mainexe,"kxetray.exe",strlen("kxetray.exe"));
+
+        //获取病毒库版本
+        char libversinfo[MAX_PATH] = {0};
+        if (GetKeyValueFromRegedit(3,L"SOFTWARE\\kingsoft\\KISCommon\\Update",L"KisliveUpdateTime",
+            libversinfo,sizeof(libversinfo)) )
+        {
+            string updatetimestr = libversinfo;
+            int pos = updatetimestr.find(" ",0);
+            if ( pos != string::npos )
+            {
+                string updatatime = updatetimestr.substr(0,pos);
+                vector<string> subupdatetime;
+                subupdatetime = split(updatatime,":");
+                if (subupdatetime.size()<2)
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"金山毒霸时间格式有误");
+                }
+                else
+                {
+                    memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+                    sprintf_s(installedprod->antivirussetting.libverdes,sizeof(installedprod->antivirussetting.libverdes),"%s-%s-%s",
+                        subupdatetime[0].c_str(),subupdatetime[1].c_str(),subupdatetime[2].c_str());
+                }
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"金山毒霸时间格式有误");
+            }
+        }
+
+
+        char mainexepath[MAX_PATH] = {0};
+        sprintf_s(mainexepath,MAX_PATH,"%s\\kxetray.exe",installedprod->installpath);
+
+        char runexepath[MAX_PATH] = {0};
+
+        if ( GetRunProcessFilePath("kxetray.exe",runexepath,MAX_PATH,mainexepath) )
+        {
+            memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+            memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+        }
+        else
+        {
+            if (PathFileExistsA(mainexepath))
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+            }
+        }
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有安装金山毒霸软件");
+    }
+    return bRes;
+}
+
+//备注:病毒库版本格式为2015-02-28 11:25:16,0,1;2015-02-28 11:37:07,1,1;2015-03-06 15:18:37,0,1
+//bool GetruixingAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod)
+//{
+//    bool bRes = false;
+//    UninstallSoftwareInfo  softinfo;
+//    memset(&softinfo,0,sizeof(UninstallSoftwareInfo));
+//
+//    if ( GetUninstallKey(&softinfo,L"RAV")  )
+//    {
+//        bRes = true;
+//
+//        memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+//        memcpy(installedprod->antivirussetting.softverdes,softinfo.displayVersion,strlen(softinfo.displayVersion));
+//
+//        memset(installedprod->installpath,0,sizeof(installedprod->installpath));
+//        memcpy(installedprod->installpath,softinfo.installLocation,strlen(softinfo.installLocation));
+//
+//        memset(installedprod->mainexe,0,sizeof(installedprod->mainexe));
+//        memcpy(installedprod->mainexe,"rstray.exe",strlen("rstray.exe"));
+//
+//        //获取病毒库版本
+//        char libversinfo[MAX_PATH] = {0};
+//        if ( GetKeyValueFromRegedit(3,L"SOFTWARE\\rising\\RAV\\Update",L"updateinfo",libversinfo,sizeof(libversinfo)) )
+//        {
+//            string updatetimestr = libversinfo;
+//            int konggepos = updatetimestr.rfind(" ");
+//            if ( konggepos != string::npos )
+//            {
+//                string updatatime;
+//                int fenhaopos = updatetimestr.rfind(";",konggepos);
+//                if ( fenhaopos == string::npos )
+//                {
+//                    updatatime = updatetimestr.substr(0,konggepos);
+//                }
+//                else
+//                {
+//                    updatatime = updatetimestr.substr(fenhaopos+1,konggepos-fenhaopos);
+//                }
+//                memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+//                sprintf_s(installedprod->antivirussetting.libverdes,sizeof(installedprod->antivirussetting.libverdes),"%s",updatatime.c_str());       
+//            }
+//            else
+//            {
+//                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"瑞星杀毒时间格式有误");
+//            }
+//        }
+//        else
+//        {
+//            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"获取瑞星杀毒病毒库失败");
+//        }
+//
+//        char mainexepath[MAX_PATH] = {0};
+//        sprintf_s(mainexepath,MAX_PATH,"%s\\rstray.exe",installedprod->installpath);
+//
+//        char runexepath[MAX_PATH] = {0};
+//
+//        if ( GetRunProcessFilePath("rstray.exe",runexepath,MAX_PATH,mainexepath) )
+//        {
+//            memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+//            memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+//        }
+//        else
+//        {
+//            if (PathFileExistsA(mainexepath))
+//            {
+//                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+//                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+//            }
+//        }
+//
+//    }
+//    else
+//    {
+//        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有安装瑞星杀毒软件");
+//    }
+//    return bRes;
+//}
+
+
+
+
+bool GetRAVVersionAndDataPath(char* version,int versionlen,char* installpath,int installpathlen,char* antivlibversion,
+    int  antivlibversionlen)
+{
+    bool  bRes = false;
+    wchar_t regBufferName[MAX_PATH] = {L"SOFTWARE\\rising\\Rav"};
+    REGSAM flag = KEY_READ;
+
+    DWORD dwType; 
+    HKEY hKey;
+    DWORD dwRegSize = MAX_PATH;
+
+    if( RegOpenKeyEx(HKEY_LOCAL_MACHINE, regBufferName, NULL, flag, &hKey) == ERROR_SUCCESS)
+    {
+        bRes = true;
+        TCHAR regBufferValue[MAX_PATH] = {_T("0")};
+        char  buffVal[MAX_PATH]={0};
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        if ( RegQueryValueEx(hKey, _T("installpath"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue, installpath, installpathlen);
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue, _T(""));
+        if ( RegQueryValueEx(hKey, _T("version"), 0, &dwType,(LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue,version,versionlen);
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,L"瑞星杀毒软件版本:");
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,version);
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue, _T(""));
+        if ( RegQueryValueEx(hKey, _T("updatetime"), 0, &dwType,(LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            char updatetimeinfo[MAX_PATH] = {"0"};
+            ConvertW2A(regBufferValue,updatetimeinfo,sizeof(updatetimeinfo));
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,L"瑞星杀毒软件更新时间:");
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,updatetimeinfo);
+
+            string updatetimestr = updatetimeinfo;
+            int konggepos = updatetimestr.rfind(" ");
+            if ( konggepos != string::npos )
+            {
+                string updatatime;
+                int fenhaopos = updatetimestr.rfind(";",konggepos);
+                if ( fenhaopos == string::npos )
+                {
+                    updatatime = updatetimestr.substr(0,konggepos);
+                   sprintf_s(antivlibversion,antivlibversionlen,"%s",updatatime.c_str());
+                }
+                else
+                {
+                    updatatime = updatetimestr.substr(fenhaopos+1,konggepos-fenhaopos);
+                }
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"瑞星杀毒时间格式有误");
+            }
+
+        }
+    }   
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,L"不存在瑞星杀毒注册表项");
+    }
+    if (hKey != NULL)
+    {
+        RegCloseKey(hKey);
+        hKey = NULL;
+    }
+    return bRes;
+}
+
+
+bool GetruixingAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod)
+{
+    bool bRes = false;
+    char ravversion[50] = {"0"};
+    char ravdatapath[MAX_PATH] = {"0"};
+    char ravupdatetime[MAX_PATH] = {"####-##-##"};
+    if ( GetRAVVersionAndDataPath(ravversion,sizeof(ravversion),ravdatapath,sizeof(ravdatapath),ravupdatetime,sizeof(ravupdatetime)) )
+    {
+        bRes = true;
+
+        memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+        memcpy(installedprod->antivirussetting.softverdes,ravversion,strlen(ravversion));
+
+        memset(installedprod->installpath,0,sizeof(installedprod->installpath));
+        memcpy(installedprod->installpath,ravdatapath,strlen(ravdatapath));
+
+        memset(installedprod->mainexe,0,sizeof(installedprod->mainexe));
+        memcpy(installedprod->mainexe,"rstray.exe",strlen("rstray.exe"));
+
+        memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+        memcpy(installedprod->antivirussetting.libverdes,ravupdatetime,strlen(ravupdatetime));
+
+        char mainexepath[MAX_PATH] = {0};
+        sprintf_s(mainexepath,MAX_PATH,"%s\\rstray.exe",installedprod->installpath);
+
+        char runexepath[MAX_PATH] = {0};
+
+        if ( GetRunProcessFilePath("rstray.exe",runexepath,MAX_PATH,mainexepath) )
+        {
+            memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+            memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+        }
+        else
+        {
+            if (PathFileExistsA(mainexepath))
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+            }
+        }
+
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有安装瑞星杀毒软件");
+    }
+    return bRes;
+}
+
+bool GetQQPCMgrAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod)
+{
+    bool bRes = false;
+    UninstallSoftwareInfo  softinfo;
+    memset(&softinfo,0,sizeof(UninstallSoftwareInfo));
+
+    if ( GetUninstallKey(&softinfo,L"QQPCMgr") )
+    {
+        bRes = false;
+
+        memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+        memcpy(installedprod->antivirussetting.softverdes,softinfo.displayVersion,strlen(softinfo.displayVersion));
+
+        memset(installedprod->installpath,0,sizeof(installedprod->installpath));
+        memcpy(installedprod->installpath,softinfo.installLocation,strlen(softinfo.installLocation));
+
+        memset(installedprod->mainexe,0,sizeof(installedprod->mainexe));
+        memcpy(installedprod->mainexe,"QQPCMgr.exe",strlen("QQPCMgr.exe"));
+
+        //获取病毒库版本
+        char libversinfo[HP_C_USERCONTENTLEN] = {0};
+        if ( GetQQPCMgrLibVersionInfo(installedprod->installpath,libversinfo,HP_C_USERCONTENTLEN) )
+        {
+            memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+            memcpy(installedprod->antivirussetting.libverdes,libversinfo,strlen(libversinfo));
+        }
+
+        char mainexepath[MAX_PATH] = {0};
+        sprintf_s(mainexepath,MAX_PATH,"%s\\QQPCTray.exe",installedprod->installpath);
+
+        char runexepath[MAX_PATH] = {0};
+
+        if ( GetRunProcessFilePath("QQPCTray.exe",runexepath,MAX_PATH,mainexepath) )
+        {
+            memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+            memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+        }
+        else
+        {
+            if (PathFileExistsA(mainexepath))
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+            }
+        }
+
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有qq电脑管家杀毒软件");
+    }
+    return bRes;
+}
+
+bool GetQQPCMgrLibVersionInfo(char *installpath,char* libversioninfo,int libversionlen)
+{
+    bool bres = false;
+    char inifilepath[MAX_PATH] = {0};
+    sprintf_s(inifilepath,MAX_PATH,"%s\\avira\\AVEngine.ini",installpath);
+
+    if (PathFileExistsA(inifilepath))
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"AVEngine.ini 存在");
+        char QQtimever[HP_C_USERCONTENTLEN] = {0};
+        GetPrivateProfileStringA("AVEngine","TimeVer","####-##-##",QQtimever,HP_C_USERCONTENTLEN,inifilepath);
+        if ( strcmp(QQtimever,"####-##-##") == 0 )
+        {
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"获取TimeVer失败");
+        }
+        else
+        {
+            bres =true;
+            SYSTEMTIME st;
+
+            memset(&st,0,sizeof(SYSTEMTIME));
+
+            char timevalstr[HP_C_USERCONTENTLEN] = {0};
+
+            sprintf_s(timevalstr,HP_C_USERCONTENTLEN,"%s000",QQtimever);
+            GetSysTimeFromTimval(timevalstr,&st);
+            sprintf_s(libversioninfo,libversionlen,"%04d-%02d-%02d",st.wYear,st.wMonth,st.wDay);
+            WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"获取病毒库版本成功");
+        }
+    }
+    return bres;
+}
+
+bool GetMcAfeeAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod)
+{
+    bool bres = false;
+    UninstallSoftwareInfo  softinfo;
+    memset(&softinfo,0,sizeof(UninstallSoftwareInfo));
+
+    if ( GetMcAfeeUninstallKeyValue(&softinfo, L"MSC") )
+    {
+        bres = true;
+
+        memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+        memcpy(installedprod->antivirussetting.softverdes,softinfo.displayVersion,strlen(softinfo.displayVersion));
+
+        memset(installedprod->installpath,0,sizeof(installedprod->installpath));
+        memcpy(installedprod->installpath,softinfo.installLocation,strlen(softinfo.installLocation));
+
+        memset(installedprod->mainexe,0,sizeof(installedprod->mainexe));
+        memcpy(installedprod->mainexe,"mcshell.exe",strlen("mcshell.exe"));
+
+        //获取病毒库版本
+        char libversinfo[MAX_PATH] = {0};
+        if ( GetKeyValueFromRegedit(3,L"SOFTWARE\\McAfee\\AVEngine",L"AVDatDate",libversinfo,sizeof(libversinfo)) )
+        {
+            string avdatDatastr = libversinfo;
+            int xiegangpos = avdatDatastr.find("/",0);
+            if ( xiegangpos != string::npos )
+            {
+                vector<string> subtime;
+                subtime = split(avdatDatastr,"/");
+                if (subtime.size()<2)
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"McAfee杀毒时间格式有误");
+                }
+                else
+                {
+                    memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+                    sprintf_s(installedprod->antivirussetting.libverdes,sizeof(installedprod->antivirussetting.libverdes),"%s-%s-%s",
+                        subtime[0].c_str(),subtime[1].c_str(),subtime[2].c_str());
+                }
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"McAfee杀毒时间格式有误");
+
+            }
+        }
+
+        char mainexepath[MAX_PATH] = {0};
+        sprintf_s(mainexepath,MAX_PATH,"%s\\mcshell.exe",installedprod->installpath);
+
+        char runexepath[MAX_PATH] = {0};
+
+        if ( GetRunProcessFilePath("mcshell.exe",runexepath,MAX_PATH,mainexepath) )
+        {
+            memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+            memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+        }
+        else
+        {
+            if (PathFileExistsA(mainexepath))
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+            }
+        }
+
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,"没有McAfee杀毒软件");
+    }
+    return bres;
+}
+
+bool GetNod32AntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod)
+{
+    bool bRes = false;
+
+    wchar_t regBufferName[MAX_PATH] = {L"SOFTWARE\\ESET\\ESET Security\\CurrentVersion\\Info"};
+
+    DWORD dwType;	
+    HKEY hKey;
+    DWORD dwRegSize = MAX_PATH;
+
+    if( RegOpenKeyEx(HKEY_LOCAL_MACHINE, regBufferName, NULL, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        bRes = true;
+
+        TCHAR regBufferValue[MAX_PATH] = {_T("0")};
+        char  buffVal[MAX_PATH]={0};
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        if ( RegQueryValueEx(hKey, _T("ProductName"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+            memset(installedprod->antivirussetting.santname,0,sizeof(installedprod->antivirussetting.santname));
+            memcpy(installedprod->antivirussetting.santname, buffVal, strlen(buffVal));//软件名称
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue, _T(""));
+        strcpy_s(buffVal,"");
+        if ( RegQueryValueEx(hKey, _T("ProductVersion"), 0, &dwType,(LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+            memset(installedprod->antivirussetting.softverdes,0,sizeof(installedprod->antivirussetting.softverdes));
+            memcpy(installedprod->antivirussetting.softverdes,buffVal,strlen(buffVal));//发行商
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue,_T(""));
+        strcpy_s(buffVal,"");
+        if (RegQueryValueEx(hKey, _T("ScannerVersion"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+            string scannerversstr = buffVal;
+            int posstart = scannerversstr.find("(",0);
+            if ( posstart != string::npos )
+            {
+                int posend = scannerversstr.find(")",posstart);
+                if (posend != string::npos )
+                {
+                    string libverstr = scannerversstr.substr(posstart+1,posend-posstart-1);
+                    string year = libverstr.substr(0,4);
+                    string month = libverstr.substr(4,2);
+                    string day = libverstr.substr(6,2);
+                    memset(installedprod->antivirussetting.libverdes,0,sizeof(installedprod->antivirussetting.libverdes));
+                    sprintf_s(installedprod->antivirussetting.libverdes,"%s-%s-%s",year.c_str(),
+                        month.c_str(),day.c_str());
+                }
+            }
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue,_T(""));
+        strcpy_s(buffVal,"");
+        if (RegQueryValueEx(hKey, _T("InstallDir"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+            int copylen = strlen(buffVal);
+            if (buffVal[copylen-1] == '\\')
+            {
+                copylen = strlen(buffVal)-1;
+            }
+            memset(installedprod->installpath,0,sizeof(installedprod->installpath));
+            memcpy(installedprod->installpath, buffVal, copylen); //安装路径
+        }
+
+        char mainexepath[MAX_PATH] = {0};
+        sprintf_s(mainexepath,MAX_PATH,"%s\\egui.exe",installedprod->installpath);
+
+        char runexepath[MAX_PATH] = {0};
+
+        if ( GetRunProcessFilePath("egui.exe",runexepath,MAX_PATH,mainexepath) )
+        {
+            memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+            memcpy(installedprod->antivirussetting.runant,"1",strlen("1"));
+        }
+        else
+        {
+            if (PathFileExistsA(mainexepath))
+            {
+                memset(installedprod->antivirussetting.runant,0,sizeof(installedprod->antivirussetting.runant));
+                memcpy(installedprod->antivirussetting.runant,"0",strlen("0"));
+            }
+        }
+    } 		
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,L"不存在ESET注册表项info");
+    }
+    if (hKey != NULL)
+    {
+        RegCloseKey(hKey);
+        hKey = NULL;
+    }
+
+    return bRes;
+}
+
+bool GetMcAfeeUninstallKeyValue(UninstallSoftwareInfo *softwareinfo,wchar_t *keyname)
+{
+    bool bres = false;
+
+    wchar_t regBufferName[MAX_PATH] = {L"0"};
+    _snwprintf_s(regBufferName, MAX_PATH, MAX_PATH-1,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\%s",
+        keyname);
+
+    DWORD dwType;	
+    HKEY hKey;
+    DWORD dwRegSize = MAX_PATH;
+
+    if( RegOpenKeyEx(HKEY_LOCAL_MACHINE, regBufferName, NULL, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        bres = false;
+        TCHAR regBufferValue[MAX_PATH] = {_T("0")};
+        char  buffVal[MAX_PATH]={0};
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        if ( RegQueryValueEx(hKey, _T("DisplayName"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+            memcpy(softwareinfo->displayName, buffVal, strlen(buffVal));//软件名称
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue, _T(""));
+        strcpy_s(buffVal,"");
+        if ( RegQueryValueEx(hKey, _T("Publisher"), 0, &dwType,(LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+            memcpy(softwareinfo->publisher,buffVal,strlen(buffVal));//发行商
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue,_T(""));
+        strcpy_s(buffVal,"");
+        if (RegQueryValueEx(hKey, _T("DisplayVersion"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue,buffVal,MAX_PATH);
+            memcpy(softwareinfo->displayVersion, buffVal, strlen(buffVal));//版本
+        }
+        else
+        {
+            dwRegSize = MAX_PATH;
+            dwType = REG_SZ;
+            _tcscpy_s(regBufferValue,_T(""));
+            strcpy_s(buffVal,"");
+            if ( RegQueryValueEx(hKey, _T("VersionMajor"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+            {
+                ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+                strcat_s(softwareinfo->displayVersion,sizeof(softwareinfo->displayVersion),buffVal);
+                strcat_s(softwareinfo->displayVersion,sizeof(softwareinfo->displayVersion),".");
+            } 
+
+            dwRegSize = MAX_PATH;
+            dwType = REG_SZ;
+            _tcscpy_s(regBufferValue,_T(""));
+            strcpy_s(buffVal,"");
+            if ( RegQueryValueEx(hKey, _T("VersionMinor"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+            {
+                ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+                strcat_s(softwareinfo->displayVersion,sizeof(softwareinfo->displayVersion),buffVal);
+            } 
+        }
+
+        dwRegSize = MAX_PATH;
+        dwType = REG_SZ;
+        _tcscpy_s(regBufferValue,_T(""));
+        strcpy_s(buffVal,"");
+        if ( RegQueryValueEx(hKey, _T("UninstallString"), 0, &dwType, (LPBYTE)regBufferValue, &dwRegSize) == ERROR_SUCCESS )
+        {
+            ConvertW2A(regBufferValue, buffVal, MAX_PATH);
+            memcpy(softwareinfo->uninstallString, buffVal,strlen(buffVal));//卸载命令及参数
+        } 
+
+        if (strcmp(softwareinfo->uninstallString,""))
+        {
+            string uninstallstr = softwareinfo->uninstallString;
+            int uninstallexepos = uninstallstr.find(".exe",0);
+            if ( uninstallexepos != string::npos)
+            {
+                string installlocationstr =  "";
+                int installpos = uninstallstr.rfind("\\",uninstallexepos);
+                if (installpos != string::npos )
+                {
+                    if (uninstallstr[1] != ':')
+                    {
+                        int cipanpos = uninstallstr.find(":",0);
+                        if ( (cipanpos != string::npos) && (cipanpos>1) )
+                        {
+                            installlocationstr = uninstallstr.substr(cipanpos-1,installpos-cipanpos+1);
+                        }
+                        else
+                        {
+                            installlocationstr = uninstallstr.substr(0,installpos);
+                        }
+                    }
+                    else
+                        installlocationstr = uninstallstr.substr(0,installpos);
+                }
+                memcpy(softwareinfo->installLocation,installlocationstr.c_str(),installlocationstr.size());
+            }
+        }
+
+    } 		
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_ALL,LOGLOCATION,L"不存在注册表项",keyname);
+    }
+    if (hKey != NULL)
+    {
+        RegCloseKey(hKey);
+        hKey = NULL;
+    }
+    return bres;
+}

@@ -1,0 +1,479 @@
+#include "StdAfx.h"  
+
+#include <cfgmgr32.h>
+#include <comdef.h>
+#include<string>
+#include "GlobalFunction.h"
+#include "../../common/com_class/WmiClass.h"
+
+#define _DEV_CLASS_EXPORT_DLL
+
+#ifndef _CHARDWAREDEVCLASS_H
+#include "CRemovableStorageMana.h"  
+#endif
+
+CRemovableStorageMana::CRemovableStorageMana(void) 
+{  
+}  
+
+CRemovableStorageMana::~CRemovableStorageMana(void) 
+{
+}
+
+/************************************************************ 
+Description: 查找设备
+input: hDevInfo[设备信息句柄]， szDevId[设备ID], spDevInfoData[设备信息数据]
+Return: TRUE[查找成功]， FALSE[查找失败]
+*************************************************************/ 
+BOOL CRemovableStorageMana::FindDevice(IN HDEVINFO& hDevInfo, IN CString& szDevId, OUT SP_DEVINFO_DATA& spDevInfoData)
+{
+	spDevInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+
+	for(int i=0; SetupDiEnumDeviceInfo(hDevInfo, i, &spDevInfoData); i++) 
+	{
+		DWORD nSize = 0;
+		TCHAR buf[DEVINFOBUFLEN] = {0};
+
+		if (!SetupDiGetDeviceInstanceId(hDevInfo, &spDevInfoData, buf, sizeof(buf), &nSize) ) 
+		{
+			TRACE(CString("SetupDiGetDeviceInstanceId(): ") + _com_error(GetLastError()).ErrorMessage());
+			return FALSE;
+		} 
+
+		if ( szDevId == buf ) 
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+BOOL CRemovableStorageMana::IsDisableable(IN CString& szDevId)  
+{  
+	SP_DEVINFO_DATA DevInfoData = {sizeof(SP_DEVINFO_DATA)};  
+	DWORD dwProblem = 0;
+	DWORD dwDevStatus = 0;
+	HDEVINFO hDevInfo = SetupDiGetClassDevs(NULL, NULL, NULL, DIGCF_ALLCLASSES);
+
+	if (FindDevice(hDevInfo, szDevId, DevInfoData))
+	{
+		//查询设备状态  
+		if(CM_Get_DevNode_Status(&dwDevStatus, &dwProblem, DevInfoData.DevInst, 0) != CR_SUCCESS)  
+		{  
+			OutputDebugString(L"CM_GET_DevNode_Status FAILED"); 
+			SetupDiDestroyDeviceInfoList(hDevInfo);
+
+			return FALSE;  
+		}  
+	}
+
+	SetupDiDestroyDeviceInfoList(hDevInfo);
+
+	return ((dwDevStatus & DN_DISABLEABLE) && (dwProblem != CM_PROB_HARDWARE_DISABLED));  
+}  
+
+BOOL CRemovableStorageMana::IsDisabled(IN CString& szDevId)  
+{  
+	SP_DEVINFO_DATA DevInfoData = {sizeof(SP_DEVINFO_DATA)};
+	DWORD dwProblem = 0;
+	DWORD dwDevStatus = 0;
+	HDEVINFO hDevInfo = SetupDiGetClassDevs(NULL, NULL, NULL, DIGCF_ALLCLASSES);
+
+	if (FindDevice(hDevInfo, szDevId, DevInfoData))
+	{
+		//查询设备状态  
+		if(CM_Get_DevNode_Status(&dwDevStatus, &dwProblem, DevInfoData.DevInst,0)!=CR_SUCCESS)  
+		{  
+			OutputDebugString(L"CM_GET_DevNode_Status FAILED");  
+			SetupDiDestroyDeviceInfoList(hDevInfo);
+			return FALSE;  
+		}  
+	}
+
+	SetupDiDestroyDeviceInfoList(hDevInfo);
+
+	return ((dwDevStatus & DN_HAS_PROBLEM) && (dwProblem == CM_PROB_DISABLED));  
+}  
+
+BOOL CRemovableStorageMana::ChangeDeviceState( IN CString& szDevId, IN DWORD StateChange)
+{
+	BOOL ret = FALSE;
+	HDEVINFO hDevInfo = SetupDiGetClassDevs(NULL, NULL, NULL, DIGCF_ALLCLASSES);
+	SP_DEVINFO_DATA spDevInfoData = {0};
+
+	if( INVALID_HANDLE_VALUE == hDevInfo )
+	{
+		AfxMessageBox(CString("SetupDiGetClassDevs(): ") + _com_error(GetLastError()).ErrorMessage(), MB_ICONEXCLAMATION);
+		return ret;
+	}
+
+	SP_PROPCHANGE_PARAMS spPropChangeParams;
+
+	spPropChangeParams.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
+	spPropChangeParams.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE;
+	spPropChangeParams.Scope = DICS_FLAG_GLOBAL;
+	spPropChangeParams.StateChange = StateChange;
+	spPropChangeParams.HwProfile = 0;
+
+	if (FindDevice(hDevInfo, szDevId, spDevInfoData))
+	{
+		ret = SetupDiSetClassInstallParams(hDevInfo, &spDevInfoData, (SP_CLASSINSTALL_HEADER*)&spPropChangeParams, sizeof(spPropChangeParams));
+
+		if ( !ret ) 
+		{
+			AfxMessageBox(CString("SetupDiSetClassInstallParams(): ") + _com_error(GetLastError()).ErrorMessage(), MB_ICONEXCLAMATION);
+		} 
+
+		else if(!SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, hDevInfo, &spDevInfoData))
+		{
+			AfxMessageBox(CString("SetupDiCallClassInstaller(): ") + _com_error(GetLastError()).ErrorMessage(), MB_ICONEXCLAMATION);
+		} 
+		else 
+		{
+			if (StateChange == DICS_ENABLE)
+			{
+				OutputDebugString(L"Enable OK!!!");
+			}
+			else
+			{
+				OutputDebugString(L"Disable OK!!!");
+			}
+
+			ret = TRUE;
+		}
+	}
+
+	SetupDiDestroyDeviceInfoList(hDevInfo);
+
+	return ret;
+}
+
+void CRemovableStorageMana::EnableDev(IN vector<std::string>&enableDevList)
+{
+	if (enableDevList.size() > 0)
+	{
+		vector<std::string>::iterator iter;
+		CString cstrDevId = L"";
+		wstring wstrDevId = L"";
+
+		for(iter = enableDevList.begin(); iter != enableDevList.end(); iter++)
+		{
+			wstrDevId = AnsiToWChar(iter->c_str());
+			cstrDevId = (CString)wstrDevId.c_str();
+
+			if (IsDisabled(cstrDevId))
+			{
+				ChangeDeviceState(cstrDevId, DICS_ENABLE); 
+			}
+		}
+	}
+}
+
+void CRemovableStorageMana::DisableDev(IN vector<std::string>&disableDevList)
+{
+	if (disableDevList.size() > 0)
+	{
+		vector<std::string>::iterator iter;
+		CString cstrDevId = L"";
+		wstring wstrDevId = L"";
+
+		for(iter = disableDevList.begin(); iter != disableDevList.end(); iter++)
+		{
+			wstrDevId = AnsiToWChar(iter->c_str());
+			cstrDevId = (CString)wstrDevId.c_str();
+
+			if (!IsDisabled(cstrDevId))
+			{
+				ChangeDeviceState(cstrDevId, DICS_DISABLE); 
+			}
+		}
+	}
+}
+
+void CRemovableStorageMana::GetDeviceBasicInfo(IN HDEVINFO hDevInfo, IN PSP_DEVINFO_DATA pspDevInfoData, OUT vector<DEVBASICINFO>&devBasicInfo)
+{
+	TCHAR	szDesBuf[DEVINFOBUFLEN]		  = {0};
+	TCHAR   szDevManu[DEVINFOBUFLEN]      = {0};
+	TCHAR   szDevID[DEVINFOBUFLEN]		  = {0};
+	TCHAR   szDevName[DEVINFOBUFLEN]      = {0};
+	DWORD	dwRequireSize;
+	DEVBASICINFO tempDevBasicInfo;
+
+	if (SetupDiGetDeviceInstanceId(hDevInfo, pspDevInfoData, szDevID, DEVINFOBUFLEN, 0))
+	{
+		/*TCHAR tcDeviceId[128] = {0};
+
+		wsprintf(tcDeviceId, L"设备ID:%ws\n", szDevID);
+		OutputDebugString(tcDeviceId);*/
+		
+		vector<DEVBASICINFO>::iterator iter;
+
+		for(iter = devBasicInfo.begin(); iter != devBasicInfo.end(); iter++)
+		{
+			wstring wstrDevID = AnsiToWChar(iter->strDevID.c_str());
+
+			if (_wcsnicmp(wstrDevID.c_str(), szDevID, wstrDevID.length()) == 0)
+			{
+				return;
+			}
+		}
+
+		tempDevBasicInfo.strDevID = WCharToAnsi(szDevID);
+
+		if (tempDevBasicInfo.strDevID.find("ROOT") != string::npos)
+		{
+			return;
+		}
+	}
+
+	if (SetupDiGetClassDescription(&(pspDevInfoData->ClassGuid), szDesBuf, DEVINFOBUFLEN, &dwRequireSize))
+	{
+		/*TCHAR tcClassDes[128] = {0};
+
+		wsprintf(tcClassDes, L"类描述:%ws\n", szDesBuf);
+		OutputDebugString(tcClassDes);*/
+
+		tempDevBasicInfo.strClassDesc = WCharToAnsi(szDesBuf);
+
+	}
+
+	if ( SetupDiGetDeviceRegistryProperty(hDevInfo, pspDevInfoData, SPDRP_MFG, 0L, (PBYTE)szDevManu, sizeof(szDevManu), 0) )  
+	{
+		/*TCHAR tcDevManu[DEVINFOBUFLEN] = {0};
+
+		wsprintf(tcDevManu, L"the device manufacturer:%ws\n", szDevManu);
+		OutputDebugString(tcDevManu);*/
+	} 
+	else 
+	{
+		lstrcpy(szDevManu, _T("Unknown"));
+		OutputDebugString(szDevManu);
+	}
+	tempDevBasicInfo.strManufacturer = WCharToAnsi(szDevManu);
+
+	if (SetupDiGetDeviceRegistryProperty(hDevInfo, pspDevInfoData, SPDRP_FRIENDLYNAME, 0L, (PBYTE)szDevName, DEVINFOBUFLEN, 0))
+	{
+		/*TCHAR tcfriendlyName[DEVINFOBUFLEN] = {0};
+
+		wsprintf(tcfriendlyName, L"设备名称:%ws\n", szDevName);
+		OutputDebugString(tcfriendlyName);*/
+	}
+	else if (SetupDiGetDeviceRegistryProperty(hDevInfo, pspDevInfoData, SPDRP_DEVICEDESC, 0L, (PBYTE)szDevName, DEVINFOBUFLEN, 0))
+	{
+		/*TCHAR tcDescBuf[DEVINFOBUFLEN] = {0};
+
+		wsprintf(tcDescBuf, L"设备描述:%ws\n", szDevName);
+		OutputDebugString(tcDescBuf);*/
+	}
+	else 
+	{
+		lstrcpy(szDevName, _T("Unknown"));
+		OutputDebugString(szDevName);
+	}
+
+	tempDevBasicInfo.strDevDesc = WCharToAnsi(szDevName);
+
+	devBasicInfo.push_back(tempDevBasicInfo);
+}
+
+void CRemovableStorageMana::EnumRemovableStorageDev(OUT DEVBASICVECTOR& all_DiskDriver_Dev)
+{
+	HDEVINFO        hDevInfo         = 0L;
+	SP_DEVINFO_DATA spDevInfoData    = {0};
+	short           wIndex           = 0;
+	int				iClassNameIndex = -1;
+
+	hDevInfo = SetupDiGetClassDevs(0L, 0L, NULL, DIGCF_PRESENT | DIGCF_ALLCLASSES | DIGCF_PROFILE);
+	if (hDevInfo == (void*)-1)
+	{
+		TRACE(CString("SetupDiGetClassDevs(): ") + _com_error(GetLastError()).ErrorMessage());
+		return;
+	}
+
+	wIndex = 0;
+	spDevInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+
+	while (TRUE)
+	{
+		if (SetupDiEnumDeviceInfo(hDevInfo, wIndex, &spDevInfoData))
+		{
+			TCHAR szBuf[DEVINFOBUFLEN] = {0};
+
+			if (!SetupDiGetDeviceRegistryProperty(hDevInfo, &spDevInfoData, SPDRP_CLASS, 0L, (PBYTE)szBuf, DEVINFOBUFLEN, 0))
+			{
+				wIndex++;
+				continue;
+			}
+
+			if (_wcsnicmp(szBuf, L"DiskDrive", wcslen(L"DiskDrive")) == 0)
+			{
+				GetDeviceBasicInfo(hDevInfo, &spDevInfoData, all_DiskDriver_Dev);
+			}
+		}
+		else
+			break;
+
+		wIndex++;
+	};
+
+	SetupDiDestroyDeviceInfoList(hDevInfo);
+}
+
+void CRemovableStorageMana::DistinUsbDiskType(IN const wchar_t* pDevId, IN DEVBASICVECTOR&sourceList, IN DEVBASICVECTOR&desList)
+{
+	DEVBASICVECTOR::iterator sourceIter;
+	DEVBASICVECTOR::iterator desIter;
+
+	string strDevId = WCharToAnsi(pDevId);
+
+	for(sourceIter = sourceList.begin(); sourceIter != sourceList.end(); sourceIter++)
+	{
+		if (strDevId.compare(sourceIter->strDevID.c_str()) == 0)
+		{
+			BOOL bExistFalg = FALSE;
+
+			for (desIter = desList.begin(); desIter != desList.end(); desIter++)
+			{
+				if (strDevId.compare(desIter->strDevID.c_str()) == 0)
+				{
+					bExistFalg = TRUE;
+					sourceList.erase(sourceIter++);
+					sourceIter = sourceList.begin();
+					break;
+				}
+			}
+
+			if (!bExistFalg)
+			{
+				desList.push_back(*sourceIter);
+				sourceList.erase(sourceIter++);
+				sourceIter = sourceList.begin(); 
+			}
+			break;
+		}
+	}
+}
+
+void CRemovableStorageMana::WmiGetDiskDriverInfo(IN DEVBASICVECTOR all_DiskDriver_Dev, OUT ALL_USB_STORAGE_DEV_MAP& all_usb_storage_dev_map)
+{
+	CString cstrClassName = L"Win32_DiskDrive";
+	CString cstrClassMember[2] = {L"MediaType", L"PNPDeviceID"};
+	CString cstrRetValue[MAX_DISKDRIVER_NUM][MAX_COLUMN_INFO] = {0};
+	int iOutNum = 0;
+	CWmiClass wmiClass;
+
+	wmiClass.InitWmi();
+	wmiClass.GetGroupItemInfo(cstrClassName, cstrClassMember, 2, cstrRetValue, iOutNum);
+	wmiClass.ReleaseWmi();
+
+	for (int i = 0; i < iOutNum; i++)
+	{
+		//External hard disk media(移动硬盘);
+		if (_wcsnicmp(cstrRetValue[i][0].GetBuffer(), L"External hard disk media", wcslen(L"External hard disk media")) == 0)
+		{
+			DistinUsbDiskType(cstrRetValue[i][1].GetBuffer(), all_DiskDriver_Dev, all_usb_storage_dev_map[0]);
+		}
+
+		//Removable Media（U盘等）
+		else if (_wcsnicmp(cstrRetValue[i][0].GetBuffer(), L"Removable Media", wcslen(L"Removable Media")) == 0)
+		{
+			DistinUsbDiskType(cstrRetValue[i][1].GetBuffer(), all_DiskDriver_Dev, all_usb_storage_dev_map[1]);
+		}
+	}
+}
+
+void CRemovableStorageMana::ClearUsbDevBuf(OUT ALL_USB_STORAGE_DEV_MAP& all_usb_storage_dev_map)  
+{  
+	for (int i = 0; i < MAX_USB_DEV_CLASS_NUM; i++)
+	{
+		all_usb_storage_dev_map[i].swap(DEVBASICVECTOR()) ;
+		all_usb_storage_dev_map[i].clear();
+	}
+
+	all_usb_storage_dev_map.clear();
+}  
+
+void CRemovableStorageMana::ShowOneUsbClassDev(IN const wchar_t* pwPrintString, IN vector<DEVBASICINFO>&devBasicInfo)
+{
+	if (devBasicInfo.size() > 0)
+	{
+		vector<DEVBASICINFO>::iterator iter;
+
+		OutputDebugString(pwPrintString);
+		OutputDebugString(L"\n");
+
+		for (iter = devBasicInfo.begin(); iter != devBasicInfo.end(); iter++)
+		{
+			if(iter->strDevID.length() > 3)
+			{
+				string strPrin = "";
+
+				strPrin = "设备ID: ";
+				strPrin += iter->strDevID;
+
+				OutputDebugStringA(strPrin.c_str());
+
+				strPrin = "类描述: ";
+				strPrin += iter->strClassDesc;
+				OutputDebugStringA(strPrin.c_str());
+
+				strPrin = "设备名称: ";
+				strPrin += iter->strDevDesc;
+				OutputDebugStringA(strPrin.c_str());
+
+				strPrin = "生产厂商: ";
+				strPrin += iter->strManufacturer;
+				OutputDebugStringA(strPrin.c_str());
+				OutputDebugString(L"\n");
+			}
+		}
+		OutputDebugString(L"\n\n");
+	}
+}
+
+void CRemovableStorageMana::ShowUsbStorageDev(IN ALL_USB_STORAGE_DEV_MAP all_usb_storage_dev_map)
+{
+	OutputDebugStringA("**************************USB存储设备信息****************************");
+
+	for (int i = 0; i < MAX_USB_DEV_CLASS_NUM; i++)
+	{
+		ShowOneUsbClassDev(pUsbStorageDeShowName[i], all_usb_storage_dev_map[i]);
+	}
+
+	OutputDebugStringA("****************************************************************");
+	OutputDebugStringA("\n\n\n");
+
+}
+
+void GetAllUSBStorageDevInfo(OUT int* piUSBStorageDevDevNum)  
+{  
+	CRemovableStorageMana removableStorageMana;
+	DEVBASICVECTOR all_DiskDriver_Dev;
+	ALL_USB_STORAGE_DEV_MAP all_usb_storage_dev_map;
+
+	removableStorageMana.EnumRemovableStorageDev(all_DiskDriver_Dev);
+	removableStorageMana.WmiGetDiskDriverInfo(all_DiskDriver_Dev, all_usb_storage_dev_map);
+	removableStorageMana.ShowUsbStorageDev(all_usb_storage_dev_map);
+
+	*piUSBStorageDevDevNum = 0;
+	for (int i = 0; i < MAX_USB_DEV_CLASS_NUM; i++)
+	{
+		*piUSBStorageDevDevNum += all_usb_storage_dev_map[i].size();
+	}
+
+	removableStorageMana.ClearUsbDevBuf(all_usb_storage_dev_map);
+}  
+
+void EnableAllUsbPolicyDev(IN vector<std::string>&enableDevList)
+{
+	CRemovableStorageMana removableStorageMana;
+
+	removableStorageMana.EnableDev(enableDevList);
+}
+
+void DisableAllUSbPolicyDev(IN vector<std::string>&disableDevList)
+{
+	CRemovableStorageMana removableStorageMana;
+
+	removableStorageMana.DisableDev(disableDevList);
+}

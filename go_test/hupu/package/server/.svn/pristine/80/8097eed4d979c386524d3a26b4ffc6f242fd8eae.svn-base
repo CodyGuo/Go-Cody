@@ -1,0 +1,438 @@
+#include "StdAfx.h"
+#include "SafeCheckServices.h"
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+
+
+SafeCheckServices::SafeCheckServices(void):m_svCnt(0),
+	m_svInfo(NULL),
+	m_failsvnum(0),
+	m_failsvInfo(NULL)
+{
+	
+}
+
+SafeCheckServices::~SafeCheckServices(void)
+{ 
+    if (m_svInfo!=NULL)
+    {
+		delete[] m_svInfo;
+		m_svInfo=NULL;
+    }
+	if (m_failsvInfo!=NULL)
+	{
+		delete[] m_failsvInfo;
+		m_failsvInfo=NULL;
+	}
+}
+
+///////2???êy?Y
+int SafeCheckServices::GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday)
+{
+	int ret=SQLITE_OK;
+    if (HP_openDB(dirpath)==HP_DB_OPENFAIL)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE,MODULE_SERVICE,LOGLOCATION,"打开数据库失败");
+        return HP_DB_OPENFAIL;
+    }
+	else
+	{
+		DeleteData();
+		//??è?processêy?Y
+		char sql[HP_C_SQLDATA]={'0'}; 
+		char sqlReal[HP_C_SQLDATA]={'0'};
+		char **pszResult='\0';
+		CHAR *szErrMsg='\0';
+		INT nRow = 0;
+		INT nCloumn = 0;
+
+        sprintf_s(sql,HP_C_SQLDATA,"SELECT %s,servername,displayname  FROM\
+                           (SELECT * FROM tstgservice a, tstgservicecontent b WHERE (a.ipolicyauthid=b.ipolicyauthid) and (a.iuserid=%d) AND \
+						   (usertype=\'%s\') AND (dstartdate<=\'%s\') AND (denddate>=\'%s\') AND (%ld>a.sstarttime) AND (%ld<a.sendtime) \
+						   AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority DESC) AS tb  GROUP BY tb.servername ORDER BY ipriority DESC ", 
+                           HP_ATTRIBUTE_SQLNAME,atoi(userid),usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));
+
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"查询服务的sql语句",sql);
+		Convert(sql,sqlReal,sizeof(sqlReal),CP_ACP,CP_UTF8);
+		//EnterCriticalSection(&g_opdbcs);
+		if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+		{
+			//LeaveCriticalSection(&g_opdbcs);
+			sqlite3_free_table(pszResult);
+			ret = sqlite3_close(g_db);
+			g_db=NULL;
+			return HP_DB_GETTABLEFAIL;
+		}
+
+		if ((nRow>0) && (nCloumn>0))
+		{	
+			m_svCnt = nRow;
+			m_svInfo = new XMLSERVICECONTENT[nRow];
+			memset(m_svInfo,0,sizeof(XMLSERVICECONTENT));
+			for (int i=0;i<nRow;i++)
+			{
+				for (int j=0;j<nCloumn;j++)
+				{
+				 if(strcmp(pszResult[j],"spolicyaction")==0)
+				 {					  
+                        memset(m_svInfo[i].attriinfo.spolicyaction,0,sizeof(m_svInfo[i].attriinfo.spolicyaction));
+						Convert(pszResult[(i+1)*nCloumn+j],m_svInfo[i].attriinfo.spolicyaction,sizeof(m_svInfo[i].attriinfo.spolicyaction),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"ipriority")==0)
+					{
+                        memset(m_svInfo[i].attriinfo.ipriority,0,sizeof(m_svInfo[i].attriinfo.ipriority));
+						Convert(pszResult[(i+1)*nCloumn+j],m_svInfo[i].attriinfo.ipriority,sizeof(m_svInfo[i].attriinfo.ipriority),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"spromptinfo")==0)
+					{
+                         memset(m_svInfo[i].attriinfo.spromptinfo,0,sizeof(m_svInfo[i].attriinfo.spromptinfo));
+						Convert(pszResult[(i+1)*nCloumn+j],m_svInfo[i].attriinfo.spromptinfo,sizeof(m_svInfo[i].attriinfo.spromptinfo),CP_UTF8,CP_ACP);					
+					}
+                    else if(strcmp(pszResult[j],"warningcont")==0)
+					{
+                        memset(m_svInfo[i].attriinfo.warningcont,0,sizeof(m_svInfo[i].attriinfo.warningcont));
+                        Convert(pszResult[(i+1)*nCloumn+j],m_svInfo[i].attriinfo.warningcont,sizeof(m_svInfo[i].attriinfo.warningcont),CP_UTF8,CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j],"warninglevel")==0)
+					{
+                        memset(m_svInfo[i].attriinfo.warninglevel,0,sizeof(m_svInfo[i].attriinfo.warninglevel));
+                        Convert(pszResult[(i+1)*nCloumn+j],m_svInfo[i].attriinfo.warninglevel,sizeof(m_svInfo[i].attriinfo.warninglevel),CP_UTF8,CP_ACP);					
+                    }	
+                    else if (strcmp(pszResult[j],"srcevent")==0)
+                    {
+                        memset(m_svInfo[i].attriinfo.srcevent,0,sizeof(m_svInfo[i].attriinfo.srcevent));
+                        Convert(pszResult[(i+1)*nCloumn+j],m_svInfo[i].attriinfo.srcevent,sizeof(m_svInfo[i].attriinfo.srcevent),CP_UTF8,CP_ACP);	
+                    }
+					else if(strcmp(pszResult[j],"displayname")==0)
+					{
+						memset(m_svInfo[i].Displayname,0,sizeof(m_svInfo[i].Displayname));
+						Convert(pszResult[(i+1)*nCloumn+j],m_svInfo[i].Displayname,sizeof(m_svInfo[i].Displayname),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"servername")==0)
+					{
+						memset(m_svInfo[i].servicename,0,sizeof(m_svInfo[i].servicename));
+						Convert(pszResult[(i+1)*nCloumn+j],m_svInfo[i].servicename,sizeof(m_svInfo[i].servicename),CP_UTF8,CP_ACP);					
+					}		
+				}
+			}
+		}
+		sqlite3_free_table(pszResult);
+		//LeaveCriticalSection(&g_opdbcs);
+	}
+	return HP_SUCCESS;
+}
+
+string SafeCheckServices::ExecSvItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess)
+{
+	char tempheader[512]={"0"};
+
+	sprintf_s(  tempheader,
+                512,
+                "%s;%s;%d;%d;1;%d;%s;",
+                servertime,
+                g_deviceid.c_str(),
+                totalitem,
+                curritem,
+                nextitem,
+                mac);
+
+	string  Sendtmpheader = tempheader;
+
+	string xmlstring;
+	char *Info= new char[MAX_PATH*2*m_svCnt+1]();
+
+    memset(Info,0,MAX_PATH*2*m_svCnt+1);
+
+	bool bIsSucces = true;
+
+	if (m_svCnt>0)
+	{
+		m_failsvInfo = new XMLSERVICECONTENT[m_svCnt];
+		memset(m_failsvInfo,0,sizeof(XMLSERVICECONTENT));
+		for(int m=0;m<m_svCnt;m++)
+		{
+			int Res = GetServerState(m_svInfo[m].servicename);
+			if (Res==-1)
+			{
+				if (atoi(m_svInfo[m].attriinfo.spolicyaction)== ALLOW)
+				{
+					m_failsvInfo[m_failsvnum]=m_svInfo[m];
+					sprintf_s(Info,MAX_PATH*2*m_svCnt+1,
+                        "%s<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"没有该服务或者服务%s处于异常状态\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%d\"/>",
+						Info,m_failsvnum,m_svInfo[m].attriinfo.spolicyaction,m_svInfo[m].servicename,m_svInfo[m].servicename,m_svInfo[m].attriinfo.warningcont,m_svInfo[m].attriinfo.warninglevel,atoi(m_svInfo[m].attriinfo.srcevent));
+					bIsSucces = false;
+					m_failsvnum++;
+				}
+			}
+			else if (Res==1)
+			{
+				if (atoi(m_svInfo[m].attriinfo.spolicyaction)== REFUSE)
+				{
+					m_failsvInfo[m_failsvnum] = m_svInfo[m];
+					sprintf_s(Info,MAX_PATH*2*m_svCnt+1,
+                        "%s<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"服务处于%s开启状态\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%d\"/>",
+						Info,m_failsvnum,m_svInfo[m].attriinfo.spolicyaction,m_svInfo[m].servicename,m_svInfo[m].servicename,m_svInfo[m].attriinfo.warningcont,m_svInfo[m].attriinfo.warninglevel,atoi(m_svInfo[m].attriinfo.srcevent));
+					bIsSucces = false;
+					m_failsvnum++;
+				}
+			}
+			else
+			{
+				if (atoi(m_svInfo[m].attriinfo.spolicyaction)== ALLOW)
+				{
+					m_failsvInfo[m_failsvnum]=m_svInfo[m];
+					sprintf_s(Info,MAX_PATH*2*m_svCnt+1,
+                        "%s<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"服务处于%s关闭状态\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%d\"/>",
+						Info,m_failsvnum,m_svInfo[m].attriinfo.spolicyaction,m_svInfo[m].servicename,m_svInfo[m].servicename,m_svInfo[m].attriinfo.warningcont,m_svInfo[m].attriinfo.warninglevel,atoi(m_svInfo[m].attriinfo.srcevent));
+					bIsSucces = false;
+					m_failsvnum++;
+				}
+			}
+		}
+	}
+	if(bIsSucces)
+	{
+		IsSuccess[SERVICES] = HP_SUCCESS;
+
+		char processbody[MAX_PATH]={0};
+
+		string sendtmpheader =tempheader;
+
+		memcpy(processbody,"<iman succflag =\"1\"></iman>",strlen("<iman succflag =\"1\"></iman>"));
+
+		string sendprocessbody = processbody;
+		string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+		string  xmltail ="</nac>";
+
+		xmlstring = Sendtmpheader + xmlHeader + sendprocessbody + xmltail;
+	}
+	else
+	{
+		IsSuccess[SERVICES] = HP_SF_SAFECHECKFAIL;
+
+		char *sendprocess=new char[MAX_PATH*2*m_svCnt+MAX_PATH];
+
+		sprintf_s(sendprocess,MAX_PATH*m_svCnt+MAX_PATH,"<iman succflag =\"0\">%s</iman>",Info);
+
+		string SendProcessItem = sendprocess;
+		string Sendtmpheader =tempheader;
+		string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+		string  xmltail ="</nac>";
+
+		xmlstring = Sendtmpheader+xmlHeader+SendProcessItem+xmltail;
+		delete[] sendprocess;
+	}
+	delete[] Info;
+	return xmlstring;
+}
+
+int SafeCheckServices::RestoreFailItem(int index)
+{
+	int startindex = 0;
+	int endindex = m_failsvnum;
+	if ( INFINITE != index)
+	{
+		startindex =  index;
+		endindex = index+1;
+	}
+	for (int m=startindex;m<endindex;m++)
+	{
+		if (atoi(m_failsvInfo[m].attriinfo.spolicyaction) == ALLOW)
+		{
+			SetServerStart(m_failsvInfo[m].servicename);
+		}
+		else
+		{
+			SetSetverClose(m_failsvInfo[m].servicename);
+		}
+	}
+	return HP_SUCCESS;
+}
+
+void SafeCheckServices::DeleteData()
+{
+	 m_svCnt=0;
+	 if (m_svInfo!=NULL)
+	 {
+		 delete[] m_svInfo;
+		 m_svInfo=NULL;
+	 }
+	 m_failsvnum=0;
+	 if (m_failsvInfo!=NULL)
+	 {
+		 delete[] m_failsvInfo;
+		 m_failsvInfo=NULL;
+	 }
+}
+
+//?′DDoˉêy
+//-1:ê§°ü￡?0:·t??1?±?￡?1:·t???a??
+int SafeCheckServices::GetServerState(char*  servername)
+{
+	int stat=-1;
+	wchar_t sername[MAX_PATH]={0};
+	ConvertA2W(servername,sername,MAX_PATH);
+	SC_HANDLE hSC = ::OpenSCManager( NULL,NULL, GENERIC_EXECUTE);   
+	if( hSC == NULL)   
+	{   
+		return stat; 
+	}   
+	// ′ò?a·t???￡    
+	SC_HANDLE hSvc = ::OpenService( hSC, sername, SERVICE_START | SERVICE_QUERY_STATUS | SERVICE_STOP);   
+	if( hSvc == NULL)   
+	{   
+		::CloseServiceHandle( hSC);   
+		return stat;   
+	}   
+	// ??μ?·t??μ?×′ì?    
+	SERVICE_STATUS status;   
+	if( ::QueryServiceStatus( hSvc, &status) == FALSE)   
+	{   
+		// TRACE( "Get Service state error?￡");    
+		::CloseServiceHandle( hSvc);   
+		::CloseServiceHandle( hSC);   
+		return stat;   
+	}   
+	if(status.dwCurrentState == SERVICE_RUNNING ||
+	   status.dwCurrentState == SERVICE_START_PENDING)   
+	{   
+		::CloseServiceHandle( hSvc);   
+		::CloseServiceHandle( hSC);   
+		stat=1;
+		return stat;   
+	}   
+	else if(status.dwCurrentState == SERVICE_STOPPED)   
+	{   
+		::CloseServiceHandle( hSvc);   
+		::CloseServiceHandle( hSC);   
+		stat=0;
+		return stat;   
+	}   
+	::CloseServiceHandle( hSvc);   
+	::CloseServiceHandle( hSC);   
+	return  stat;
+}
+
+VOID SafeCheckServices::DoEnableSvc(wchar_t *servername)
+{
+	SC_HANDLE schSCManager;
+	SC_HANDLE schService;
+	schSCManager = OpenSCManager(NULL, NULL,SC_MANAGER_ALL_ACCESS);
+	if (NULL == schSCManager)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"OpenSCManager failed (%d)",GetLastError());
+		return;
+	}
+	// Get a handle to the service.
+	schService = OpenService(schSCManager, servername, SERVICE_CHANGE_CONFIG);  // need change config access
+	if (schService == NULL)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"OpenService failed (%d)",GetLastError());
+		CloseServiceHandle(schSCManager);
+		return;
+	}
+	// Change the service start type.
+	if (! ChangeServiceConfig(schService,SERVICE_NO_CHANGE,SERVICE_DEMAND_START,
+		SERVICE_NO_CHANGE,NULL,NULL,NULL,NULL,NULL,NULL,NULL) )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"ChangeServiceConfig failed (%d)",GetLastError());
+	}
+	else 
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"Service enabled successfully");
+	CloseServiceHandle(schService);
+	CloseServiceHandle(schSCManager);
+}
+
+VOID SafeCheckServices::DoDisableSvc(wchar_t *servername)
+{
+	SC_HANDLE schSCManager;
+	SC_HANDLE schService;
+	schSCManager = OpenSCManager(NULL, NULL,SC_MANAGER_ALL_ACCESS);
+	if (NULL == schSCManager)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"OpenSCManager failed (%d)",GetLastError());
+		return;
+	}
+	// Get a handle to the service.
+	schService = OpenService(schSCManager, servername, SERVICE_CHANGE_CONFIG);  // need change config access
+	if (schService == NULL)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"OpenService failed (%d)",GetLastError());
+		CloseServiceHandle(schSCManager);
+		return;
+	}
+	// Change the service start type.
+	if (! ChangeServiceConfig(schService,SERVICE_NO_CHANGE,SERVICE_DEMAND_START,
+		SERVICE_NO_CHANGE,NULL,NULL,NULL,NULL,NULL,NULL,NULL) )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"ChangeServiceConfig failed (%d)",GetLastError());
+	}
+	else 
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"Service enabled successfully");
+
+	CloseServiceHandle(schService);
+	CloseServiceHandle(schSCManager);
+}
+
+BOOL SafeCheckServices::SetServerStart(char* servername)
+{
+	wchar_t sername[MAX_PATH]={0};
+	ConvertA2W(servername,sername,MAX_PATH);
+	SC_HANDLE serviceHandle;
+	BOOLEAN success = FALSE;
+	serviceHandle = HPOpenService(sername, SERVICE_START);
+
+	if (serviceHandle)
+	{
+		DoEnableSvc(sername);
+		if (StartService(serviceHandle, 0, NULL))
+			success = TRUE;
+		CloseServiceHandle(serviceHandle);
+	}
+
+	if (!success)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,L"StartService Fail");
+	}
+	return success;
+}
+
+BOOL SafeCheckServices::SetSetverClose(char* servername)
+{
+	wchar_t sername[MAX_PATH]={0};
+	ConvertA2W(servername,sername,MAX_PATH);
+	SC_HANDLE serviceHandle;
+	BOOLEAN success = FALSE;
+
+	serviceHandle = HPOpenService(sername, SERVICE_STOP);
+
+	if (serviceHandle)
+	{
+		DoDisableSvc(sername);
+		SERVICE_STATUS serviceStatus;
+		if (ControlService(serviceHandle, SERVICE_CONTROL_STOP, &serviceStatus))
+			success = TRUE;
+		CloseServiceHandle(serviceHandle);
+	}
+	if (!success)
+	{
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,L"ControlService Fail");
+	}
+	return success;
+}
+
+SC_HANDLE SafeCheckServices::HPOpenService(__in PWSTR ServiceName, __in ACCESS_MASK DesiredAccess)
+{
+	SC_HANDLE scManagerHandle;
+	SC_HANDLE serviceHandle;
+
+	scManagerHandle = OpenSCManager(NULL, NULL, SC_MANAGER_CONNECT);
+
+	if (!scManagerHandle)
+		return NULL;
+
+	serviceHandle = OpenService(scManagerHandle, ServiceName, DesiredAccess);
+	CloseServiceHandle(scManagerHandle);
+
+	return serviceHandle;
+}

@@ -1,0 +1,46 @@
+#pragma once
+
+#include "Httpdownload.h"
+
+class CDownload 
+{
+public:
+	CDownload(char* pdownloadUrl,int iurlLen);
+	~CDownload();
+
+    BOOL StartDownLoad(char* pLocalPath,int ilocalPathLen);
+
+	//bCurrUser:TRUE表示使用当前用户权限执行进程,
+	//FALSE表示需要使用管理员权限执行程序
+    BOOL RunDownLoadFile(char* filepath,char* fileParam= NULL,bool bCurrUser = FALSE);
+
+	//使用createprocessasuser启动程序,
+	//bCurrUser:TRUE表示使用当前用户权限执行进程,
+	//FALSE表示需要使用管理员权限执行程序
+	BOOL ExecProgram(char* filepath,char* fileParam= NULL,bool bCurrUser= FALSE);
+
+private:
+     //解析URL
+    void ParseURL(CString URL,CString &host,CString &Port,CString &path,CString &filename);
+
+    //判断当前系统有几个盘符,选取可以将文件下载到本地的文件路径，成功返回HP_SUCCESS
+    int GetSuitableDownlaodPath(IN char* fileName,IN DWORD64  filesize,OUT char* downloadname,IN int downloadnamelen);
+
+    //获取文件大小及MD5值
+    BOOL GetFileSizeAndMd5Value(CHttpGet httpget,CString host,int Port,CString path,CString filename);
+
+	//
+
+    //比较文件
+    BOOL CompareFile(wchar_t *pFilePath);
+
+    CString m_Url;//下载文件的URL
+
+    DWORD64 m_ServFilesize;//服务器端下载文件的大小
+
+    CString m_ServFileMd5;//服务器端的MD5值
+
+	//当前用户是否有管理员权限
+	BOOL  IsUserAdminPrivilege();
+
+};

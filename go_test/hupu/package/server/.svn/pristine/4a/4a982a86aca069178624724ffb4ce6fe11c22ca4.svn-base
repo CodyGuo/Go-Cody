@@ -1,0 +1,287 @@
+#include "StdAfx.h"
+#include "ExeProcess.h"
+#include  "..\DebugInfo.h"
+#include "..\CommPub.h"
+#include "..\GlobalDate.h"
+#include "SafeCheckFuntion.h"
+#include "..\strconvert.h"
+#include "Download.h"
+
+
+ExeProcess::ExeProcess(void):m_procCnt(0),
+	m_failprocnum(0)
+{
+    InitData();
+}
+
+ExeProcess::~ExeProcess(void)
+{
+	InitData();
+}
+
+int ExeProcess::GetDataFromDB(wchar_t  *dirpath, char *userid,char* usertype, char *currdata, char *millisecond, char *weekday)
+{
+	//从数据库中查询总的策略项和当前要开始检查的策略项及所有的安检结果
+	int ret = SQLITE_OK;
+
+	if (HP_openDB(dirpath) == HP_DB_OPENFAIL)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE,MODULE_PROCESS,LOGLOCATION,"打开数据库失败");
+		return HP_DB_OPENFAIL;
+	}
+	else
+	{
+		InitData();
+
+		//获取process数据
+		char sql[HP_C_SQLDATA]={'0'}; 
+		char sqlReal[HP_C_SQLDATA]={'0'};
+		char **pszResult='\0';
+		CHAR *szErrMsg='\0';
+		INT nRow = 0;
+		INT nCloumn = 0;
+
+		sprintf_s(sql,HP_C_SQLDATA,"SELECT %s,sprocessname,sprocessdescribable,\
+						   srepairmethod,srepairpath,srepairparam FROM  (SELECT * FROM tstgprocess a, tstgprocesscontent b WHERE \
+						   (a.ipolicyauthid=b.ipolicyauthid) AND (a.iuserid=%d) AND (a.usertype = \'%s\')AND (a.dstartdate<=\'%s\') AND (a.denddate>=\'%s\') \
+						   AND (%ld>a.sstarttime) AND (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority DESC) AS tb  \
+						   GROUP BY tb.sprocessname ORDER BY ipriority ASC ",HP_ATTRIBUTE_SQLNAME,
+						   atoi(userid),usertype,currdata,currdata,atol(millisecond),atol(millisecond),atoi(weekday));	
+
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "查询进程策略的SQL语句:", sql);
+		Convert(sql, sqlReal, sizeof(sqlReal), CP_ACP, CP_UTF8);
+	//	EnterCriticalSection(&g_opdbcs);
+		if(SQLITE_OK!=(ret = sqlite3_get_table(g_db, sqlReal, &pszResult, &nRow, &nCloumn, &szErrMsg)))
+		{
+		//	LeaveCriticalSection(&g_opdbcs);
+			sqlite3_free_table(pszResult);
+			ret = sqlite3_close(g_db);
+			g_db = NULL;
+			return HP_DB_GETTABLEFAIL;
+		}
+		if ((nRow > 0) && (nCloumn > 0))
+		{	
+			m_procCnt = nRow;
+
+			for (int i=0;i<nRow;i++)
+			{
+				PROCESSINFO procinfo;
+				memset(&procinfo,0,sizeof(PROCESSINFO));
+
+				for (int j=0; j < nCloumn; j++)
+				{
+					if(strcmp(pszResult[j], "ipriority")==0)
+					{			
+						memset(procinfo.attriinfo.ipriority, 0, sizeof(procinfo.attriinfo.ipriority));
+						Convert(pszResult[(i+1)*nCloumn+j], procinfo.attriinfo.ipriority, sizeof(procinfo.attriinfo.ipriority),CP_UTF8, CP_ACP);					
+					}
+					else if(strcmp(pszResult[j], "spolicyaction")==0)
+					{			
+						memset(procinfo.attriinfo.spolicyaction,0,sizeof(procinfo.attriinfo.spolicyaction));
+						Convert(pszResult[(i+1)*nCloumn+j],procinfo.attriinfo.spolicyaction,sizeof(procinfo.attriinfo.spolicyaction),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j], "spromptinfo")==0)
+					{
+						memset(procinfo.attriinfo.spromptinfo,0,sizeof(procinfo.attriinfo.spromptinfo));
+						Convert(pszResult[(i+1)*nCloumn+j],procinfo.attriinfo.spromptinfo,sizeof(procinfo.attriinfo.spromptinfo),CP_UTF8,CP_ACP);					
+					}
+					else  if(strcmp(pszResult[j], "warningcont")==0)
+					{
+						memset(procinfo.attriinfo.warningcont,0,sizeof(procinfo.attriinfo.warningcont));
+						Convert(pszResult[(i+1)*nCloumn+j],procinfo.attriinfo.warningcont,sizeof(procinfo.attriinfo.warningcont),CP_UTF8,CP_ACP);					
+					}	
+					else  if(strcmp(pszResult[j],"warninglevel")==0)
+					{
+						memset(procinfo.attriinfo.warninglevel,0,sizeof(procinfo.attriinfo.warninglevel));
+						Convert(pszResult[(i+1)*nCloumn+j],procinfo.attriinfo.warninglevel,sizeof(procinfo.attriinfo.warninglevel),CP_UTF8,CP_ACP);					
+					}	
+					else  if(strcmp(pszResult[j],"srcevent")==0)
+					{
+						memset(procinfo.attriinfo.srcevent,0,sizeof(procinfo.attriinfo.srcevent));
+						Convert(pszResult[(i+1)*nCloumn+j],procinfo.attriinfo.srcevent,sizeof(procinfo.attriinfo.srcevent),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"sprocessdescribable")==0)
+					{
+						memset(procinfo.sprocessdescribable,0,sizeof(procinfo.sprocessdescribable));
+						Convert(pszResult[(i+1)*nCloumn+j],procinfo.sprocessdescribable,sizeof(procinfo.sprocessdescribable),CP_UTF8,CP_ACP);					
+					}
+					else if(strcmp(pszResult[j],"sprocessname")==0)
+					{
+						memset(procinfo.sprocessname,0,sizeof(procinfo.sprocessname));
+						Convert(pszResult[(i+1)*nCloumn+j], procinfo.sprocessname,sizeof(procinfo.sprocessname),CP_UTF8,CP_ACP);					
+					}
+
+					else if(strcmp(pszResult[j],"srepairmethod")==0)
+					{
+						memset(procinfo.srepairmethod,0,sizeof(procinfo.srepairmethod));
+						Convert(pszResult[(i+1)*nCloumn+j],procinfo.srepairmethod,sizeof(procinfo.srepairmethod),CP_UTF8,CP_ACP);					
+					}				
+					else if(strcmp(pszResult[j],"srepairparam")==0)
+					{
+						memset(procinfo.srepairparam,0,sizeof(procinfo.srepairparam));
+						Convert(pszResult[(i+1)*nCloumn+j],procinfo.srepairparam,sizeof(procinfo.srepairparam),CP_UTF8,CP_ACP);					
+					}	
+					else if(strcmp(pszResult[j],"srepairpath")==0)
+					{
+						memset(procinfo.srepairpath, 0, sizeof(procinfo.srepairpath));
+						Convert(pszResult[(i+1)*nCloumn+j], procinfo.srepairpath, sizeof(procinfo.srepairpath), CP_UTF8, CP_ACP);					
+					}	
+				}//for (int j=0; j < nCloumn; j++)
+
+				m_procInfo.push_back(procinfo);
+
+			}//for (int i=0;i<nRow;i++)
+		}//if ((nRow > 0) && (nCloumn > 0))
+
+		sqlite3_free_table(pszResult);
+	//	LeaveCriticalSection(&g_opdbcs);
+	}
+	return HP_SUCCESS;
+}
+
+string ExeProcess::ExecProcessItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsProcessSuccess)
+{
+	char tempheader[512]={"0"};
+	sprintf_s(tempheader,512,"%s;%s;%d;%d;1;%d;%s;", servertime, g_deviceid.c_str(), totalitem, curritem, nextitem, mac);
+	//拼接向服务器发送的xml
+	string xmlstring;
+	char *ProcessInfo= new char[MAX_PATH*2*m_procCnt+1]();
+	memset(ProcessInfo,0,MAX_PATH*2*m_procCnt+1);
+	bool bIsSucces = true;
+	if (m_procCnt>0)
+	{
+		list<PROCESSINFO>::iterator  prociter;
+
+		for (prociter = m_procInfo.begin( ); prociter != m_procInfo.end( );  )
+		{
+			PROCESSINFO   proctmp = *prociter;
+			if(HP_PROCESS_NOTHISPROC == IsProcessExec(proctmp.sprocessname))
+			{
+				if(atoi(proctmp.attriinfo.spolicyaction) == ALLOW )//////策略是需要该进程运行,
+				{
+					m_failprocInfo.push_back(proctmp);
+					bIsSucces= false;
+					sprintf_s(ProcessInfo, MAX_PATH*2*m_procCnt+1,
+						"%s<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"进程%s没有运行\" name=\"%s\" swarnname=\"%s\"  iwarnlevel=\"%s\"  ilogrecord=\"%d\"/>",
+						ProcessInfo,m_failprocnum,proctmp.attriinfo.spolicyaction,proctmp.sprocessname,proctmp.sprocessname,proctmp.attriinfo.warningcont,
+						proctmp.attriinfo.warninglevel,atoi(proctmp.attriinfo.srcevent));
+					m_failprocnum++;
+				}
+			}
+			else
+			{
+				if(HP_SUCCESS == IsProcessExec(proctmp.sprocessname))
+				{
+					if(atoi(proctmp.attriinfo.spolicyaction) == REFUSE )//////策略是需要该进程禁止运行, 但现在该程序是运行的
+					{
+						m_failprocInfo.push_back(proctmp);
+						bIsSucces= false;
+						sprintf_s(ProcessInfo,
+							MAX_PATH*2*m_procCnt+1,
+							"%s<subitem checkItemId=\"%d\" checkItemAction=\"%s\" faildes=\"进程%s需要禁止\" name=\"%s\" swarnname=\"%s\"  iwarnlevel=\"%s\" ilogrecord=\"%d\"/>",
+							ProcessInfo,m_failprocnum,proctmp.attriinfo.spolicyaction,proctmp.sprocessname,proctmp.sprocessname,proctmp.attriinfo.warningcont,
+							proctmp.attriinfo.warninglevel,atoi(proctmp.attriinfo.srcevent));
+						m_failprocnum++;
+					}
+				}
+			}
+            m_procInfo.erase(prociter++);
+		}//for (prociter = m_procInfo.begin( ); prociter != m_procInfo.end( );  )
+	}
+
+	if(bIsSucces)
+	{
+		//*IsProcessSuccess = HP_SUCCESS;
+		IsProcessSuccess[PROCESS] = HP_SUCCESS;
+		
+		xmlstring = SendSingleItemSafeCheckSuccess(tempheader);
+	}
+	else
+	{
+		IsProcessSuccess[PROCESS] = HP_PROCESS_PROCINFOFAIL;
+
+		char *sendprocess=new char[MAX_PATH*2*m_procCnt+MAX_PATH];
+		//*IsProcessSuccess = HP_PROCESS_PROCINFOFAIL;
+		sprintf_s(sendprocess,MAX_PATH*2*m_procCnt+MAX_PATH,"<iman succflag =\"0\">%s</iman>",ProcessInfo);
+		string SendProcessItem = sendprocess;
+		string Sendtmpheader =tempheader;
+		string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+		string  xmltail ="</nac>";
+		xmlstring = Sendtmpheader+xmlHeader+SendProcessItem+xmltail;
+		delete[] sendprocess;
+	}
+	delete[] ProcessInfo;
+	return xmlstring;
+}
+
+int ExeProcess::RestoreFailItem(int index)
+{
+	if (m_failprocnum > 0)
+	{
+		if ( index == INFINITE )
+		{
+			list<PROCESSINFO>::iterator  failprociter;
+			for (failprociter = m_failprocInfo.begin( ); failprociter != m_failprocInfo.end( );  )
+			{
+				PROCESSINFO  failproctmp = *failprociter;
+
+				if ( atoi(failproctmp.attriinfo.spolicyaction) == 2 )
+				{
+					TerminateProcessByName((char*)failproctmp.sprocessname);
+				}
+				else
+				{
+					CDownload downloadfile(failproctmp.srepairpath,strlen(failproctmp.srepairpath));
+					char localfilepath[MAX_PATH] = {0};
+					downloadfile.StartDownLoad(localfilepath,sizeof(localfilepath));
+					downloadfile.RunDownLoadFile(localfilepath,failproctmp.srepairparam);
+				}
+				m_failprocInfo.erase(failprociter++);
+			}//for (failprociter = m_failprocInfo.begin( ); failprociter != m_failprocInfo.end( );  )
+		}
+		else
+		{
+			int failItemIndex = 0;
+			list<PROCESSINFO>::iterator  failprociter;
+			for (failprociter = m_failprocInfo.begin( ); failprociter != m_failprocInfo.end( );  ++failprociter)
+			{
+				if ( failItemIndex == index )
+				{
+					PROCESSINFO  failproctmp = *failprociter;
+					if ( atoi(failproctmp.attriinfo.spolicyaction) == 2 )
+					{
+						TerminateProcessByName((char*)failproctmp.sprocessname);
+					}
+					else
+					{
+						CDownload downloadfile(failproctmp.srepairpath,strlen(failproctmp.srepairpath));
+						char localfilepath[MAX_PATH] = {0};
+						downloadfile.StartDownLoad(localfilepath,sizeof(localfilepath));
+						downloadfile.RunDownLoadFile(localfilepath,failproctmp.srepairparam);
+					}
+					break;
+				}
+				failItemIndex++;
+			}//for (failprociter = m_failprocInfo.begin( ); failprociter != m_failprocInfo.end( );  )
+		}
+	} 
+    return TRUE;
+}
+
+void ExeProcess::InitData()
+{
+	 m_procCnt=0;
+	 m_failprocnum=0; 
+
+	 list<PROCESSINFO>::iterator  iter;
+	 for (iter = m_procInfo.begin( ); iter != m_procInfo.end( );  )
+	 {
+		 m_procInfo.erase(iter++);
+	 }
+
+	 list<PROCESSINFO>::iterator  failitemiter;
+	 for (failitemiter = m_failprocInfo.begin( ); failitemiter != m_failprocInfo.end( );  )
+	 {
+		 m_failprocInfo.erase(failitemiter++);
+	 }
+}

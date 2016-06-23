@@ -1,0 +1,145 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _COMMDATA_H_
+#define _COMMDATA_H_ 1
+
+#define MINI_BUF_LEN 64
+#define MIDDLE_BUF_LEN 128
+#define MAX_BUF_LEN 256 
+
+typedef enum CHECKEXISTFLAG
+{
+	CHECK_EXIST_FLAG = 1,
+	CHECK_NOT_EXIST_FLAG = 2,
+};
+
+typedef enum CHECKRUNNINGFLAG
+{
+	CHECK_RUNNING_FLAG = 1,
+	CHECK_NOT_RUNNING_FLAG = 2,
+};
+
+typedef enum  CHECKREGACTION
+{
+	LESS_OR_EQUAL = 1,
+	MORE_OR_EQUAL = 2,
+	EQUAL = 3,
+	NO_EQUAL = 4,
+	INCLUDED = 5,
+	NOT_INCLUDED = 6,
+};
+
+typedef enum CUSTOM_CHECK_METHOD
+{
+	FILE_EXIST_CHECK = 1,
+	FILE_SIZE_CHECK = 2,
+	FILE_MD5_CHECK = 3,
+	FILE_VERSION_CHECK = 4,
+
+	REGITEM_EXIST__CHECK = 5,
+	REGVALUE_EXIST_CHECK = 6,
+	REGVALUE_EQUAL_CHECK = 7,
+
+	PROCESS_EXIST_CHECK = 8,
+	PROCESS_INCLUDE_CHECK = 9,
+
+	PORT_EXIST_CHECK = 10,
+
+	SERVICES_EXIST_CHECK = 11,
+	SERVICES_STATUS_CHECK = 12,
+
+	CUSTOM_PROCESS_RETURN_CHECK = 13,
+	CUSTOM_PROCESS_OUTPUT_CHECK = 14,
+};
+
+//判断方式
+typedef enum CHECK_JUDGMENT_MODE
+{
+	//或关系
+	CHECK_OR_RELATIONSHIP= 0,
+
+	//与关系
+	CHECK_AND_RELATIONSHIP = 1,
+};
+
+//判断方式
+typedef enum CHECK_TRIGGER_MODE
+{
+	//触发合规
+	CHECK_TRIGGER_IN_RULES = 0,
+
+	//触发违规
+	CHECK_TRIGGER_VOILATION = 1,
+
+};
+
+//修复方式
+typedef enum CUSTOM_REPAIR_MODE
+{
+	SETUP_REPAIR_MODE= 1,
+	URL_REPAIR_MODE = 2,
+	SERVICE_STATUS_REPAIR_MODE= 3,
+	HANDLE_PROC_REPAIR_MODE = 4,
+	EXECU_LOCAL_FILE_REPAIR_MODE= 5,
+	DEL_LOCAL_FILE_REPAIR_MODE = 6,
+	SET_REG_REPAIR_MODE= 7,
+};
+
+typedef struct _CHECKITEM
+{
+	int iCheckMethod;
+	int iCheckConditions;
+	char szCheckConditionsInfo[MAX_BUF_LEN];
+	char szCheckDesc[MINI_BUF_LEN];
+	char szCheckName[MAX_BUF_LEN];
+	char szCheckValue[MINI_BUF_LEN];
+	char szCheckRet[MAX_BUF_LEN*2];
+	char szTrigrSucc[MAX_BUF_LEN*2];
+}CHECKITEM, *PCHECKITEM;
+
+typedef struct _REPAIRITEM
+{
+	int iRepairMethod;
+	char szRepairInfo[MAX_BUF_LEN];
+	char szRepairParam[MINI_BUF_LEN];
+	int iParamType;
+	char szRepairChange[MIDDLE_BUF_LEN];
+}REPAIRITEM, *PREPAIRITEM;
+
+typedef struct _FORITEM
+{
+	int iPolicyId;
+	int iEstimate;
+	int iTrigger;
+	int iIsFailed;
+	char szCustomName[MINI_BUF_LEN];
+	char szCustomDesc[MAX_BUF_LEN];
+	char szNormallDesc[MAX_BUF_LEN];
+	char szIllegalDesc[MAX_BUF_LEN];
+	std::list<CHECKITEM>checkItemList;
+	std::list<REPAIRITEM>repairItemList;
+
+}FORITEM, *PFORITEM;
+
+typedef struct _CHECKCUSTOMPOLICY
+{
+	safecheckattr attriinfo;
+	std::list<FORITEM> forItemList;
+}CHECKCUSTOMPOLICY, *PCHECKCUSTOMPOLICY;
+
+typedef BOOL (__stdcall *pFnWow64DisableWow64FsRedirection)(PVOID *OldValue);
+typedef BOOL (__stdcall *pFnWow64RevertWow64FsRedirection)(PVOID OldValue);
+
+typedef BOOL (__stdcall *pFnEnumProcessModulesEx)(__in   HANDLE hProcess,
+													__out  HMODULE *lphModule,
+													__in   DWORD cb,
+													__out  LPDWORD lpcbNeeded,
+													__in   DWORD dwFilterFlag);
+
+#endif

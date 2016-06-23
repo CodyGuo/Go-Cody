@@ -1,0 +1,57 @@
+#pragma once
+
+#include <string>
+#include "Global.h"
+#include "afxwin.h"
+#include <setupapi.h>
+#include <list>
+#include <vector>
+
+using namespace std;
+
+#include "../../common/GlobalData/DeviceGlobalData.h"
+
+typedef struct AuthInfo
+{
+	HWND hWnd ;
+	string strUsername;
+	string strPassword;
+	string strDevice;
+	u_char8 iLocalMac[6];
+	BOOL bConnect;
+
+}AuthInfo, *pAuthInfo;
+
+// CDlgNicSet dialog
+
+class CDlgNicSet : public CDialogEx
+{
+	DECLARE_DYNAMIC(CDlgNicSet)
+
+public:
+	CDlgNicSet(CWnd* pParent = NULL);   // standard constructor
+	virtual ~CDlgNicSet();
+
+// Dialog Data
+	enum { IDD = IDD_DLG_NICSET };
+
+protected:
+	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
+
+	DECLARE_MESSAGE_MAP()
+
+public:
+	virtual BOOL OnInitDialog();
+	afx_msg void OnSelchangeCmbNetcards();
+	void GetDeviceBasicInfo(IN HDEVINFO hDevInfo, IN PSP_DEVINFO_DATA pspDevInfoData, OUT DEVBASICVECTOR& devBasicInfo);
+	void EnumNicDev(OUT DEVBASICVECTOR&devNetVector);
+	void EnumNetWorkCard();
+	void GetTheNetCardMac(int i);
+
+	PIP_ADAPTER_INFO pAdapterInfo;
+	CComboBox m_cmbNicInfo;
+	AuthInfo m_AuthInfo;
+	CString m_cstrLocalMac;
+	CString cstrPostMsg;
+	int m_iSelectedCard;
+};

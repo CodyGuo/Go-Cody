@@ -1,0 +1,336 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#include "stdafx.h"
+#include "..\GetLangValue.h"
+#include "CheckDeskWallPaper.h"
+#include <shlobj.h>
+#include "..\GlobalDate.h"
+#include "..\DebugInfo.h"
+#include "Download.h"
+#include "..\GlobalFunction.h"
+#include "..\8021x\Hp8021x.h"
+
+#define WALL_PAPER_ERROR 2
+#define PAPER_STYLE_ERROR 3
+#define WALL_PAPER_AND_STYLE_ERROR 4
+
+WALLPAPERPOLICY g_wallPaperPolicy = {0};
+BOOL g_monitorWallPaperFlag = FALSE;
+
+/************************************************************ 
+ Description: 初始化桌面背景策略
+ input: pItemName[字段名]、pItemValue[字段值]、pWallPaperPolicy[背景策略]
+ Return: 
+*************************************************************/
+void InitWallpaperPolicy(IN char* pItemName, IN char* pItemValue, IN PWALLPAPERPOLICY pWallPaperPolicy)
+{
+	g_wallPaperPolicy.cstrWallPaperUrl = L"";
+	g_wallPaperPolicy.dwStyle = 6;
+	g_wallPaperPolicy.cstrWallPaperDownPath = L"";
+
+	if(strcmp(pItemName, "swallpaperurl")==0)
+	{
+		char chWallPaperFile[MAXBUFLEN] = {0};
+		wchar_t wchWallPaperFile[MAXBUFLEN] = {0};
+
+		Convert(pItemValue, chWallPaperFile, sizeof(chWallPaperFile), CP_UTF8, CP_ACP);					
+		ConvertA2W(chWallPaperFile, wchWallPaperFile, MAXBUFLEN);
+		pWallPaperPolicy->cstrWallPaperUrl = wchWallPaperFile;
+	}
+	else if(strcmp(pItemName, "idwstyle")==0)
+	{
+		pWallPaperPolicy->dwStyle = atoi(pItemValue);
+	}
+}
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input: 
+ Return: 
+*************************************************************/
+bool WallPaperRetShowMsg(IN int iCheckState, IN safecheckattr checkItem, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language)
+{
+    bool ret =true;
+
+    if (iCheckState > TRUE)
+    {
+		char strWallPaperName[MAX_BUF_LEN] = {0};
+		char strFalseMsg[MAX_BUF_LEN] = {0};
+
+		GetLangValueByKeyA(language, 
+			DESKWALL_APPNAME, 
+			pSfDeskWallKeyStr[SF_DESKWALL_NAME], 
+			pSfDeskWallKeyStr[SF_DESKWALL_NAME], 
+			strWallPaperName, 
+			MAX_BUF_LEN);
+
+		(*pFailNum)++;
+		ret = false;
+
+        if (iCheckState == WALL_PAPER_ERROR)
+        {
+			GetLangValueByKeyA(language, 
+				DESKWALL_APPNAME, 
+				pSfDeskWallKeyStr[SF_WALL_PAPER_FALSE], 
+				pSfDeskWallKeyStr[SF_WALL_PAPER_FALSE], 
+				strFalseMsg, 
+				MAX_BUF_LEN);
+
+            sprintf_s(  pMsgBuf, 
+                        msgBufLen,
+                        "<subitem checkItemId=\"0\" checkItemAction=\"%s\" faildes=\"%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+                        checkItem.spolicyaction,
+						strFalseMsg,
+						strWallPaperName,
+						checkItem.warningcont, 
+                        checkItem.warninglevel, 
+                        checkItem.srcevent);
+        }
+        else if (iCheckState == PAPER_STYLE_ERROR)
+        {
+			GetLangValueByKeyA(language, 
+				DESKWALL_APPNAME, 
+				pSfDeskWallKeyStr[SF_DESK_STYLE_FALSE], 
+				pSfDeskWallKeyStr[SF_DESK_STYLE_FALSE], 
+				strFalseMsg, 
+				MAX_BUF_LEN);
+
+            sprintf_s(  pMsgBuf, 
+                        msgBufLen,
+                        "<subitem checkItemId=\"0\" checkItemAction=\"%s\" faildes=\"%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+                         checkItem.spolicyaction,
+						 strFalseMsg,
+						 strWallPaperName,
+						checkItem.warningcont, 
+                        checkItem.warninglevel, 
+                        checkItem.srcevent);
+        }
+        else if (iCheckState == WALL_PAPER_AND_STYLE_ERROR)
+        {
+			GetLangValueByKeyA(language, 
+				DESKWALL_APPNAME, 
+				pSfDeskWallKeyStr[SF_DESKWALL_STYLE_FALSE], 
+				pSfDeskWallKeyStr[SF_DESKWALL_STYLE_FALSE], 
+				strFalseMsg, 
+				MAX_BUF_LEN);
+
+            sprintf_s(  pMsgBuf, 
+                        msgBufLen,
+                        "<subitem checkItemId=\"0\" checkItemAction=\"%s\" faildes=\"%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+                         checkItem.spolicyaction,
+						 strFalseMsg,
+						 strWallPaperName,
+						checkItem.warningcont, 
+                        checkItem.warninglevel, 
+                        checkItem.srcevent);
+        }
+    }
+
+    return ret;
+}
+
+BOOL RepairDeskWallPaper()
+{
+	BOOL bRet = FALSE;
+	string strParam = "";
+	char curPath[MAX_PATH] = {0};
+	DWORD dwExitCode = 0;
+
+	GetCurrentPath(curPath);
+	strParam = curPath;
+	strParam += "HpUninstall.exe /SetWallPaper";
+
+	CreateExePro(NULL, (char*)strParam.c_str(), SW_HIDE, INFINITE, &dwExitCode);
+	return bRet;
+}
+
+void ReadWallPaperInfoFile(CString& cstrCurWallPaperPath, DWORD& dwCurSetStyle)
+{
+	string  strLineBuf = "";
+	char windowsPath[MAX_PATH] = {0};
+	string strWallPaperFilePath = ""; 
+	string strReadBuf = ""; 
+	size_t stPos = string::npos;
+
+	GetWindowsDirectoryA(windowsPath, MAX_PATH);
+	strWallPaperFilePath = (string)windowsPath;
+	strWallPaperFilePath += "\\Temp\\GetWallPaper";
+
+	ifstream ifstr(strWallPaperFilePath.c_str());  
+
+	strReadBuf = "";
+
+	while (getline(ifstr, strLineBuf))
+	{    
+		strReadBuf += strLineBuf;
+	}
+
+	ifstr.clear();
+	ifstr.close();
+
+	//DeleteFileA(strWallPaperFilePath.c_str());
+
+	stPos = strReadBuf.find(";");
+
+	if (stPos != string::npos)
+	{
+		string strCurSetStyle = "";
+		wstring wstrWallPaperPath = L"";
+		string strWallPaperPath = strReadBuf.substr(0, stPos);
+
+		wstrWallPaperPath = AnsiToWChar(strWallPaperPath.c_str());
+		cstrCurWallPaperPath = (CString)wstrWallPaperPath.c_str();
+
+		strReadBuf = strReadBuf.substr(stPos+1, strReadBuf.length()-stPos-1);
+		stPos = strReadBuf.find(";");
+
+		if (stPos != string::npos)
+		{
+			strCurSetStyle = strReadBuf.substr(0, stPos);
+			dwCurSetStyle = atoi(strCurSetStyle.c_str());
+		}
+	}
+}
+
+int CheckDeskWallPaper(IN PWALLPAPERPOLICY pWallPaperPolicy, OUT int* pResult )
+ {
+	int bRet = FALSE;
+	CString cstrCurWallPaperPath = L"";
+	DWORD dwCurWallPaperStyle = 0;
+	wstring wstrWallPaperDownPath = L"";
+	string strWallPaperUrl = "";
+	string strParam = "";
+	char curPath[MAX_PATH] = {0};
+	char downLocalFilePath[MAX_PATH] = {0};
+	DWORD dwExitCode = 0;
+
+	*pResult = -1;
+	g_monitorWallPaperFlag = FALSE;
+
+	GetCurrentPath(curPath);
+	strParam = curPath;
+	strParam += "HpUninstall.exe /GetWallPaper"; 
+
+	if (pWallPaperPolicy->cstrWallPaperUrl.GetLength() > 0)
+	{
+		strWallPaperUrl = WCharToAnsi(pWallPaperPolicy->cstrWallPaperUrl.GetBuffer());
+
+		CDownload downloadfile((char *)strWallPaperUrl.c_str(), strWallPaperUrl.length());
+
+		downloadfile.StartDownLoad(downLocalFilePath, sizeof(downLocalFilePath));
+	}
+
+	if (CreateExePro(NULL, (char*)strParam.c_str(), SW_HIDE, INFINITE, &dwExitCode))
+	{
+		ReadWallPaperInfoFile(cstrCurWallPaperPath, dwCurWallPaperStyle);
+	}
+
+	wstrWallPaperDownPath = AnsiToWChar(downLocalFilePath);
+	pWallPaperPolicy->cstrWallPaperDownPath = (CString)wstrWallPaperDownPath.c_str();
+	g_wallPaperPolicy.cstrWallPaperDownPath = pWallPaperPolicy->cstrWallPaperDownPath;
+	g_wallPaperPolicy.cstrWallPaperUrl = pWallPaperPolicy->cstrWallPaperUrl;
+
+	if (g_osVer.dwMajorVersion < 6 && pWallPaperPolicy->dwStyle >= WPSTYLE_KEEPASPECT )
+	{
+		pWallPaperPolicy->dwStyle = WPSTYLE_STRETCH;
+	}
+
+	g_wallPaperPolicy.dwStyle = pWallPaperPolicy->dwStyle;
+
+#ifdef _DEBUG
+	CString cstrPrint = L"当前桌面背景路径：";
+	CString cstrStyle = L"";
+	string strPrin = "";
+
+	cstrPrint += cstrCurWallPaperPath;
+	cstrStyle.Format(L"\n当前样式 [%d]", dwCurWallPaperStyle );
+	cstrPrint +=  cstrStyle;
+	strPrin = WCharToAnsi(cstrPrint.GetBuffer());
+	//WriteDebugInfomation(LEVEL_DEBUG, MODULE_DESkWALLPAPER, LOGLOCATION, (char*)strPrin.c_str);
+	OutputDebugString(cstrPrint);
+
+	cstrPrint = L"设置桌面背景路径：";
+	cstrPrint += pWallPaperPolicy->cstrWallPaperDownPath;
+	cstrStyle.Format(L"\n设置样式 [%d]", pWallPaperPolicy->dwStyle);
+	cstrPrint +=  cstrStyle;
+	strPrin = WCharToAnsi(cstrPrint.GetBuffer());
+	//WriteDebugInfomation(LEVEL_DEBUG, MODULE_DESkWALLPAPER, LOGLOCATION, (char*)strPrin.c_str());
+	OutputDebugString(cstrPrint);
+
+#endif
+
+	if ((pWallPaperPolicy->cstrWallPaperUrl.GetLength() < 3 ||
+	     pWallPaperPolicy->cstrWallPaperDownPath.CompareNoCase(cstrCurWallPaperPath) == 0) && 
+		 dwCurWallPaperStyle == pWallPaperPolicy->dwStyle)
+	{
+		*pResult = TRUE;
+		bRet = TRUE;
+	}
+	else if ((pWallPaperPolicy->cstrWallPaperUrl.GetLength() > 3 && 
+		      pWallPaperPolicy->cstrWallPaperDownPath.CompareNoCase(cstrCurWallPaperPath) != 0) && 
+		      dwCurWallPaperStyle == pWallPaperPolicy->dwStyle)
+	{
+		*pResult = WALL_PAPER_ERROR;
+	}
+	else if ((pWallPaperPolicy->cstrWallPaperUrl.GetLength() < 3 || 
+			  pWallPaperPolicy->cstrWallPaperDownPath.CompareNoCase(cstrCurWallPaperPath) == 0) && 
+		      dwCurWallPaperStyle != pWallPaperPolicy->dwStyle)
+	{
+		*pResult = PAPER_STYLE_ERROR;
+	}
+	else if ((pWallPaperPolicy->cstrWallPaperUrl.GetLength() > 3 && 
+			  pWallPaperPolicy->cstrWallPaperDownPath.CompareNoCase(cstrCurWallPaperPath) != 0) && 
+		      dwCurWallPaperStyle != pWallPaperPolicy->dwStyle)
+	{
+		*pResult = WALL_PAPER_AND_STYLE_ERROR;
+	}
+
+	if (*pResult > TRUE)
+	{
+		string strWallPaperFilePath = "";
+		string strWriteBuf = "";
+		FILE *pfile = NULL;
+		errno_t err = 0;
+
+		strWallPaperFilePath = (string)curPath;
+		strWallPaperFilePath += (string)"\\SetWallPaper";
+
+		strWriteBuf = WCharToAnsi(pWallPaperPolicy->cstrWallPaperDownPath.GetBuffer());
+		strWriteBuf += ";";
+		strWriteBuf += std::to_string((_Longlong)pWallPaperPolicy->dwStyle);
+		strWriteBuf += ";";
+
+		if (strWriteBuf.length() > 0)
+		{
+			if ( err = fopen_s(&pfile, strWallPaperFilePath.c_str(), "w+") == 0)
+			{
+				fwrite(strWriteBuf.c_str(), sizeof(CHAR), strWriteBuf.length(), pfile);
+				fclose(pfile);
+				pfile = NULL;
+			}
+		}
+	}
+
+	g_monitorWallPaperFlag = TRUE;
+
+	return bRet;
+}
+
+void MonitorWallPaper()
+{
+	if (g_monitorWallPaperFlag && g_wallPaperPolicy.dwStyle <= WPSTYLE_CROPTOFIT)
+	{
+		int bRet = -1;
+
+		CheckDeskWallPaper(&g_wallPaperPolicy, &bRet);
+		if (bRet > TRUE)
+		{
+			RepairDeskWallPaper();
+		}
+	}
+}

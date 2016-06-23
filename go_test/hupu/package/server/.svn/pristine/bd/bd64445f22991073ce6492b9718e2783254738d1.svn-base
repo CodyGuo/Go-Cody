@@ -1,0 +1,205 @@
+
+#include "StdAfx.h"
+#include "SnifferClass.h"
+#include "SocketComm.h"
+#include "TransProtocal.h"
+
+
+
+CSnifferClass::CSnifferClass(void)
+{
+	memset(FServiceIp,0,sizeof(FServiceIp));
+	memset(FOldToken,0,sizeof(FOldToken));
+
+}
+
+
+CSnifferClass::~CSnifferClass(void)
+{
+}
+
+void CSnifferClass::InitParam(wchar_t *serviceIp,fnDataCallBackFunc callbackfn)
+{
+	sprintf(FServiceIp,"%s",serviceIp);
+	WideCharToMultiByte(CP_ACP,0,serviceIp,-1,FServiceIp,sizeof(FServiceIp),NULL,NULL);
+	FClose = false;
+	FCbFn = callbackfn;
+}
+
+void CSnifferClass::SetClose(bool bFlag)
+{
+   FClose = bFlag;
+}
+
+void CSnifferClass::execute()
+{
+    SnifferData();
+}
+
+void CSnifferClass::SnifferData()
+{
+	string ttoken="";
+	list<string> lstoken;
+	list<string>::iterator lstokeniter;
+
+    SOCKET sock;
+	WSADATA wsd;
+	DWORD dwBytesRet;
+	unsigned int optval = 1;
+	unsigned char *dataudp,*datatcp;
+	int i,pCount=0,lentcp, lenudp;
+	SOCKADDR_IN sa,saSource, saDest;
+	struct hostent FAR * pHostent;
+	char FAR name[MAX_HOSTNAME_LAN];
+	char szSourceIP[MAX_ADDR_LEN], szDestIP[MAX_ADDR_LEN],RecvBuf[65535] = {0};
+	struct udphdr *pUdpheader;
+	struct ipheader *pIpheader;
+	struct tcpheader *pTcpheader;
+
+	WSAStartup(MAKEWORD(2,1),&wsd);
+	if ((sock = socket(AF_INET, SOCK_RAW, IPPROTO_IP))==SOCKET_ERROR)
+	{
+		closesocket(sock);
+		exit(1);
+	};
+	struct in_addr SourceIpAddr;
+    struct in_addr DesIpAddr;
+	int Res=GetCurrentUsingIp(&DesIpAddr,&SourceIpAddr);
+	if (Res == 0) 
+	{  
+	   sa.sin_family = AF_INET;
+	   sa.sin_port = htons(6000);
+	   memcpy(&sa.sin_addr.S_un.S_addr, &SourceIpAddr, 4);
+	   bind(sock, (SOCKADDR *)&sa, sizeof(sa));				/*bind()设定自己主机的IP地址和端口号*/
+	   if ((WSAGetLastError())==10013)
+	   { 
+		  closesocket(sock);
+		  exit(1);
+	   };
+	}
+	else
+	{
+		closesocket(sock);
+		exit(1);
+	}
+	
+	WSAIoctl(sock, SIO_RCVALL, &optval, sizeof(optval), NULL, 0, &dwBytesRet, NULL, NULL);
+	pIpheader = (struct ipheader *)RecvBuf;
+	pTcpheader = (struct tcpheader *)(RecvBuf+ sizeof(struct ipheader ));
+	pUdpheader = (struct udphdr *) (RecvBuf+ sizeof(struct ipheader ));
+	
+	while (1){
+		if (FClose==true) 
+		  break;
+		memset(RecvBuf, 0, sizeof(RecvBuf));
+		recv(sock, RecvBuf, sizeof(RecvBuf), 0);
+		saSource.sin_addr.s_addr = pIpheader->ip_src;
+		strncpy(szSourceIP, inet_ntoa(saSource.sin_addr), MAX_ADDR_LEN);
+		saDest.sin_addr.s_addr = pIpheader->ip_dst;
+		strncpy(szDestIP, inet_ntoa(saDest.sin_addr), MAX_ADDR_LEN);
+		lentcp =(ntohs(pIpheader->ip_len)-(sizeof(struct ipheader)+sizeof(struct tcpheader))); 
+		lenudp =(ntohs(pIpheader->ip_len)-(sizeof(struct ipheader)+sizeof(struct udphdr))); 
+		
+		if((pIpheader->ip_p)==IPPROTO_TCP&&lentcp!=0)
+		{
+			if (strcmp(szDestIP,FServiceIp)==0)
+			{
+				pCount++; 
+				datatcp=(unsigned char *) RecvBuf+sizeof(struct ipheader)+sizeof(struct tcpheader);	
+				
+				if (lentcp>4096) 
+				{
+					continue;
+				}
+				char datastr[4096]={0};
+			   // char *datastr= new char[lentcp+1];
+			    memset(datastr,0,lentcp+1);
+				for (i=0;i<lentcp;i++)
+				{
+					datastr[i] = toupper(*(datatcp+i));                   
+				}
+				datastr[lentcp] = '\0';
+				string data = datastr;
+				int Pos = data.find("HUPUNACTOKEN=",0);
+				int namelen = strlen("HUPUNACTOKEN=");
+				if((Pos!=string::npos)&&(data.size()-Pos-namelen>36))
+				{
+					string tokenstr = data.substr(Pos+namelen,36);
+					bool bflag;
+					bflag = BoolRepLs(lstoken,tokenstr.data());
+					if (bflag==false)
+					{
+						FCbFn(10055,(char*)tokenstr.data(),36);
+						ttoken = tokenstr;							
+						lstoken.push_back(tokenstr);
+					}
+				}
+				//delete[] datastr;
+				//char *tokenResult = '\0';
+				//tokenResult = strstr(datastr,"HUPUNACTOKEN=");
+    //            if (tokenResult)
+				//{
+				//	int len=strlen(tokenResult);				
+				//	if (len>49)
+				//	{
+				//		char *newItem= new char[37];
+				//		memset(newItem,0,37);
+				//		for (i=13;i<49;i++)
+				//		{
+				//			newItem[i-13]=tokenResult[i];
+				//		}	
+				//		newItem[36]='\0';
+				//		bool bflag;
+				//		bflag = BoolRepLs(lstoken,newItem);
+				//		if (bflag==false)
+				//		{
+				//			FCbFn(10055,newItem,36);
+				//			ttoken = newItem;							
+				//			lstoken.push_back(ttoken);
+				//		}
+				//		delete[] newItem;
+				//	}
+				//	delete tokenResult;
+				//}
+				//delete[] datastr;
+		/*		datastr = strstr(datastr,"HUPUNACTOKEN=");
+                if (datastr)
+				{
+					int len=strlen(datastr);				
+					if (len>49)
+					{
+						char *newItem= new char[37];
+						memset(newItem,0,37);
+						for (i=13;i<49;i++)
+						{
+							newItem[i-13]=datastr[i];
+						}	
+						newItem[36]='\0';
+						bool bflag;
+						bflag = BoolRepLs(lstoken,newItem);
+						if (bflag==false)
+						{
+							FCbFn(10055,newItem,36);
+							ttoken = newItem;							
+							lstoken.push_back(ttoken);
+						}
+						delete[] newItem;
+					}
+					delete[] datastr;
+				}*/
+			}
+		}	
+	}
+
+	for (lstokeniter=lstoken.begin();lstokeniter != lstoken.end( ); )
+	{
+		lstoken.erase(lstokeniter++);
+	}
+}
+
+
+
+
+
+
+

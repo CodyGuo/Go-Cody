@@ -1,0 +1,21 @@
+#pragma once
+
+//软件信息
+struct UninstallSoftwareInfo
+{
+    char displayName[MAX_PATH]; //软件名称
+    char publisher[MAX_PATH];	//发行商
+    char displayVersion[MAX_PATH];//版本
+    char uninstallString[MAX_PATH*2];//卸载命令及参数
+    char installLocation[MAX_PATH];//程序安装路径
+};
+
+
+//获取注册表中卸载程序的一个子键的所有信息
+bool GetUninstallKey(UninstallSoftwareInfo *softwareinfo,wchar_t *keyname,bool readX64=false);
+
+//获取注册表中某一个子键的key的value
+//keyRoot:1:HKCR,2:HKCU,3:HKLM,4:HKU,5:HKCF
+bool GetKeyValueFromRegedit(IN int keyRoot,IN wchar_t *regPath,IN wchar_t *key, char* keyvalue,IN int keyvaluelen);
+
+bool GetStupSoftwareInfo(list<UninstallSoftwareInfo> &stupInfo);

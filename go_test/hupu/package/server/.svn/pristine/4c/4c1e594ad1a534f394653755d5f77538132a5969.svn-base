@@ -1,0 +1,56 @@
+#pragma once  
+
+#ifndef _CREMOVABLESTORAGEMANA_H  
+#define _CREMOVABLESTORAGEMANA_H 1
+
+#include <dbt.h>
+#include <setupapi.h>
+#pragma comment(lib, "Setupapi.lib")
+
+#include <string>
+#include <vector>
+#include <map>
+using namespace std;
+
+#include "CRemovableStorageMana.h"
+#include "RemovStorageGlobalData.h"
+
+#ifdef _DEV_CLASS_EXPORT_DLL
+#define DEV_CLASS_DECL __declspec(dllexport)
+#else
+#define DEV_CLASS_DECL __declspec(dllimport)
+#endif
+
+class CRemovableStorageMana  
+{  
+
+public:  
+
+	CRemovableStorageMana(void);
+	~CRemovableStorageMana(void);
+
+public:  
+
+	BOOL FindDevice(IN HDEVINFO& hDevInfo, IN CString& szDevId, OUT SP_DEVINFO_DATA& spDevInfoData);
+	BOOL IsDisableable(IN CString& szDevId);
+	BOOL IsDisabled(IN CString& szDevId);
+	BOOL ChangeDeviceState( IN CString& szDevId, IN DWORD StateChange);
+	void EnableDev(IN vector<std::string>&enableDevList);
+	void DisableDev(IN vector<std::string>&disableDevList);
+	void GetDeviceBasicInfo(IN HDEVINFO hDevInfo, IN PSP_DEVINFO_DATA pspDevInfoData, OUT DEVBASICVECTOR& devBasicInfo);
+	void EnumRemovableStorageDev(OUT DEVBASICVECTOR& all_DiskDriver_Dev);
+	void DistinUsbDiskType(IN const wchar_t* pDevId, IN DEVBASICVECTOR& sourceList, IN DEVBASICVECTOR& desList);
+	void WmiGetDiskDriverInfo(IN DEVBASICVECTOR all_DiskDriver_Dev, OUT ALL_USB_STORAGE_DEV_MAP& all_usb_storage_dev_map);
+	void ClearUsbDevBuf(OUT ALL_USB_STORAGE_DEV_MAP& all_usb_storage_dev_map);
+	void ShowOneUsbClassDev(IN const wchar_t* pwPrintString, IN vector<DEVBASICINFO>&devBasicInfo);
+	void ShowUsbStorageDev(IN ALL_USB_STORAGE_DEV_MAP all_usb_storage_dev_map);
+
+public:
+
+};  
+
+void GetAllUSBStorageDevInfo(OUT int* piUSBStorageDevDevNum);  
+void EnableAllUsbPolicyDev(IN vector<std::string>&enableDevList);
+void DisableAllUSbPolicyDev(IN vector<std::string>&disableDevList);
+
+#endif

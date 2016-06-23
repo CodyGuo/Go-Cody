@@ -1,0 +1,790 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "..\GlobalDate.h"
+#include "CheckProcess.h"
+#include <Psapi.h>
+#include <tlhelp32.h>
+#include "..\GlobalFunction.h"
+#include <Windows.h>
+#include <string>
+#include <fstream>
+#include <WtsApi32.h>
+#include "HpMntIoCtrl.h"
+#include "CommData.h"
+#include <UserEnv.h>
+#include "..\DebugInfo.h"
+#include "..\GlobalDate.h"
+#include "..\GetLangValue.h"
+#include "Download.h"
+
+using namespace std;
+#pragma comment (lib, "Psapi.lib")
+
+#define CREATED_PROC_FLAG		"CreatedProc"
+#define TERMANATED_PROC_FLAG	"TerminatedProc"
+
+BOOL DosPathToNtPath(IN LPTSTR pszDosPath, OUT LPTSTR pszNtPath)
+{
+	TCHAR            szDriveStr[MAX_PATH] = {0};
+	TCHAR            szDrive[3] = {0};
+	TCHAR            szDevName[100] = {0};
+	INT              iDevNameLen = 0;
+	INT              i = 0;
+
+	if(!pszDosPath || !pszNtPath )
+		return FALSE;
+
+	if(GetLogicalDriveStrings(sizeof(szDriveStr)/sizeof(TCHAR), szDriveStr))
+	{
+		for(i = 0; szDriveStr[i]; i += 4)
+		{
+			if(!lstrcmpi(&(szDriveStr[i]), L"A:\\") || !lstrcmpi(&(szDriveStr[i]), L"B:\\"))
+				continue;
+
+			szDrive[0] = szDriveStr[i];
+			szDrive[1] = szDriveStr[i + 1];
+			szDrive[2] = '\0';
+
+			if(!QueryDosDevice(szDrive, szDevName, 100))
+				return FALSE;
+
+			iDevNameLen = lstrlen(szDevName);
+			if(_tcsnicmp(pszDosPath, szDevName, iDevNameLen) == 0)
+			{
+				lstrcpy(pszNtPath, szDrive);
+				lstrcat(pszNtPath, pszDosPath + iDevNameLen);
+				return TRUE;
+			}           
+		}
+	}
+	lstrcpy(pszNtPath, pszDosPath);
+	return FALSE;
+}
+
+BOOL GetProcessFullPath(DWORD dwPID, TCHAR pszFullPath[MAX_PATH])
+{
+	TCHAR        szImagePath[MAX_PATH] = {0};
+	HANDLE        hProcess;
+
+	if(!pszFullPath)
+		return FALSE;
+
+	pszFullPath[0] = '\0';
+	hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, dwPID);
+	if(!hProcess)
+		return FALSE;
+
+	if(!GetProcessImageFileName(hProcess, szImagePath, MAX_PATH))
+	{
+		CloseHandle(hProcess);
+		return FALSE;
+	}
+	if(!DosPathToNtPath(szImagePath, pszFullPath))
+	{
+		CloseHandle(hProcess);
+		return FALSE;
+	}
+	CloseHandle(hProcess);
+	return TRUE;
+}
+
+BOOL ProcIsIncludeDll(IN DWORD dwProcessId, IN const char* pszIncludedDllName)
+{
+	HMODULE hMods[1024] = {0};
+	HANDLE hProcess = NULL;
+	DWORD dwNeeded = 0;
+	unsigned int i = 0;
+	BOOL bRet = FALSE;
+	
+	hProcess = OpenProcess( PROCESS_QUERY_INFORMATION|PROCESS_VM_READ, FALSE, dwProcessId );
+	if (NULL == hProcess)
+	{
+		return bRet;
+	}
+
+	HMODULE hModule = LoadLibraryW(L"PSAPI.DLL");
+
+	if (hModule == NULL)
+	{
+		return bRet;
+	}
+	
+	pFnEnumProcessModulesEx pEnumProcessModulesEx;
+	pEnumProcessModulesEx = (pFnEnumProcessModulesEx)GetProcAddress(hModule, "EnumProcessModulesEx");
+
+	if (pEnumProcessModulesEx)
+	{
+		bRet = pEnumProcessModulesEx(hProcess, hMods, sizeof(hMods), &dwNeeded, LIST_MODULES_ALL);
+
+		if(bRet)
+		{
+			bRet = FALSE;
+			for ( i = 0; i < (dwNeeded/sizeof(HMODULE)); i++ )
+			{
+				TCHAR szModName[MAX_PATH];
+
+				if ( GetModuleFileNameEx( hProcess, hMods[i], szModName, sizeof(szModName)/sizeof(TCHAR)))
+				{
+					string strModName = WCharToAnsi(szModName);
+
+					if (StrIStr(strModName, pszIncludedDllName) != string::npos)
+					{
+						bRet = TRUE;
+						break;
+					}
+				}
+			}
+		}
+	}
+	else
+	{
+		if(EnumProcessModules(hProcess, hMods, sizeof(hMods), &dwNeeded))
+		{
+			for ( i = 0; i < (dwNeeded/sizeof(HMODULE)); i++ )
+			{
+				TCHAR szModName[MAX_PATH];
+
+				if ( GetModuleFileNameEx( hProcess, hMods[i], szModName, sizeof(szModName)/sizeof(TCHAR)))
+				{
+					string strModName = WCharToAnsi(szModName);
+
+					if (StrIStr(strModName, pszIncludedDllName) != string::npos)
+					{
+						bRet = TRUE;
+						break;
+					}
+				}
+			}
+		}
+
+	}
+	
+	if (hModule != NULL)
+	{
+		FreeLibrary(hModule);
+		hModule = NULL;
+	}
+	CloseHandle( hProcess );
+
+	return bRet;
+}
+
+string GetProcMD5ByProcId(DWORD dwProcId)
+{
+	wchar_t wszFullPath[MAX_PATH] = {0};
+	string strProcPath = "";
+	string strProcMd5 = "";
+
+	GetProcessFullPath(dwProcId, wszFullPath);
+
+	strProcPath = WCharToAnsi(wszFullPath);
+	strProcMd5 = GetFileMD5(strProcPath);
+
+	return strProcMd5;
+}
+
+string CheckProcIsExist(IN const char* szProcName,
+						IN const char* szProcMd5Value, 
+						IN int iCheckCondition, 
+						IN LANGUAGETYPE language,
+						IN int iTrigger, 
+						OUT string& strTrigrSucc)
+{
+	string strRet = "";
+	HANDLE					hProcessSnap;
+	PROCESSENTRY32			pe32;
+	BOOL bCmpNameFlag = FALSE;
+	BOOL bCmpMd5Flag = FALSE;
+	BOOL bFileExistFlag = FALSE;
+
+	PVOID OldValue = NULL;
+	BOOL bRedirectionFlag = FALSE;
+	HMODULE hModule = LoadLibraryW(L"kernel32.dll");
+
+	vector<string> vectStr;
+
+	if (strlen(szProcName) >= 1)
+	{
+		bCmpNameFlag = TRUE;
+	}
+	if (strlen(szProcMd5Value) >= 1)
+	{
+		bCmpMd5Flag = TRUE;
+	}
+	if (!bCmpNameFlag && !bCmpMd5Flag)
+	{
+		return strRet;
+	}
+
+	if(bCmpNameFlag)
+	{
+		vectStr.push_back((string)szProcName);
+	}
+	else
+	{
+		string strMd5Msg = "[MD5:";
+
+		strMd5Msg += (string)szProcMd5Value;
+		strMd5Msg += "]";
+		vectStr.push_back(strMd5Msg);
+	}
+
+	hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if( hProcessSnap == INVALID_HANDLE_VALUE )
+	{
+		return strRet;
+	}
+	pe32.dwSize = sizeof(PROCESSENTRY32);
+	if( !Process32First(hProcessSnap, &pe32) )
+	{
+		CloseHandle( hProcessSnap );         
+		return strRet;
+	}
+
+	if (hModule == NULL)
+	{
+		return strRet;
+	}
+
+	pFnWow64DisableWow64FsRedirection pWow64DisableWow64FsRedirection;
+	pWow64DisableWow64FsRedirection = (pFnWow64DisableWow64FsRedirection)GetProcAddress(hModule, "Wow64DisableWow64FsRedirection");
+
+	pFnWow64RevertWow64FsRedirection pWow64RevertWow64FsRedirection;
+	pWow64RevertWow64FsRedirection = (pFnWow64RevertWow64FsRedirection)GetProcAddress(hModule, "Wow64RevertWow64FsRedirection");
+
+	if (pWow64DisableWow64FsRedirection != NULL)
+	{
+		bRedirectionFlag = pWow64DisableWow64FsRedirection(&OldValue);
+	}
+
+	do
+	{
+		if (bCmpNameFlag)
+		{
+			string strExeFile = WCharToAnsi(pe32.szExeFile);
+
+			if (_strnicmp(strExeFile.c_str(), szProcName, max(strExeFile.length(), strlen(szProcName))) == 0)
+			{
+				if (bCmpMd5Flag)
+				{
+					string strProcMd5 = "";
+
+					strProcMd5 = GetProcMD5ByProcId(pe32.th32ProcessID);
+					if (_strnicmp(strProcMd5.c_str(), szProcMd5Value, max(strProcMd5.length(), strlen(szProcMd5Value))) == 0)
+					{
+						bFileExistFlag = TRUE;
+						break;
+					}
+				}
+				else
+				{
+					bFileExistFlag = TRUE;
+					break;
+				}
+			}
+		}	
+		else
+		{
+			if (bCmpMd5Flag)
+			{
+				string strProcMd5 = "";
+
+				strProcMd5 = GetProcMD5ByProcId(pe32.th32ProcessID);
+				if (_strnicmp(strProcMd5.c_str(), szProcMd5Value, max(strProcMd5.length(), strlen(szProcMd5Value))) == 0)
+				{
+					bFileExistFlag = TRUE;
+					break;
+				}
+			}
+		}
+	}while(Process32Next(hProcessSnap, &pe32) );
+
+	CloseHandle(hProcessSnap);
+
+	if (bFileExistFlag)
+	{
+		if (iCheckCondition == CHECK_NOT_RUNNING_FLAG)
+		{
+			strRet = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PROC_EXIST],
+				pSfCustomKeyStr[SF_PROC_EXIST],
+				MAX_BUF_LEN,
+				2,
+				vectStr);
+		}
+		else if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			strTrigrSucc = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PROC_EXIST],
+				pSfCustomKeyStr[SF_PROC_EXIST],
+				MAX_BUF_LEN,
+				2,
+				vectStr);
+		}
+	}
+	else
+	{
+		if (iCheckCondition == CHECK_RUNNING_FLAG)
+		{
+			strRet = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PROC_NOT_EXIST],
+				pSfCustomKeyStr[SF_PROC_NOT_EXIST],
+				MAX_BUF_LEN,
+				2,
+				vectStr);
+		}
+		else if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			strTrigrSucc = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PROC_NOT_EXIST],
+				pSfCustomKeyStr[SF_PROC_NOT_EXIST],
+				MAX_BUF_LEN,
+				2,
+				vectStr);
+		}
+	}
+
+	if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+	{
+		pWow64RevertWow64FsRedirection(OldValue);
+	}
+	if (hModule != NULL)
+	{
+		FreeLibrary(hModule);
+		hModule = NULL;
+	}
+
+	return strRet;
+}
+
+string CheckProcIsInclude(IN const char* szProcName, 
+						IN const char* szIncludedDllName, 
+						IN LANGUAGETYPE language, 
+						IN int iTrigger, 
+						OUT string& strTrigrSucc)
+{
+	string strRet = "";
+	HANDLE					hProcessSnap;
+	PROCESSENTRY32			pe32;
+	BOOL bFileExistFlag = FALSE;
+	vector<string> vectStr;
+
+	vectStr.push_back((string)szProcName);
+	vectStr.push_back((string)szIncludedDllName);
+
+	if (strlen(szProcName) < 1 || strlen(szIncludedDllName) < 1)
+	{
+		return strRet;
+	}
+
+	hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if( hProcessSnap == INVALID_HANDLE_VALUE )
+	{
+		return strRet;
+	}
+
+	pe32.dwSize = sizeof(PROCESSENTRY32);
+	if( !Process32First(hProcessSnap, &pe32) )
+	{
+		CloseHandle( hProcessSnap );         
+		return strRet;
+	}
+
+	do
+	{
+		string strExeFile = WCharToAnsi(pe32.szExeFile);
+
+		if (_strnicmp(strExeFile.c_str(), szProcName, max(strExeFile.length(), strlen(szProcName))) == 0)
+		{
+			if (IsWin64Os())
+			{
+				SHELLEXECUTEINFOA ShExecInfo = {0};
+				string strProcPath = g_nacdirpath;
+				string strParam = "/CheckProcInclude ";
+				DWORD dwExitCode = 0xFFFF;
+
+				strProcPath += "\\hpintallAnduninstall64.exe";
+				strParam += std::to_string((_ULonglong)(DWORD)pe32.th32ProcessID);
+				strParam += " ";
+				strParam += szIncludedDllName;
+
+				ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFOA);
+				ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+				ShExecInfo.hwnd = NULL;
+				ShExecInfo.lpVerb = "open";
+				ShExecInfo.lpFile = strProcPath.c_str();
+				ShExecInfo.lpParameters = strParam.c_str();
+				ShExecInfo.lpDirectory = NULL;
+				ShExecInfo.nShow = SW_HIDE;
+				ShExecInfo.hInstApp = NULL;
+				ShellExecuteExA(&ShExecInfo);
+
+				WaitForSingleObject(ShExecInfo.hProcess, 5000);
+				GetExitCodeProcess(ShExecInfo.hProcess, &dwExitCode);
+				CloseHandle(ShExecInfo.hProcess);
+
+				if (dwExitCode == TRUE)
+				{
+					bFileExistFlag = TRUE;
+				}
+			}
+			else
+			{
+				bFileExistFlag = ProcIsIncludeDll((DWORD)pe32.th32ProcessID, szIncludedDllName);
+			}
+			if (bFileExistFlag)
+			{
+				break;
+			}
+		}
+	}while(Process32Next(hProcessSnap, &pe32) );
+
+	CloseHandle(hProcessSnap);
+
+	if (!bFileExistFlag)
+	{
+		strRet = PackageLangInfo(language, 
+			CUSTOM_CHECK_APPNAME, 
+			pSfCustomKeyStr[SF_PROC_NOT_INCLUD],
+			pSfCustomKeyStr[SF_PROC_NOT_INCLUD],
+			MAX_BUF_LEN,
+			3,
+			vectStr);
+	}
+	else if (iTrigger == CHECK_TRIGGER_VOILATION)
+	{
+		strTrigrSucc = PackageLangInfo(language, 
+			CUSTOM_CHECK_APPNAME, 
+			pSfCustomKeyStr[SF_PROC_INCLUD],
+			pSfCustomKeyStr[SF_PROC_INCLUD],
+			MAX_BUF_LEN,
+			3,
+			vectStr);
+	}
+
+	return strRet;
+}
+
+DWORD __stdcall MonitorProcCreateThread(LPVOID lParameter)
+{
+	UNREFERENCED_PARAMETER(lParameter);
+
+	PROC_MONITOR_EVENT proc_monitor_event;
+	BOOL	bRet = FALSE;
+
+	proc_monitor_event.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);  
+
+	bRet = MntDeviceIOControl((LPVOID)&proc_monitor_event.hEvent, sizeof(proc_monitor_event.hEvent), HNM_SET_MONITOR_PROC, NULL, 0);
+
+	while (bRet)
+	{
+		char		szOutputBuf[64]			= {0};
+		string		strOutputBuf			= "";
+		DWORD		dwProcId				= 0;
+		size_t		stnpos					= string::npos;
+		TCHAR		pszFullPath[MAX_PATH]	= {0};
+		string		strFileMd5				= "";
+		string		strFilePath				= "";
+
+		WaitForSingleObject(proc_monitor_event.hEvent, INFINITE);
+
+		bRet = MntDeviceIOControl((LPVOID)"0", 1, HNM_GET_CREATE_PROC_ID, (LPVOID)szOutputBuf, sizeof(szOutputBuf));
+		printf("Create Proc szOutput[%s]\n", szOutputBuf);
+		strOutputBuf = (string)szOutputBuf;
+
+		stnpos = strOutputBuf.find(CREATED_PROC_FLAG);
+		if (stnpos != string::npos)
+		{
+			string strProId = "";
+
+			strProId = strOutputBuf.substr(strlen(CREATED_PROC_FLAG)+1, strOutputBuf.length()-strlen(CREATED_PROC_FLAG)-1);
+			dwProcId = atoi(strProId.c_str());
+		}
+		else if ((stnpos = strOutputBuf.find(TERMANATED_PROC_FLAG)))
+		{
+			string strProId = "";
+
+			strProId = strOutputBuf.substr(strlen(TERMANATED_PROC_FLAG)+1, strOutputBuf.length()-strlen(CREATED_PROC_FLAG)-1);
+			dwProcId = atoi(strProId.c_str());
+		}
+
+		if (dwProcId > 0)
+		{
+			GetProcessFullPath((DWORD)dwProcId, pszFullPath);
+
+			strFilePath = WCharToAnsi(pszFullPath);
+			strFileMd5 = GetFileMD5(strFilePath);
+			printf("file Path: %s\n", strFilePath.c_str());
+			printf( ("dwProcId[%d] MD5: %s\n"), dwProcId, strFileMd5.c_str() );
+		}
+		
+		ResetEvent(proc_monitor_event.hEvent);	
+	}
+
+	if (proc_monitor_event.hEvent)
+	{
+		CloseHandle(proc_monitor_event.hEvent);
+		proc_monitor_event.hEvent = NULL;
+	}
+	return 0;
+}
+
+void SetAndMonitorProc(wchar_t* pArgv)
+{
+	ULONG uArgv2 = _wtoi(pArgv);
+
+	if (uArgv2 == 0)
+	{
+		 MntDeviceIOControl((PVOID)"0", 1, HNM_SET_MONITOR_PROC, NULL, 0);
+	}
+	else
+	{
+		HANDLE m_hdwMonitorThread = NULL;
+		DWORD dwMonitorThreadId = 0;
+
+		m_hdwMonitorThread = CreateThread(NULL, 0, MonitorProcCreateThread, NULL, 0, &dwMonitorThreadId);
+
+		if (m_hdwMonitorThread != NULL)
+		{
+			WaitForSingleObject(m_hdwMonitorThread, INFINITE);
+			CloseHandle(m_hdwMonitorThread);
+			m_hdwMonitorThread = NULL;
+		}
+	}
+}
+
+string GetProcNameFromDownUrl(IN const char* pDownloadUrl)
+{
+	string strDownloadUrl = pDownloadUrl;
+	string strProcName = "";
+	size_t szPos = string::npos;
+
+	szPos = strDownloadUrl.find("softwareName=");
+
+	if (szPos != string::npos)
+	{
+		strProcName = strDownloadUrl.substr(szPos + strlen("softwareName="));
+	}
+
+	return strProcName;
+}
+
+string CheckProcOutput(IN const char* szUrlPath, 
+						IN const char* szDownLoadPath, 
+						IN const char* szCmpOutput, 
+						IN int iCheckCondition, 
+						IN LANGUAGETYPE language, 
+						IN int iTrigger, 
+						OUT string& strTrigrSucc)
+{
+	SECURITY_ATTRIBUTES sa;
+	HANDLE hRead = NULL, hWrite = NULL;
+	string strRet = "";
+
+	sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+	sa.lpSecurityDescriptor = NULL; 
+	sa.bInheritHandle = TRUE;
+
+	if (!CreatePipe(&hRead, &hWrite, &sa, 0))
+	{
+		return strRet;
+	}
+
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+	BOOL bRet = FALSE;
+
+	ZeroMemory( &si, sizeof(si) );
+	ZeroMemory( &pi, sizeof(pi) );
+
+	si.cb = sizeof(si);
+	GetStartupInfoA(&si);
+	si.hStdError = hWrite;
+	si.hStdOutput = hWrite; 
+	si.wShowWindow = SW_HIDE;
+	si.dwFlags  = STARTF_USESHOWWINDOW|STARTF_USESTDHANDLES;
+
+	bRet = ::CreateProcessA(  szDownLoadPath,
+							NULL,
+							NULL, 
+							NULL,
+							TRUE,
+							NULL,
+							NULL,
+							NULL,
+							&si,
+							&pi);
+
+	WaitForSingleObject(pi.hProcess, 2000);
+	TerminateProcess(pi.hProcess, 0);
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+	CloseHandle(hWrite); 
+
+	char buffer[MAX_BUF_LEN] = {0};
+	DWORD dwBytesRead = 0;
+	string strOutPut = "";
+	string strCmpOutput = szCmpOutput;
+	vector<string> vectStr;
+
+	vectStr.push_back(GetProcNameFromDownUrl(szUrlPath));
+	vectStr.push_back(strCmpOutput);
+
+	while (true)
+	{
+		if (ReadFile(hRead, buffer, MAX_BUF_LEN-1, &dwBytesRead, NULL) == FALSE) 
+		{
+			break;
+		}
+
+		strOutPut += buffer;
+		Sleep(30); 
+	}
+	CloseHandle(hRead);
+
+	WriteDebugInfomation(LEVEL_DEBUG, MODULE_CHECKCUSTOM, LOGLOCATION, "自定义程序输出 strOutPut:", (char*)strOutPut.c_str());
+	WriteDebugInfomation(LEVEL_DEBUG, MODULE_CHECKCUSTOM, LOGLOCATION, "自定义程序输出 strCmpOutput:", (char*)strCmpOutput.c_str());
+
+	if (StrIStr(strOutPut, strCmpOutput) != string::npos)
+	{
+		if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+		{
+			strRet = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PROC_OUTPUT_INCLUD],
+				pSfCustomKeyStr[SF_PROC_OUTPUT_INCLUD],
+				MAX_BUF_LEN,
+				3,
+				vectStr);
+		}
+		else if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			strTrigrSucc = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PROC_OUTPUT_INCLUD],
+				pSfCustomKeyStr[SF_PROC_OUTPUT_INCLUD],
+				MAX_BUF_LEN,
+				3,
+				vectStr);
+		}
+	}
+	else
+	{
+		if (iCheckCondition == CHECK_EXIST_FLAG)
+		{
+			strRet = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PROC_OUTPUT_NOT_INCLUD],
+				pSfCustomKeyStr[SF_PROC_OUTPUT_NOT_INCLUD],
+				MAX_BUF_LEN,
+				3,
+				vectStr);
+		}
+		else if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			strTrigrSucc = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PROC_OUTPUT_NOT_INCLUD],
+				pSfCustomKeyStr[SF_PROC_OUTPUT_NOT_INCLUD],
+				MAX_BUF_LEN,
+				3,
+				vectStr);
+		}
+	}
+
+	return strRet;
+}
+
+string CheckProcReturnValue(IN const char* szUrlPath, 
+							IN const char* szCmpRetValue,
+							IN LANGUAGETYPE language,
+							IN int iTrigger, 
+							OUT string& strTrigrSucc)
+{
+	string strRet = "";
+
+	if (!IsDigit(szCmpRetValue))
+	{
+		vector<string> vectStr;
+
+		vectStr.push_back((string)szUrlPath);
+		vectStr.push_back((string)szCmpRetValue);
+		strRet = PackageLangInfo(language, 
+			CUSTOM_CHECK_APPNAME, 
+			pSfCustomKeyStr[SF_PROC_RETURN_SET_FALSE],
+			pSfCustomKeyStr[SF_PROC_RETURN_SET_FALSE],
+			MAX_BUF_LEN,
+			3,
+			vectStr);
+	}
+	else 
+	{
+		CDownload downloadfile((char*)szUrlPath, strlen(szUrlPath));
+		char downLocalFilePath[MAX_PATH] = {0};
+		DWORD dwExitCode = 0xFFFF;
+
+		if (downloadfile.StartDownLoad(downLocalFilePath, sizeof(downLocalFilePath)))
+		{
+			CreateExePro(downLocalFilePath, NULL, SW_HIDE, 2000, &dwExitCode);
+		}
+
+		if (dwExitCode == 0xFFFF)
+		{
+			vector<string> vectStr;
+
+			vectStr.push_back(GetProcNameFromDownUrl((const char*)szUrlPath));
+			strRet = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PROC_RETURN_GET_FALSE],
+				pSfCustomKeyStr[SF_PROC_RETURN_GET_FALSE],
+				MAX_BUF_LEN,
+				2,
+				vectStr);
+		}
+		else if ((DWORD)atoi(szCmpRetValue) != dwExitCode)
+		{
+			vector<string> vectStr;
+
+			vectStr.push_back(GetProcNameFromDownUrl((const char*)szUrlPath));
+			vectStr.push_back(std::to_string((_ULonglong)dwExitCode));
+			vectStr.push_back(std::to_string((_ULonglong)atoi(szCmpRetValue)));
+
+			strRet = PackageLangInfo(language, 
+									CUSTOM_CHECK_APPNAME, 
+									pSfCustomKeyStr[SF_PROC_RETURN_CMP_FALSE],
+									pSfCustomKeyStr[SF_PROC_RETURN_CMP_FALSE],
+									MAX_BUF_LEN,
+									4,
+									vectStr);
+		}	
+		else if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			vector<string> vectStr;
+
+			vectStr.push_back(GetProcNameFromDownUrl((const char*)szUrlPath));
+			vectStr.push_back(std::to_string((_ULonglong)dwExitCode));
+			vectStr.push_back(std::to_string((_ULonglong)atoi(szCmpRetValue)));
+
+			strTrigrSucc = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_PROC_RETURN_CMP_TRUE],
+				pSfCustomKeyStr[SF_PROC_RETURN_CMP_TRUE],
+				MAX_BUF_LEN,
+				4,
+				vectStr);
+		}
+	}
+
+	return strRet;
+}

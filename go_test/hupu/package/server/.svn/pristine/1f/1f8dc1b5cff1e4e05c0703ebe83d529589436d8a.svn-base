@@ -1,0 +1,21 @@
+#pragma once
+class CWallPaperSetting
+{
+public:
+	CWallPaperSetting(void);
+	~CWallPaperSetting(void);
+
+	//ÉèÖÃ±ÚÖ½
+	BOOL  SetWallPaper(char* wallpaperpath,int wallpaperstyle);
+
+	//È¡Ïû±ÚÖ½
+	BOOL CancelWallPaper();
+
+	BOOL UseCurrentUserPriviToExe(wchar_t *exepath,wchar_t* paraminfo);
+
+private:
+
+	DWORD m_procId;
+
+};
+

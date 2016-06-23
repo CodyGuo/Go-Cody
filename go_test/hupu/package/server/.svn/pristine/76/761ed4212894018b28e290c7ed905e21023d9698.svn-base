@@ -1,0 +1,44 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _HPDEVICEIOCTRL_H
+#define _HPDEVICEIOCTRL_H 1
+
+#include <winioctl.h>
+
+#define CREATED_PROC_FLAG		"CreatedProc"
+#define TERMINATED_PROC_FLAG	"TerminatedProc"
+
+#define HNM_DEVICE_SHORT_NAME "HpNacMntor"
+#define HNM_DEVICE_NAME ("\\\\.\\" HNM_DEVICE_SHORT_NAME)
+
+#define HNM_CTL_CODE(x) CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800 + x,  METHOD_BUFFERED/*METHOD_NEITHER*/, FILE_ANY_ACCESS)
+
+#define HNM_SET_PROTECT_PROC HNM_CTL_CODE(0)
+#define HNM_ADD_PROTECT_PROC HNM_CTL_CODE(1)
+#define HNM_DELETE_PROTECT_PROC HNM_CTL_CODE(2)
+#define HNM_CLEAR_PROTECT_PROC HNM_CTL_CODE(3)
+
+#define HNM_SET_MONITOR_PROC HNM_CTL_CODE(4)
+#define HNM_GET_CREATE_PROC_ID HNM_CTL_CODE(5)
+#define HNM_GET_TERMINATED_PROC_ID HNM_CTL_CODE(6)
+
+typedef	struct _PROC_MONITOR_EVENT 
+{
+	HANDLE	hEvent;
+}PROC_MONITOR_EVENT,*PPROC_MONITOR_EVENT;
+
+BOOL MntDeviceIOControl(LPVOID pInputBuf, DWORD dwInputLen, DWORD dwIoControlCode, LPVOID pOutputBuf, DWORD dwOutputLen);
+/************************************************************
+ Description: LPCWSTR转String
+ input: wstr[转换的字符串]
+ Return:  返回转换的string
+*************************************************************/
+std::string WCharToAnsi(LPCWSTR pwszSrc);
+
+#endif

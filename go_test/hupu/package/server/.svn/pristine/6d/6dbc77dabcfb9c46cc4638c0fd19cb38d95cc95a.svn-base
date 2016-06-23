@@ -1,0 +1,330 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#include "stdafx.h"
+
+#include <WtsApi32.h>
+#include <winbase.h>
+
+#include "CheckJunkFiles.h"
+#include "SystemCheck.h"
+#include "CheckSystemTime.h"
+#include "DebugInfo.h"
+
+#pragma comment(lib, "WtsApi32.lib")
+
+/************************************************************
+ Description: 获取回收站目录大小和文件数量
+ Output: pFileSize[目录大小]， pNumItems[文件数量]
+ Return:  TRUE[成功]；FALSE[失败];
+*************************************************************/
+BOOL GetRecycleBinInfo(OUT double* pFileSize, OUT PDWORDLONG pNumItems)
+{
+    SHQUERYRBINFO RecycleBinInformation;
+    BOOL ret = FALSE;
+
+    ZeroMemory(&RecycleBinInformation, sizeof(RecycleBinInformation));
+    RecycleBinInformation.cbSize = sizeof(RecycleBinInformation);
+
+    if (SHQueryRecycleBin(NULL, &RecycleBinInformation) == S_OK)
+    {
+        char writeLog[MAX_WRITE_BUF] = {0};
+
+        ret = TRUE;
+        *pFileSize = (double)RecycleBinInformation.i64Size/1024/1024;
+        *pNumItems = RecycleBinInformation.i64NumItems;
+
+        sprintf_s(writeLog, MAX_WRITE_BUF, "回收站文件大小： %f\n", *pFileSize);
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, writeLog);
+        sprintf_s(writeLog, MAX_WRITE_BUF, "回收站文件数量 %ld\n", *pNumItems);
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, writeLog);
+    }
+    else
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, "SHQueryrecycleBin Fail\n");
+
+    return ret;
+}
+
+/************************************************************
+ Description: 清空回收站
+ Return:  TRUE[成功]；FALSE[失败];
+*************************************************************/
+BOOL ClearRecycleBin()
+{
+    BOOL ret = FALSE;
+
+    if(SHEmptyRecycleBin(NULL, NULL, SHERB_NOCONFIRMATION|SHERB_NOPROGRESSUI|SHERB_NOSOUND) == S_OK)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, "回收站清理成功!");
+        ret = TRUE;
+    }
+    else
+    {
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, "回收站清理失败!");
+    }
+
+    return ret;
+}
+
+/************************************************************
+ Description: 获取目录大小和文件数量
+ input: pWPath[目录路径], deleteFlag[删除文件标记]
+ Output: pFileSize[目录大小]， pNumItems[文件数量]
+ Return:  TRUE[成功]；FALSE[失败];
+*************************************************************/
+BOOL GetDirectoryFilesInfo(IN WCHAR* pWPath, IN BOOL deleteFlag, OUT double* pFileSize, OUT PDWORDLONG pNumItems) 
+{ 
+    WIN32_FIND_DATA FindFileData = {0};  
+    HANDLE hFind = NULL;  
+    WCHAR wTempPath[MAX_PATH] = {0};
+    BOOL ret = FALSE;
+    DWORDLONG dwHighBase = MAXDWORD;
+
+    wcsncpy_s(wTempPath, MAX_PATH, pWPath, wcslen(pWPath));
+    wcscat_s(wTempPath, MAX_PATH, L"\\*.*");
+
+    hFind = FindFirstFile(wTempPath, &FindFileData);  
+
+    if (hFind == INVALID_HANDLE_VALUE)   
+        return ret;  
+
+    do
+    {  
+        //特殊文件
+        if(FindFileData.cFileName[0] == L'.' || FindFileData.cFileName[0] == L'\0')
+        {
+            continue;
+        }
+
+        //目录
+        if(FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+        {
+            WCHAR wDirPath[MAX_PATH] = {0};
+
+            wcsncpy_s(wDirPath, MAX_PATH, pWPath, wcslen(pWPath));
+            wcscat_s(wDirPath, L"\\");
+            wcscat_s(wDirPath, FindFileData.cFileName);
+
+            if(deleteFlag)
+            {
+                ret = RemoveDirectory(wDirPath);
+            }
+
+            ret = GetDirectoryFilesInfo(wDirPath, deleteFlag, pFileSize, pNumItems);
+        }
+        else
+        {
+            if(deleteFlag)
+            {
+                WCHAR wDirPath[MAX_PATH] = {0};
+
+                wcsncpy_s(wDirPath, MAX_PATH, pWPath, wcslen(pWPath));
+                wcscat_s(wDirPath, L"\\");
+                wcscat_s(wDirPath, FindFileData.cFileName);
+                ret = DeleteFile(wDirPath);
+            }
+            else
+            {
+                *pFileSize = *pFileSize + (FindFileData.nFileSizeHigh*(dwHighBase+1) + FindFileData.nFileSizeLow);
+                *pNumItems =  *pNumItems + 1;
+                ret = TRUE;
+            }
+        }
+
+    }while(FindNextFile(hFind, &FindFileData));    
+
+    FindClose(hFind);
+
+    return ret;
+}
+
+/************************************************************
+ Description: 获取temp目录大小和文件数量
+ Output: pFileSize[目录大小]， pNumItems[文件数量]
+ Return:  TRUE[成功]；FALSE[失败];
+*************************************************************/
+BOOL GetTempDirInfo(OUT double* pDirSize, OUT PDWORDLONG pNumItems)
+{
+     BOOL ret = FALSE;
+     WCHAR wTempPath[MAX_PATH] = {0};
+     char writeLog[MAX_PATH] = {0};
+
+     EnablePrivilege(SE_SYSTEM_ENVIRONMENT_NAME, SE_PRIVILEGE_ENABLED);
+
+     ret = GetEnvironmentVariable(L"TEMP", wTempPath, MAX_PATH);
+
+     if (ret)
+     {
+         ret = GetDirectoryFilesInfo(wTempPath, FALSE, pDirSize, pNumItems);
+         ret = TRUE;
+         sprintf_s(writeLog, MAX_PATH-1, "TempPath:%ws\n dirSize %f, pNumItems %d\n", wTempPath, *pDirSize, *pNumItems);
+     }
+    
+     WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, writeLog);
+
+    return ret;
+}
+
+/************************************************************
+ Description: 删除temp目录文件
+ Output: pFileSize[目录大小]， pNumItems[文件数量]
+ Return:  TRUE[成功]；FALSE[失败];
+*************************************************************/
+BOOL DeleteTempFiles()
+{
+    DWORD ret = 0;
+    WCHAR wTempPath[MAX_PATH] = {0};
+    char writeLog[MAX_PATH] = {0};
+
+    ret = GetEnvironmentVariable(L"TEMP", wTempPath, MAX_PATH);
+
+    if (ret)
+    {
+        ret = GetDirectoryFilesInfo(wTempPath, TRUE, NULL, NULL);
+    }
+
+    sprintf_s(writeLog, MAX_PATH-1, "TempPath:%ws", wTempPath);
+    WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, writeLog);
+
+    return ret;
+}
+
+/************************************************************ 
+ Description: 检查回收站文件及是否清除
+ input: dirSize[目录大小限定], dwFileNum[文件数量限定]
+        clearFlag[清除标志]
+ Return: TRUE[检查回收站不符合要求或清除成功]
+         FALSE[检查回收站符合要求或清除失败]
+*************************************************************/
+BOOL CheckRecycleBin(IN LONG dirSize, IN LONG dwFileNum, IN BOOL clearFlag)
+{
+    double recycleBinDirSize = 0;
+    DWORDLONG dlRecycleBinNumItems = 0;
+    BOOL ret = TRUE;
+
+    GetRecycleBinInfo(&recycleBinDirSize, &dlRecycleBinNumItems);
+
+    if (dirSize < recycleBinDirSize ||
+        dwFileNum < dlRecycleBinNumItems)
+    {
+        if (clearFlag)
+        {
+            if (!ClearRecycleBin())
+            {  
+                ret = FALSE;
+            }
+        }
+        else
+        {
+             ret = FALSE;
+        }
+    }
+
+    return ret;
+}
+
+/************************************************************ 
+ Description: 检查临时目录文件及是否清除
+ input: dirSize[目录大小限定], dwFileNum[文件数量限定]
+        clearFlag[清除标志]
+ Return: TRUE[检查回收站不符合要求或清除成功]
+         FALSE[检查回收站符合要求或清除失败]
+*************************************************************/
+BOOL CheckTempDir(IN LONG dirSize, IN LONG dwFileNum, IN BOOL clearFlag)
+{
+    double tempDirSize = 0.0;
+    DWORDLONG dlTempNumItems = 0;
+    BOOL ret = TRUE;
+
+    GetTempDirInfo(&tempDirSize, &dlTempNumItems);
+
+    if (dirSize < tempDirSize/1024/1024 ||
+        dwFileNum < dlTempNumItems)
+    {
+        if (clearFlag)
+        {
+            if (!DeleteTempFiles())
+            {
+                ret = FALSE;
+            }
+        }
+        else
+        {
+            ret = FALSE;
+        }
+    }
+
+    return ret;
+}
+
+/************************************************************ 
+ Description: 检查垃圾文件
+ input: clearFlag[是否清理标志]
+        pCheckRecycleRet[检查回收站结果]
+        pCheckTempFileRet[临时目录结果]
+ Return: 1[回收站检查/修复失败]
+         2[临时目录检查/修复失败]
+         3[回收站和临时目录检查/修复失败]
+*************************************************************/
+BOOL CheckJunkFiles(IN BOOL clearFlag, 
+                    OUT DWORD* pCheckRecycleRet, 
+                    OUT DWORD* pCheckTempFileRet)
+{
+    DWORD     dwConsoleSessionId = 0;
+    BOOL      ret                = FALSE;
+
+    if (junkDirPolicy.isCheckRecycle == '1')
+    {
+        *pCheckRecycleRet = CheckRecycleBin(junkDirPolicy.fileSize, junkDirPolicy.fileNum, clearFlag);
+    }
+
+    if (junkDirPolicy.isCheckTempFile == '1')
+    {
+        *pCheckTempFileRet = CheckTempDir(junkDirPolicy.fileSize, junkDirPolicy.fileNum, clearFlag);
+    }
+
+   
+    if(!*pCheckRecycleRet && !*pCheckTempFileRet)
+    {
+        ret = 3;
+    }
+    else if (!*pCheckRecycleRet && *pCheckTempFileRet)
+    {
+        ret = 1;
+    }
+    else if(*pCheckRecycleRet && !*pCheckTempFileRet)
+    {
+        ret = 2;
+    }
+
+    return ret;
+}
+
+/************************************************************ 
+ Description: 设置垃圾文件策略
+ input:pJunkDirPolicy[检查策略结构]
+*************************************************************/
+void SetJunkFilePolicy(IN PJUNKDIRPOLICY pJunkDirPolicy)
+{
+    char writeLog[MAX_WRITE_BUF*2] = {0};
+
+    junkDirPolicy.fileNum = pJunkDirPolicy->fileNum;
+    junkDirPolicy.fileSize = pJunkDirPolicy->fileSize;
+    junkDirPolicy.isCheckRecycle = pJunkDirPolicy->isCheckRecycle;
+    junkDirPolicy.isCheckTempFile = pJunkDirPolicy->isCheckTempFile;
+
+    sprintf_s(  writeLog, 
+                MAX_WRITE_BUF*2, 
+                "CheckRecycle[%c] CheckTempFile[%c], fileNum[%d] fileSize[%d]", 
+                junkDirPolicy.isCheckRecycle, 
+                junkDirPolicy.isCheckTempFile, 
+                junkDirPolicy.fileNum, 
+                junkDirPolicy.fileSize);
+
+    WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, writeLog);
+
+}

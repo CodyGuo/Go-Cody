@@ -1,0 +1,109 @@
+
+// stdafx.h : include file for standard system include files,
+// or project specific include files that are used frequently,
+// but are changed infrequently
+
+
+// 是具有运行应用程序所需功能的 Windows、Internet Explorer 等产品的  
+// 最早版本。通过在指定版本及更低版本的平台上启用所有可用的功能，宏可以  
+// 正常工作。  
+// 如果必须要针对低于以下指定版本的平台，请修改下列定义。  
+// 有关不同平台对应值的最新信息，请参考 MSDN。  
+#ifndef WINVER                          // 指定要求的最低平台是 Windows XP。  
+#define WINVER 0x0500           // 将此值更改为相应的值，以适用于 Windows 的其他版本。  
+#endif  
+#ifndef _WIN32_WINNT            // 指定要求的最低平台是 Windows XP。  
+#define _WIN32_WINNT 0x0501     // 将此值更改为相应的值，以适用于 Windows 的其他版本。  
+#endif  
+#ifndef _WIN32_WINDOWS          // 指定要求的最低平台是 Windows 98。  
+#define _WIN32_WINDOWS 0x0410 // 将此值更改为适当的值，以适用于 Windows Me 或更高版本。  
+#endif  
+#ifndef _WIN32_IE                       // 指定要求的最低平台是 Internet Explorer 5.0。  
+#define _WIN32_IE 0x0501        // 将此值更改为相应的值，以适用于 IE 的其他版本。  
+#endif 
+
+
+#pragma once
+
+#ifndef _SECURE_ATL
+#define _SECURE_ATL 1
+#endif
+
+#ifndef VC_EXTRALEAN
+#define VC_EXTRALEAN            // Exclude rarely-used stuff from Windows headers
+#endif
+
+////使用安全的函数
+#define _CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES 1
+
+#include "targetver.h"
+
+#define _ATL_CSTRING_EXPLICIT_CONSTRUCTORS      // some CString constructors will be explicit
+
+// turns off MFC's hiding of some common and often safely ignored warning messages
+#define _AFX_ALL_WARNINGS
+
+#include <afxwin.h>         // MFC core and standard components
+#include <afxext.h>         // MFC extensions
+
+#include <afxdisp.h>        // MFC Automation classes
+
+#ifndef _AFX_NO_OLE_SUPPORT
+#include <afxdtctl.h>           // MFC support for Internet Explorer 4 Common Controls
+#endif
+#ifndef _AFX_NO_AFXCMN_SUPPORT
+#include <afxcmn.h>             // MFC support for Windows Common Controls
+#endif // _AFX_NO_AFXCMN_SUPPORT
+
+#include <afxcontrolbars.h>     // MFC support for ribbons and control bars
+
+
+#include <afxsock.h>            // MFC socket extensions
+
+
+#include <winsock2.h>
+#pragma comment(lib, "ws2_32.lib")
+
+#include <string>
+ #include <vector>
+#include <list>
+using namespace std;
+
+////////异常日志打印
+#include <dbghelp.h>
+#pragma comment(lib,"dbghelp.lib")
+#include <shellapi.h>  
+#include <shlobj.h>  
+//xml相关
+
+#include <assert.h>
+#include "CommPub.h"
+#include "strconvert.h"
+
+#import <MSXML3.dll>  named_guids 
+
+#if defined(WIN32) && defined (TUNE)
+#include <crtdbg.h>
+_CrtMemState startMemState;
+_CrtMemState endMemState;
+#endif
+
+
+#include "..\..\..\common\preheader.h"
+#pragma  comment(lib,"sporder.lib")
+#pragma  comment(lib,"ws2_32.lib")
+#pragma  comment(lib,"rpcrt4.lib")
+
+
+#ifdef _UNICODE
+#if defined _M_IX86
+#pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='x86' publicKeyToken='6595b64144ccf1df' language='*'\"")
+#elif defined _M_X64
+#pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='amd64' publicKeyToken='6595b64144ccf1df' language='*'\"")
+#else
+#pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+#endif
+#endif
+
+
+

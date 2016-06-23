@@ -1,0 +1,288 @@
+#include "stdafx.h"
+#include "GlobalDate.h"
+#include "SocketComm.h"
+#include "SafeCheckFuntion.h"
+
+#include "CheckIEMain.h"
+#include "CheckJunkFiles.h"
+#include "CheckSystemTime.h"
+#include "CheckNetShareResource.h"
+#include "CheckDiskSpace.h"
+#include "CheckPwdPolicy.h"
+#include "CheckIEExtensions.h"
+#include "CheckSystemPatchs.h"
+#include "CheckDeskWallPaper.h"
+#include "CheckCustom.h"
+
+#include <stdlib.h>
+#include <shellapi.h>
+#include <shlobj.h>
+
+#pragma comment(lib, "shell32.lib")
+
+//程序的文件夹目录
+char g_nacdirpath[MAX_PATH] = {0};
+
+//socket 通讯类
+CSocketComm g_EstliSocket;
+
+//日志互斥量
+CRITICAL_SECTION g_logcs;
+
+//操作数据库互斥量
+//CRITICAL_SECTION g_opdbcs;
+
+CRITICAL_SECTION m_customCheckCs;
+
+//服务器分配的设备ID值:取值应>0,默认值为-1,服务器解析注册
+//设备信息失败时会返回0
+string g_deviceid = "-1";
+
+//程序启动时的时间,用于在关于中显示程序的执行时间
+DWORD g_ststarttime;
+
+DWORD g_stexectime;
+
+//当前程序版本
+char  g_version[HP_C_USERCONTENTLEN] = {0};
+
+//程序更新时间:ini配置档中若也是该时间2000-01-01 01:01:01,则表示程序没有更新,
+//使用当前时间,否则使用ini配置档中的更新时间
+wchar_t   g_Updatetime[HP_C_USERCONTENTLEN] = {L"2000-01-01 01:01:01"};
+
+//数据库句柄
+sqlite3 *g_db = NULL;
+
+//是否需要上传通讯的值到服务器端的数据库:取值0表示不上传,1表示上传
+int g_UploadLog = 0;
+
+//服务器ip地址
+wchar_t g_ServerIp[HP_C_USERCONTENTLEN] = {L"127.0.0.1"};
+
+//服务器端口
+int g_ServerPort = 6002;
+
+//认证流程页面:默认值为服务器IP地址,若服务器返回的有重定向页面，则修改为重定向页面
+wchar_t g_RegisterPage[MAX_PATH];         
+
+//控制器mac值
+string g_strAscMac = HPMACINITVALUE;
+
+//客户端图标变化标志
+int g_sysiconflag = 0;    
+
+//自动安检定时器的间隔时间
+long  g_SafeCheckTimeVal;
+
+string  g_domainidenResult="0";
+
+ CRITICAL_SECTION g_doaminidenlogcs;
+
+map<int,string> g_debugMap;
+
+const char* logininames[] = 
+{ 
+     "MODULE_NOMODULE",
+     "MODULE_PROCESS",
+     "MODULE_PORT",
+     "MODULE_FIREWALL",
+     "MODULE_GUEST",
+     "MODULE_REMOTEDESK",
+     "MODULE_SCREENSAVER",
+     "MODULE_SERVICE",
+     "MODULE_SOFTWARE",
+     "MODULE_JUNKFILES",
+     "MODULE_COMPUTERNAEM",
+     "MODULE_SYSTEMTIME",
+     "MODULE_MAINPAGE",
+     "MODULE_DOMAIN",
+     "MODULE_NETSHARE",
+     "MODULE_DISKSPACE",
+     "MODULE_PWDPOLICY",
+     "MODULE_OPDB",
+     "MODULE_SOCKETINFO",
+     "MODULE_SNIFFER",
+     "MODULE_FTP",
+     "MODULE_NETWORK",
+     "MODULE_IEEXTENSIONS",
+     "MODULE_SYSTEMPATCHS",
+	 "MODULE_ILLEGALINTERNET",
+	 "MODULE_CUSTOMCHECK",
+     "MODULE_ALL",
+};
+
+ const char* g_safechecktable[]=
+ {
+     "notable",
+     "tstgprocess",
+     "tstgport",
+     "tstgfirewall",
+     "tstgguest",
+     "tstgremotedesk",
+     "tstgscreen",
+     "tstgservice",
+     "tstgsoftware",
+      JUNK_FILES_TABLE_NAME,
+     "tstgcomputername",
+      SYSTEM_TIME_TABLE_NAME,
+      MAINPAGE_TABLE_NAME,
+     "tstgdomain",
+      NET_SHARE_TABLE_NAME,
+     "tstgnetworkstate",
+      DISK_SPACE_TABLE_NAME,
+      PWD_POLICY_TABLE_NAME,
+     "tstgoscheck",
+     "tstgwsusconfig",
+     "tstgweakpwd", 
+     IE_EXTENSIONS_TABLE_NAME,
+     "tstgantivirus",
+	 SYSTEM_PATCHS_TABLE_NAME,
+	 "tstgillegalinternet",
+	 WALL_PAPER_TABLE_NAME,
+	 TSTG_CHECKCUSTOM_TABLE_NAME,
+	 "tstgnetmon",
+ };
+
+/*************************************************
+Function Name: HP_openDB
+Description: 判断数据库句柄是否为空,若为空的话打开数据库
+Input and output:  
+      dirpath:程序文件夹路径
+RetVal:打开成功返回HP_SUCCESS
+           打开失败返回HP_DB_OPENFAIL
+**************************************************/
+int HP_openDB(IN wchar_t *  dirpath)
+{
+    int retval = HP_DB_OPENFAIL;
+    if(g_db==NULL)
+    {
+        wchar_t dbpath[MAX_PATH]={L"0"};
+        wsprintf(dbpath,L"%s\\%s",dirpath,L"nacdata.db");
+        if (PathFileExists(dbpath))
+        {
+            char dbpathutf8[MAX_PATH] = {0};
+            ConvertW2UTF8(dbpath,dbpathutf8,MAX_PATH);
+             retval =SQLITE_OK;
+            retval =sqlite3_open(dbpathutf8,&g_db);
+            if(SQLITE_OK != retval)
+            {
+                sqlite3_close(g_db);
+                g_db = NULL;
+                retval = HP_DB_OPENFAIL;
+            }
+        }
+    }
+    else
+        retval= HP_SUCCESS;
+    return retval;
+}
+
+void DeleteSelf(char* dirpath)
+{
+    try
+    {
+        DWORD proid = GetCurrentProcessId();
+        char BatFilePath[MAX_PATH] = {0};
+        sprintf_s(BatFilePath,MAX_PATH,"%s\\terminal%d.bat",dirpath,proid);
+        FILE *pfile;
+        errno_t err;
+        if(err=fopen_s(&pfile,BatFilePath,"w")==0)
+        {
+            char writeMsg[MAX_PATH]={0};
+            sprintf_s(writeMsg,MAX_PATH,"taskkill /PID %d /f",proid);
+            fwrite(writeMsg,1,strlen(writeMsg),pfile);
+            fwrite("\r\n",1,strlen("\r\n"),pfile);
+            fflush(pfile);
+            memset(writeMsg,0,sizeof(writeMsg));
+            sprintf_s(writeMsg,MAX_PATH,"del \"%s\"",BatFilePath);
+            fwrite(writeMsg,1,strlen(writeMsg),pfile);
+            fwrite("\r\n",1,strlen("\r\n"),pfile);
+            fflush(pfile);
+        }
+        fclose(pfile);
+        ::WinExec(BatFilePath,SW_HIDE);
+    }
+    catch (...)
+    {
+    	  WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"DeleteSelf exception");
+    }
+}
+
+unsigned long long TranslateTimeTosec(unsigned long valueinfo,int valueunit)
+{
+	unsigned long  long result = valueinfo;
+	switch (valueunit)
+	{
+	case IDENMINUTE://分钟
+		result = valueinfo*60;
+		break;
+	case IDENHOUR://小时
+		result = valueinfo*60*60;
+		break;
+	case IDENDAY://
+		result = valueinfo*24*60*60;
+		break;
+	case IDENMONTH:
+		result = valueinfo*30*24*60*60;
+		break;
+	default:
+		break;
+	}
+	return result;
+}
+
+
+const TCHAR *LANGUAGECONFIG[] = {_T("NONOLANGAGE"),
+	_T("chineseConfig"),
+	_T("fantichineseConfig"),
+	_T("englishConfig"),
+	_T("japanConfig")
+};
+
+const TCHAR *CONTROLNAMESTR[] = {_T("MENU_RIGHT_8021X"),
+	_T("MENU_RIGHT_REGISTER"),
+	_T("MENU_RIGHT_REGISRES"),
+	_T("MENU_RIGHT_NETWORKINFO"),
+	_T("MENU_RIGHT_LANGINFO"),
+	_T("MENU_RIGHT_JIANTI"),
+	_T("MENU_RIGHT_FANTI"),
+	_T("MENU_RIGHT_ENGLISH"),
+	_T("MENU_RIGHT_JAPAN"),
+	_T("MENU_RIGHT_LOGON"),
+	_T("MENU_RIGHT_RESTART"),
+	_T("MENU_RIGHT_DISCONNECT"),
+	_T("MENU_RIGHT_UNINSTALL"),
+	_T("MENU_RIGHT_ABOUT"),
+	_T("MENU_RIGHT_SYSTEMLOG")
+};
+
+const TCHAR *ABOUTCONTROLSTR[] = {_T("MENU_ABOUT_TITLELABEL"),
+	_T("MENU_ABOUT_COMPANYLABEL"),
+	_T("MENU_ABOUT_VERSIONLABEL"),
+	_T("MENU_ABOUT_OFFICALNETLABEL"),
+	_T("MENU_ABOUT_UPDATETIMELABLE"),
+	_T("MENU_ABOUT_EXECTIMELABEL"),
+	_T("MENU_ABOUT_SERVERIPLABEL"),
+	_T("MENU_ABOUT_COMPANYNAME"),
+	_T("MENU_ABOUT_VERSIONNAME"),
+	_T("MENU_ABOUT_OFFICALNETNAME"),
+	_T("MENU_ABOUT_UPDATETIMENAME"),
+	_T("MENU_ABOUT_EXECTIMENAME"),
+	_T("MENU_ABOUT_SERVERIPNAME")
+};
+
+const TCHAR *UNINSTALLCONTROLSTR[] = {_T("MENU_UNINSTALL_TITLE"),
+	_T("MENU_UNINSTALL_APPLYLABEL"),
+	_T("MENU_UNINSTALL_IDENTIFYLABEL"),
+	_T("MENU_UNINSTALL_UNINSTALLTIP"),
+	_T("MENU_UNINSTALL_IDOK"),
+	_T("MENU_UNINSTALL_CODEERROR")
+};
+
+const TCHAR *DOMAINIDENCONTROLSTR[] = {_T("DOMAIN_IDENTIFY_TITLE"),
+	_T("DOMAIN_IDENTIFY_ACCOUNTLABEL"),
+	_T("DOMAIN_IDENTIFY_PWDLABEL"),
+	_T("DOMAIN_IDENTIFY_DOMAINLABEL"),
+	_T("DOMAIN_IDENTIFY_ERRORTIP"),
+	_T("DOMAIN_IDENTIFY_IDENTIFYACC"),
+};

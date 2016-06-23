@@ -1,0 +1,203 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "CheckSystemTime.h"
+#include "SystemCheck.h"
+#include "DebugInfo.h"
+
+/************************************************************
+Description: 检查系统时间是否与服务器一致，并是否修复
+Input: ProcId[进程ID]
+Return: TRUE[成功]、FALSE[失败]
+*************************************************************/
+BOOL EnablePrivilege(LPCTSTR lpszPrivilegeName, BOOL bEnable)
+{
+    HANDLE hToken;
+    TOKEN_PRIVILEGES tp;
+    LUID luid;
+
+    if(!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES |TOKEN_QUERY | TOKEN_READ, &hToken))
+    {
+        return FALSE;
+    }
+
+    if(!LookupPrivilegeValue(NULL, lpszPrivilegeName, &luid))
+    {
+        return TRUE;
+    }
+
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Luid = luid;
+    tp.Privileges[0].Attributes = (bEnable) ? SE_PRIVILEGE_ENABLED : 0;
+
+    AdjustTokenPrivileges(hToken, FALSE, &tp, NULL, NULL, NULL);
+
+    CloseHandle(hToken);
+
+    return (GetLastError() == ERROR_SUCCESS);
+
+}
+
+/************************************************************
+ Description: 获取当前系统时间
+ output: 当前系统时间
+ Return: NULL
+*************************************************************/
+SYSTEMTIME GetCurLocalTime()
+{
+    SYSTEMTIME st;
+
+    GetLocalTime(&st);
+
+    return st;
+}
+
+/************************************************************
+ Description: 整形时间转系统时间
+ Input: t[整形时间]
+ Output:st[系统时间]
+*************************************************************/
+SYSTEMTIME GetSysTimeFromTimval(IN char* timeval)
+{
+    long long mytime = _atoi64(timeval)/1000;
+    time_t nowtime = mytime;
+    FILETIME ft;
+    LONGLONG nLL = Int32x32To64(nowtime, 10000000) + 116444736000000000;
+    FILETIME ftnow;
+    SYSTEMTIME st;
+
+    ft.dwLowDateTime = (DWORD)nLL;
+    ft.dwHighDateTime = (DWORD)(nLL >> 32);
+
+    FileTimeToLocalFileTime(&ft, &ftnow);
+    FileTimeToSystemTime(&ftnow, &st);
+
+    return st;
+}
+
+/************************************************************
+ Description:比较本地时间与服务器时间是否在误差内
+ Input: pLocalTime[本地时间], pServerTime[服务器时间]，dwTimeError[时间误差]
+ Return: 0[本地时间与服务器时间在误差内]
+         非0[本地时间与服务器时间不在误差内]
+*************************************************************/
+int CmpTime(IN SYSTEMTIME stLocalTime, IN SYSTEMTIME stServerTime, IN DWORD dwTimeError)
+{
+    int ret = FALSE;
+    COleDateTime localDateTime;
+    COleDateTime serverDateTime;
+    char writeLog[MAX_WRITE_BUF] = {0};
+
+    localDateTime.SetDateTime(  stLocalTime.wYear,
+        stLocalTime.wMonth,
+        stLocalTime.wDay,
+        stLocalTime.wHour,
+        stLocalTime.wMinute,
+        stLocalTime.wSecond);
+
+    serverDateTime.SetDateTime( stServerTime.wYear,
+        stServerTime.wMonth,
+        stServerTime.wDay,
+        stServerTime.wHour,
+        stServerTime.wMinute,
+        stServerTime.wSecond);
+     
+    COleDateTimeSpan tMinute = abs(localDateTime - serverDateTime);
+
+    if ((DWORD)tMinute.GetTotalMinutes() > dwTimeError)
+    {
+        ret = 1;
+    }
+
+    sprintf_s(writeLog, MAX_WRITE_BUF-1, "SpanTime[%d]\n", (DWORD)tMinute.GetTotalMinutes());
+    WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, writeLog);
+
+    return ret;
+}
+
+/************************************************************
+Description: 检查系统时间是否与服务器一致，并是否修复
+Input: pServerTime[服务器时间];bFixFlag[是否修复];dwTimeError[允许时间误差]
+Return: TRUE[检查与服务器时间不同步或修复成功]；FAlSE[检查与服务器时间同步或修复失败]
+*************************************************************/
+BOOL CheckSystemTime(IN char* pServerTime, IN BOOL bFixFlag, IN DWORD dwTimeError)
+{
+    BOOL ret = FALSE;
+    SYSTEMTIME stLocalTime = GetCurLocalTime();
+    SYSTEMTIME stServerTime = {0};
+    char writeLog[MAX_WRITE_BUF] = {0};
+
+    if (pServerTime == NULL)
+    {
+        stServerTime = GetSysTimeFromTimval(systemTimePolicy.serverTime);
+        dwTimeError = systemTimePolicy.dwTimeError;
+    }
+    else
+    {
+        stServerTime = GetSysTimeFromTimval(pServerTime);
+    }
+
+    sprintf_s(writeLog, MAX_WRITE_BUF-1, "local time:%4d-%d-%d %d-%d\n", stLocalTime.wYear, stLocalTime.wMonth, stLocalTime.wDay, stLocalTime.wHour, stLocalTime.wMinute);
+    WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, writeLog);
+
+    sprintf_s(writeLog, MAX_WRITE_BUF-1, "server time:%4d-%d-%2d %d-%d\n", stServerTime.wYear, stServerTime.wMonth, stServerTime.wDay, stServerTime.wHour, stServerTime.wMinute);
+    WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, __FILE__, __LINE__, __FUNCTION__, writeLog);
+
+    if (CmpTime(stLocalTime, stServerTime, dwTimeError) != 0)
+    {
+        if (bFixFlag)
+        {
+            memcpy_s(&stLocalTime, sizeof(SYSTEMTIME), &stServerTime, sizeof(SYSTEMTIME));
+
+            EnablePrivilege(SE_SYSTEMTIME_NAME, SE_PRIVILEGE_ENABLED);
+
+            if (SetLocalTime(&stLocalTime))                              
+            {
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, "set time success!");
+                ret = TRUE;
+            }
+            else
+            {
+                char prin[64] = {0};
+                sprintf_s(prin, 64, "error[%d]\n", GetLastError());
+                OutputDebugStringA(prin);
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, "系统时间修复失败!");
+
+                if (GetLastError() == 1314)
+                {
+                    WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__, __FUNCTION__, "客户没有所需的特权!\n请联系管理员");
+                    //MessageBox(NULL,  L"客户没有所需的特权!\n请联系管理员", L"修改系统时间失败",  MB_OK|MB_ICONWARNING);
+                }
+            }
+        }
+        else
+        {
+            ret = TRUE;
+        }
+    }
+
+    return ret;
+}
+
+/************************************************************ 
+ Description: 设置策略
+ input:pJunkDirPolicy[检查策略结构]
+*************************************************************/
+void SetSystemTimePolicy(IN PSYSTEMTIMEPOLICY pSystemTimePolicy)
+{
+    char writeLog[MAX_WRITE_BUF] = {0};
+
+    memcpy_s( systemTimePolicy.serverTime, SYSTEMTIMELEN, pSystemTimePolicy->serverTime, SYSTEMTIMELEN);
+    systemTimePolicy.dwTimeError = pSystemTimePolicy->dwTimeError;
+
+    sprintf_s(writeLog, MAX_WRITE_BUF, "serverTime[%s], TimeError[%d]", systemTimePolicy.serverTime, systemTimePolicy.dwTimeError);
+
+    WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL,  __FILE__, __LINE__,  __FUNCTION__, writeLog);
+
+}

@@ -1,0 +1,14 @@
+
+#pragma once 
+#define DECODE_ERROR 0xffffffff 
+static char base64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"; 
+
+//这个应该是加密转换的字符，你可以调整顺序或换成别的字符
+
+int EncodeBase64(char *szInput, char*  szOutput); //加密
+int DecodeBase64(char* szInput, char* szOutput); //解密
+
+int base64_encode(const void *data, const int size, char **str); 
+static int pos(const char c); 
+static unsigned int token_decode(const char *token); 
+int base64_decode(const char *str, char *data); 

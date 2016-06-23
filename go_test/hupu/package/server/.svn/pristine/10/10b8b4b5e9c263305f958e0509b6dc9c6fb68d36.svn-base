@@ -1,0 +1,14 @@
+#ifndef _MONITORFUNCTION_H_
+#define _MONITORFUNCTION_H_ 1
+
+#include <Windows.h>
+#define HPUNINSTALL_EXE_NAME "HpUninstall.exe"
+
+HANDLE CreateMonitorThread();
+
+/************************************************************
+ Description: ½áÊø½ø³Ì
+*************************************************************/
+void TerminateTheProcess(IN wchar_t* pProcName);
+
+#endif

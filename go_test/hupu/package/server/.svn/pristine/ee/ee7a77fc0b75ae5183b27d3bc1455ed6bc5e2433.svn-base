@@ -1,0 +1,60 @@
+#pragma once
+
+#include <string>
+using namespace std;
+
+#include "UsingIllegalInternet.h"
+
+class CSafeCheckRealTime
+{
+public:
+	CSafeCheckRealTime(void);
+	~CSafeCheckRealTime(void);
+
+	//初始化线程数据
+	void init(char* servertime,int  iuserid,int iusertype);
+
+	//执行线程
+	BOOL execSafeCheckRealtime();
+
+	//设置退出标志
+	void setExitFlag(BOOL bFlag);
+
+	//退出线程
+	void stopThread();
+
+	//退出违规外联
+	void Canceillinternetsafecheck();
+
+private:
+	//线程退出标志:TRUE表示退出线程，FALSE表示执行线程
+	BOOL m_exitFlag; 
+
+	//服务器时间的时间戳,在查询是否有安检项是需要使用
+	string m_servicetimestr;
+
+	//服务器时间与客户端时间的时间差(s)
+	time_t m_timeOffset;
+
+	//违规外联的设备信息
+	CUsingIllegalInternet m_illinternet;
+
+	//违规外联安检上次的是禁止还是允许的状态
+	int  m_illintLastStat;
+
+	//线程句柄
+	HANDLE m_hThread;
+
+	//用户id
+	string m_useridstr;
+
+	//用户类型
+	string m_usertypestr;
+
+	static UINT WINAPI realtimeThreadProc(LPVOID  pParam);
+
+	//执行违规外联的安检项
+	BOOL execIllInetSafeCheck();
+
+};
+

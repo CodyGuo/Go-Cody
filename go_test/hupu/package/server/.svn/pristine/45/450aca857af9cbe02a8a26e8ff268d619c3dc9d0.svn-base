@@ -1,0 +1,849 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "..\GlobalDate.h"
+#include "..\GetLangValue.h"
+#include "CheckSystemPatchs.h"
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+#include "..\GlobalFunction.h"
+#include "SafeCheckFuntion.h"
+
+#include <algorithm>
+#include <wuapi.h> 
+#include <Wbemcli.h>
+#include "..\CustomCheck\CommData.h"
+#pragma comment(lib, "wbemuuid.lib")
+
+/************************************************************ 
+ Description: 从数据库中获取系统补丁策略
+ input: 
+ Return: 
+*************************************************************/
+int GetPatchDataFromDB( IN wchar_t *pDirPath, 
+						IN char *pUserId, 
+						IN char* pUserType, 
+						IN char *pCurrdata, 
+						IN char *pMilliSecond, 
+						IN char *pWeekday, 
+						OUT SYSTEMPATCHPOLICYLIST &pSystemPatchPolicyList,
+						OUT safecheckattr *pPatchAttriInfo)
+{
+	int iResult = HP_DB_GETTABLEFAIL;
+
+	try
+	{
+		int ret = SQLITE_OK;
+
+		if (HP_openDB(pDirPath) == HP_DB_OPENFAIL)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "打开数据库失败");
+			return HP_DB_OPENFAIL;
+		}
+		else
+		{
+			char sql[HP_C_SQLDATA]={'0'}; 
+			char **pszResult='\0';
+			CHAR *szErrMsg='\0';
+			INT nRow = 0;
+			INT nCloumn = 0;
+
+			sprintf_s(sql,
+				HP_C_SQLDATA,
+				"SELECT %s FROM  (SELECT * FROM tstgsystempatch a WHERE (a.iuserid=%d) AND (a.usertype = \'%s\')AND (a.dstartdate<=\'%s\') AND (a.denddate>=\'%s\') AND (%ld>a.sstarttime) AND \
+				(%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority ASC) ORDER BY ipriority ASC ", 
+				HP_ATTRIBUTE_SQLNAME, atoi(pUserId), pUserType, pCurrdata, pCurrdata, atol(pMilliSecond), atol(pMilliSecond), atoi(pWeekday));	
+
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_SYSTEMPATCH, LOGLOCATION, "查询网络共享策略的SQL语句:", sql);
+
+			ret = sqlite3_get_table(g_db, sql, &pszResult, &nRow, &nCloumn, &szErrMsg);
+
+			if(SQLITE_OK != ret)
+			{
+				sqlite3_free_table(pszResult);
+				ret = sqlite3_close(g_db);
+				g_db = NULL;
+				return HP_DB_GETTABLEFAIL;
+			}
+
+			memset(pPatchAttriInfo, 0, sizeof(safecheckattr));
+
+			if ((nRow > 0) && (nCloumn > 0))
+			{	
+				for (int i=0; i < nRow; i++)
+				{
+					for (int j = 0; j < nCloumn; j++)
+					{
+						if(strcmp(pszResult[j], "ipriority") == 0)
+						{			
+							Convert(pszResult[(i+1)*nCloumn+j], pPatchAttriInfo->ipriority, sizeof(pPatchAttriInfo->ipriority), CP_UTF8, CP_ACP);					
+						}
+						else if(strcmp(pszResult[j], "spolicyaction") == 0)
+						{			
+							Convert(pszResult[(i+1)*nCloumn+j], pPatchAttriInfo->spolicyaction, sizeof(pPatchAttriInfo->spolicyaction), CP_UTF8, CP_ACP);					
+						}
+						else if(strcmp(pszResult[j], "spromptinfo") == 0)
+						{
+							Convert(pszResult[(i+1)*nCloumn+j], pPatchAttriInfo->spromptinfo, sizeof(pPatchAttriInfo->spromptinfo), CP_UTF8, CP_ACP);					
+						}
+						else  if(strcmp(pszResult[j], "warningcont") == 0)
+						{
+							Convert(pszResult[(i+1)*nCloumn+j], pPatchAttriInfo->warningcont, sizeof(pPatchAttriInfo->warningcont), CP_UTF8, CP_ACP);					
+						}	
+						else  if(strcmp(pszResult[j],"warninglevel") == 0)
+						{
+							Convert(pszResult[(i+1)*nCloumn+j], pPatchAttriInfo->warninglevel, sizeof(pPatchAttriInfo->warninglevel), CP_UTF8, CP_ACP);					
+						}	
+						else  if(strcmp(pszResult[j], "srcevent") == 0)
+						{
+							Convert(pszResult[(i+1)*nCloumn+j], pPatchAttriInfo->srcevent, sizeof(pPatchAttriInfo->srcevent), CP_UTF8,CP_ACP);					
+						}                    
+					}
+				}
+				iResult = HP_SUCCESS;
+			}
+			sqlite3_free_table(pszResult);
+
+			{
+				char *pExceptSql = "SELECT skbnumber, ipatchtype, spatchtitle, dreleasetime, sdownloadurl, ssystemversion FROM "
+					"(SELECT * FROM tstgsystempatch a, tstgsystempatchcontent b  WHERE a.ipolicyauthid = b.ipolicyauthid) AS tb GROUP BY tb.skbnumber";
+
+				nRow = 0;
+				nCloumn = 0;
+
+				WriteDebugInfomation(LEVEL_DEBUG, MODULE_SYSTEMPATCH, LOGLOCATION, "查询下发补丁策略的SQL语句:", sql);
+				ret = sqlite3_get_table(g_db, pExceptSql, &pszResult, &nRow, &nCloumn, &szErrMsg);
+
+				if(SQLITE_OK != ret)
+				{
+					sqlite3_free_table(pszResult);
+					ret = sqlite3_close(g_db);
+					g_db = NULL;
+					return iResult;
+				}
+
+				pSystemPatchPolicyList.systemPatchPolicyList.clear();
+
+				if ((nRow > 0) && (nCloumn > 0))
+				{
+					for (int i=0; i < nRow; i++)
+					{
+						SYSTEMPATCHPOLICY systemPatchPolicy;
+
+						for (int j = 0; j < nCloumn; j++)
+						{
+							if(strcmp(pszResult[j], "skbnumber") == 0)
+							{
+								ConvertDbFieldsToUni(pszResult[(i+1)*nCloumn+j], MAXKBIDLEN, systemPatchPolicy.m_wstrKBNumber);
+							}	
+							if(strcmp(pszResult[j], "ipatchtype") == 0)
+							{				
+								systemPatchPolicy.ipatchtype = atoi(pszResult[(i+1)*nCloumn+j]);
+							}	
+							if(strcmp(pszResult[j], "spatchtitle") == 0)
+							{				
+								ConvertDbFieldsToUni(pszResult[(i+1)*nCloumn+j], MAXFIELDLEN, systemPatchPolicy.m_wstrPatchTitle);			
+							}	
+							if(strcmp(pszResult[j], "dreleasetime") == 0)
+							{				
+								ConvertDbFieldsToUni(pszResult[(i+1)*nCloumn+j], MAXTIMEBUFLEN, systemPatchPolicy.m_wstrdReleaseTime);	
+							}	
+							if(strcmp(pszResult[j], "sdownloadurl") == 0)
+							{				
+								ConvertDbFieldsToUni(pszResult[(i+1)*nCloumn+j], MAXFIELDLEN, systemPatchPolicy.m_wstrDownloadUrl);		
+							}	
+							if(strcmp(pszResult[j], "ssystemversion") == 0)
+							{				
+								ConvertDbFieldsToUni(pszResult[(i+1)*nCloumn+j], MAXFIELDLEN, systemPatchPolicy.m_wstrsSystemVersion);		
+							}	
+
+							if (j == (nCloumn -1))
+							{
+								pSystemPatchPolicyList.systemPatchPolicyList.push_back(systemPatchPolicy);
+							}
+						}
+					}
+				}   
+				sqlite3_free_table(pszResult);
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetPatchDataFromDB Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "GetPatchDataFromDB Exception");
+	}
+    return iResult;
+}
+
+/************************************************************
+ Description: WUA方法获取操作系统已安装补丁
+ output: 
+ Return: 
+*************************************************************/
+int GetTotalHistoryPatch(std::list<std::string> &kbList)
+{
+	try
+	{
+		HRESULT hr = S_FALSE;
+
+		hr = CoInitialize(NULL);
+
+		IUpdateSession* pIUpdateSession = NULL;
+		IUpdateSearcher* pSearcher = NULL;
+		LONG lHistoryCount = 0;
+
+		OutputDebugStringA("@GetTotalHistoryPatch...\n");
+
+		hr = CoCreateInstance(CLSID_UpdateSession, NULL, CLSCTX_LOCAL_SERVER/*CLSCTX_INPROC_SERVER*/, IID_IUpdateSession, (LPVOID*)&pIUpdateSession);
+		if (FAILED(hr) || (pIUpdateSession == NULL))
+		{
+			pIUpdateSession->Release();
+			throw -1;
+		} 
+
+		hr = pIUpdateSession->CreateUpdateSearcher(&pSearcher);
+		if (FAILED(hr) || (pSearcher == NULL))
+		{
+			pIUpdateSession->Release();
+			throw -2;
+		} 
+
+		pSearcher->get_Online(VARIANT_FALSE);
+		hr = pSearcher->GetTotalHistoryCount(&lHistoryCount);
+		if (FAILED(hr))
+		{
+			pSearcher->Release();
+			pIUpdateSession->Release();
+			throw -3;
+		}
+
+		LONG lCount = 0;
+		IUpdateHistoryEntryCollection* pIUpdateHistoryEntryCollection = NULL;
+
+		hr = pSearcher->QueryHistory(0, lHistoryCount, &pIUpdateHistoryEntryCollection);
+		if (SUCCEEDED(hr) || (pIUpdateHistoryEntryCollection != NULL))
+		{
+			hr = pIUpdateHistoryEntryCollection->get_Count(&lCount);
+
+			if (SUCCEEDED(hr))
+			{
+				for (int j = 0; j < lCount; j++)
+				{
+					IUpdateHistoryEntry* pIUpdateHistoryEntry = NULL;
+					BSTR pTitle = NULL;
+					std::string strTitle = "";
+					std::list<std::string>::iterator iter;
+					string::size_type iFirstbracketPos = 0;  
+					std::string strKB = "";
+
+					hr = pIUpdateHistoryEntryCollection->get_Item(j, &pIUpdateHistoryEntry);
+
+					if (SUCCEEDED(hr) || (pIUpdateHistoryEntry != NULL))
+					{
+						hr = pIUpdateHistoryEntry->get_Title(&pTitle);
+						if (SUCCEEDED(hr))
+						{                          
+							strTitle = WCharToAnsi(pTitle);
+
+							iFirstbracketPos = strTitle.find("(");
+							strKB = strTitle.substr(iFirstbracketPos+1, strTitle.length()-iFirstbracketPos-2);
+
+							if (strKB.find("KB") != string::npos )
+							{
+								iter = find(kbList.begin(), kbList.end(), strKB);
+
+								if (iter == kbList.end())
+								{
+									kbList.push_back(strKB);
+									OutputDebugStringA(strKB.c_str());
+								}
+							}					
+						}
+						pIUpdateHistoryEntry->Release();
+					}
+				}
+			}
+		}         
+
+		pIUpdateHistoryEntryCollection->Release();
+		pSearcher->Release();
+		pIUpdateSession->Release();
+		::CoUninitialize();
+
+		OutputDebugStringA("@GetTotalHistoryPatch...end\n");
+
+	}
+	catch(...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH,  LOGLOCATION, "GetTotalHistoryPatch exception");
+		::CoUninitialize();
+	}
+
+	return 0;
+}
+
+/************************************************************
+ Description: WMI方法获取操作系统已安装补丁
+ output: 
+ Return: 
+*************************************************************/
+long WmiGetPatch(std::list<std::string> &kbList)
+{
+    HRESULT hres = S_FALSE;
+
+    try
+    {
+        IWbemLocator *pLoc = NULL;
+        IWbemServices *pSvc = NULL;
+        IEnumWbemClassObject* pEnumerator = NULL;
+        IWbemClassObject *pclsObj=NULL; 
+        ULONG uReturn = 0;
+		
+        CoInitialize(NULL);
+        hres = CoCreateInstance(CLSID_WbemLocator,            
+            0,
+            CLSCTX_INPROC_SERVER,
+            IID_IWbemLocator, 
+            (LPVOID *)&pLoc);
+
+        if (FAILED(hres))
+        {
+            CoUninitialize();
+            return hres;   
+        }
+
+        hres = pLoc->ConnectServer(L"root\\cimv2", NULL, NULL, 0, NULL, 0, 0, &pSvc);
+
+        if (FAILED(hres))
+        {
+            CoUninitialize();
+            return hres;   
+        }
+
+        hres = CoSetProxyBlanket(pSvc,                        
+								RPC_C_AUTHN_WINNT,          
+								RPC_C_AUTHZ_NONE,            
+								NULL,                        
+								RPC_C_AUTHN_LEVEL_CALL,      
+								RPC_C_IMP_LEVEL_IMPERSONATE, 
+								NULL,                        
+								EOAC_NONE );
+
+        if (FAILED(hres))
+        {
+            CoUninitialize();
+            return hres;   
+        }
+
+        hres = pSvc->ExecQuery(L"WQL", L"SELECT * FROM Win32_QuickFixEngineering", WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, NULL, &pEnumerator);
+
+        if (FAILED(hres))
+        {
+            CoUninitialize();
+            return hres;   
+        }
+
+        while (pEnumerator)
+        {
+            CComBSTR bstrText;
+            VARIANT vtProp;
+
+            hres = pEnumerator->Next(WBEM_INFINITE, 1, &pclsObj, &uReturn);
+
+            if(uReturn == 0)
+            {
+                break;
+            }
+
+            hres = pclsObj->Get(L"HotFixID", 0, &vtProp, 0, 0);
+
+            if (SUCCEEDED(hres))
+            {
+                std::string strHotFixID = ""; 
+                std::list<std::string>::iterator iter;
+
+                strHotFixID = WCharToAnsi(vtProp.bstrVal);
+                iter = find(kbList.begin(), kbList.end(), strHotFixID);
+
+                if(iter == kbList.end())
+                {
+                    kbList.push_back(strHotFixID);
+                }
+            }
+        }
+    }
+    catch (...)
+    {
+        CoUninitialize();
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "WmiGetPatch exception");
+        return hres;
+    }
+
+    CoUninitialize();
+    return hres;
+}
+
+/************************************************************
+ Description: WUL方法获取操作系统已安装补丁
+ output: 
+ Return: 
+*************************************************************/
+int WulGetPatch(IN const char* pCurPath, IN const char* pOutPutFileName, std::list<std::string> &kbList)
+{
+	int ret = FALSE;
+
+	try
+	{
+		std::string strCommand = "";
+		std::string strReadFile = "";
+		char pWndPath[MAX_PATH/4] = {0};
+
+		SHGetFolderPathA(NULL, CSIDL_WINDOWS, NULL, SHGFP_TYPE_CURRENT, pWndPath);
+
+		strCommand = pWndPath;
+		strCommand += "\\wul.exe /scomma ";
+
+		strReadFile = pCurPath;
+		strReadFile += pOutPutFileName;
+
+		strCommand += strReadFile;
+
+		if (RunProcess(strCommand.c_str(), INFINITE))
+		{
+			ifstream readfile(strReadFile.c_str());
+			string readLineBuf = "";
+
+			while(getline(readfile, readLineBuf))
+			{
+				string strKb = "";
+
+				string::size_type iFirstCommaPos = 0;  
+				std::list<std::string>::iterator iter;
+
+				iFirstCommaPos = readLineBuf.find(",");
+
+				if (iFirstCommaPos > 2)
+				{
+					strKb = readLineBuf.substr(0, iFirstCommaPos);
+
+					if (strKb.find("KB") != string::npos)
+					{
+						iter = find(kbList.begin(), kbList.end(), strKb);
+
+						if (iter == kbList.end())
+						{
+							kbList.push_back(strKb);
+						}
+					}
+				}
+			}
+			ret = TRUE;
+		}
+	}
+	catch (...)
+	{
+		ret = FALSE;
+		CoUninitialize();
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "WulGetPatch exception");
+		return ret;
+	}
+
+	return ret;
+}
+
+/************************************************************
+ Description: 获取操作系统安全补丁
+ output: 
+ Return: 
+*************************************************************/
+BOOL GetSystemPatch(OUT std::list<std::string> &kbList)
+{
+    char curPath[MAX_PATH] = {0};
+	std::list<std::string>::iterator iter;
+
+	if ( GetCurrentPath(curPath))
+    {
+		WulGetPatch(curPath, "wul.txt", kbList);
+    }
+
+    //GetTotalHistoryPatch(kbList);
+    WmiGetPatch(kbList);
+
+	for (iter = kbList.begin(); iter != kbList.end(); iter++)
+	{
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH,LOGLOCATION, (char*)iter->c_str());
+	}
+
+	char prin[32] = {0};
+
+	sprintf_s(prin, 32, "kb num[%d]\n", kbList.size());
+	WriteDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, prin);
+	
+    return TRUE;
+}
+
+/************************************************************ 
+ Description: 补丁策略中排除已经安装的补丁（获取未安装的补丁）
+ input:  pSystemPatchPolicyList【下发的补丁策略】
+ Return: 
+*************************************************************/
+BOOL GetUninstallPatch(IN std::list<SYSTEMPATCHPOLICY> &systemPatchPolicyList)
+{
+	try
+	{
+		BOOL ret = FALSE;
+
+		/*HINSTANCE hSystemCheckDll = NULL;
+		char systemCheckDllPath[MAX_PATH] = {0};*/
+
+		std::list<std::string> installKbList;
+		std::list<std::string>::iterator installKbIter;
+		std::list<SYSTEMPATCHPOLICY>::iterator patchPolicyIter;
+
+		if (systemPatchPolicyList.empty())
+		{
+			return ret;
+		}
+
+		/*sprintf_s(systemCheckDllPath, "%s\\%s", g_nacdirpath, SYSTEMCHECKDLLNAME);
+		hSystemCheckDll = LoadLibraryA(systemCheckDllPath); 
+
+		if (hSystemCheckDll == NULL)
+		{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_SYSTEMPATCH, LOGLOCATION, "SystemCheck.Dll文件加载失败");
+		return FALSE;
+		}
+
+		pGetSystemPatch fGetSystemPatch = NULL;
+		fGetSystemPatch = (pGetSystemPatch)GetProcAddress(hSystemCheckDll, "GetSystemPatch");
+
+		if (fGetSystemPatch == NULL)
+		{
+		FreeLibrary(hSystemCheckDll);
+		return FALSE;
+		}*/
+
+		GetSystemPatch(installKbList);
+
+		for (patchPolicyIter = systemPatchPolicyList.begin(); 
+			patchPolicyIter != systemPatchPolicyList.end();)
+		{
+			std::string strKbNum = "";
+			BOOL bDelFlag = FALSE;
+
+			strKbNum = WCharToAnsi(patchPolicyIter->m_wstrKBNumber);
+
+			for(installKbIter = installKbList.begin(); installKbIter != installKbList.end(); installKbIter++)
+			{
+				if (wcslen(patchPolicyIter->m_wstrKBNumber) < 3)
+				{
+					continue;
+				}				
+
+				if (strKbNum.compare(installKbIter->c_str()) == 0)
+				{
+					systemPatchPolicyList.erase(patchPolicyIter++);
+					bDelFlag = TRUE;
+					break;
+				}
+			}
+
+			if (!bDelFlag)
+			{
+				patchPolicyIter++;
+			}
+
+			if (systemPatchPolicyList.empty())
+			{
+				break;
+			}
+		}
+
+		if (!systemPatchPolicyList.empty())
+		{
+			ret = TRUE;
+		}
+
+		//FreeLibrary(hSystemCheckDll);
+		return ret;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetUninstallPatch Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "GetUninstallPatch Exception");
+		return FALSE;
+	}
+
+}
+
+/************************************************************ 
+ Description:安装系统补丁
+ input:  pSystemPatchPolicyList【需要安装的补丁策略】
+ Return: 
+*************************************************************/
+BOOL InstallSystemPatch(IN SYSTEMPATCHPOLICYLIST &pSystemPatchPolicyList, int iRepairIndex)
+{
+	BOOL ret = FALSE;
+	try
+	{
+		std::list<SYSTEMPATCHPOLICY>::iterator patchPolicyIter;
+		char tempPath[MAX_PATH] = {0};
+		int iCount = 0;
+
+		if (GetTempPathA(MAX_PATH, tempPath))
+		{
+			for (patchPolicyIter = pSystemPatchPolicyList.systemPatchPolicyList.begin(); 
+				patchPolicyIter != pSystemPatchPolicyList.systemPatchPolicyList.end();)
+			{       
+				if (iRepairIndex == INFINITE || iRepairIndex == iCount)
+				{
+					string strDownloadUrl = "";
+					string strDownFileName = "";
+					string strDownFilePath = "";
+					string strSoftwarePath = "";
+					string strParam = "";
+					string strAppName = "";
+					DWORD dwExitCode = 0;
+
+					bool downloadRes = false;
+					int iPos = string::npos;
+					bool bIsexeProg = false;
+
+					strDownloadUrl = WCharToAnsi(patchPolicyIter->m_wstrDownloadUrl);
+					iPos = strDownloadUrl.find("softwareName=");
+
+					if (iPos != string::npos)
+					{
+						strDownFileName = strDownloadUrl.substr(iPos+strlen("softwareName="));
+
+						if (!strDownFileName.empty())
+						{
+							strDownFilePath = tempPath;
+							strDownFilePath += strDownFileName;
+							strSoftwarePath = strDownFilePath;
+						}
+						if (strDownloadUrl.find("exe") != string::npos)
+						{
+							bIsexeProg = true;
+						}
+
+						downloadRes = DownLoadFileFromUrl(g_ServerIp, (char*)strDownloadUrl.c_str(), (char*)strSoftwarePath.c_str(), false, bIsexeProg);
+						if(!downloadRes)
+							DeleteFileA(strDownFilePath.c_str());
+
+					}
+					else
+					{
+						HRESULT hr = S_FALSE;
+
+						iPos = strDownloadUrl.rfind("/");
+						if (iPos != string::npos)
+						{
+							strDownFileName = strDownloadUrl.substr(iPos+strlen("/"));
+							strDownFilePath = tempPath;
+							strDownFilePath += strDownFileName;
+
+							if (strDownFileName.find("exe") == string::npos)
+							{
+								strParam = "wusa.exe ";
+								strParam += strDownFilePath;
+
+								/*strParam += " /quiet /norestart";
+								strParam += " /log ";
+								strParam += g_nacdirpath;
+								strParam += "\\";
+								strParam += strDownFileName;
+								strParam += ".txt";*/
+							}
+							else
+							{
+								strAppName = strDownFilePath;
+								bIsexeProg = true;
+							}
+							hr = UrlDownFile(strDownloadUrl, strDownFilePath);
+							if (hr == S_FALSE)
+							{
+								DeleteFileA(strDownFilePath.c_str());
+							}
+						}
+					}
+
+					if(PathFileExistsA(strDownFilePath.c_str()))
+					{
+						if (!bIsexeProg)
+						{
+							if (CreateExePro(NULL, (char*)strParam.c_str(), SW_SHOW, INFINITE, &dwExitCode))
+							{
+								pSystemPatchPolicyList.systemPatchPolicyList.erase(patchPolicyIter++);
+								if (pSystemPatchPolicyList.systemPatchPolicyList.empty())
+								{
+									break;	
+								}
+								continue;
+							}
+						}
+						else
+						{
+							if (CreateExePro((char*)strAppName.c_str(), NULL, SW_SHOW, INFINITE, &dwExitCode)/*LaunchAppIntoDifferentSession((char*)strAppName.c_str(), NULL)*/)
+							{
+								pSystemPatchPolicyList.systemPatchPolicyList.erase(patchPolicyIter++);
+								if (pSystemPatchPolicyList.systemPatchPolicyList.empty())
+								{
+									break;	
+								}
+								continue;
+							}
+						}
+					}
+				}
+				else
+				{
+					iCount++;
+				}
+
+				patchPolicyIter++;
+				if (pSystemPatchPolicyList.systemPatchPolicyList.empty())
+				{
+					break;	
+				}
+			} 
+		}
+
+		if (pSystemPatchPolicyList.systemPatchPolicyList.empty())
+		{
+			ret = TRUE;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"InstallSystemPatch Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "InstallSystemPatch Exception");
+	}
+	return ret;
+}
+
+/************************************************************ 
+ Description: 拼接返回错误信息
+ input: 
+ Return: 
+*************************************************************/
+std::string SplicePatchErrorMsg(IN safecheckattr checkItem, IN std::string& strErrorMsg, IN std::string strPatchName, IN string strFailIndex)
+{
+    std::string strRetBuf = "";
+
+	strRetBuf = "<subitem checkItemId=\"";
+	strRetBuf += strFailIndex;
+	//strRetBuf += "\" checkItemAction=\"";
+	//strRetBuf += checkItem.spolicyaction;
+	strRetBuf += "\" faildes=\"";
+    strRetBuf += strErrorMsg;
+    strRetBuf += "\" name=\"";
+	strRetBuf += strPatchName;
+    strRetBuf += "\" swarnname=\"";
+    strRetBuf += checkItem.warningcont;
+    strRetBuf += "\" iwarnlevel=\"";
+    strRetBuf += checkItem.warninglevel;
+    strRetBuf += "\" ilogrecord=\"";
+    strRetBuf += checkItem.srcevent;
+    strRetBuf += "\" />";
+
+    return strRetBuf;
+}
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input:   
+ Return: 
+*************************************************************/
+bool SystemPatchShowMsg(IN int iCheckState,  IN safecheckattr checkItem, IN SYSTEMPATCHPOLICYLIST &pSystemPatchPolicyList, OUT int* pFailNum, OUT std::string& strErrorMsg, IN LANGUAGETYPE language)
+{
+	bool ret = true;
+
+	strErrorMsg.clear();
+
+	try
+	{
+		std::string strPatchErrorMsg = "";
+		string strRmbFlag = WCharToAnsi(L"￥");
+
+		if (iCheckState)
+		{
+			(*pFailNum)++;
+			ret = false;
+
+			if(!pSystemPatchPolicyList.systemPatchPolicyList.empty())
+			{
+				list<SYSTEMPATCHPOLICY>::iterator iter;
+				int iFailIndex = 0;
+				
+				for (iter = pSystemPatchPolicyList.systemPatchPolicyList.begin(); 
+					iter != pSystemPatchPolicyList.systemPatchPolicyList.end(); 
+					iter++)
+				{
+					std::string strKbNum = "";
+					std::string strTitle = "";
+					std::string errorMsg = "";   
+					string strFailIndex = "";
+					vector<string> vecLangMsg;
+					string strPatchName = "";
+
+					if (GetLangVectorByKeyA(language, 
+						"SF_SYSTEMPATCH_MSG", 
+						"SF_SYSTEMPATCH_FALSE", 
+						"SF_SYSTEMPATCH_FALSE", 
+						MAX_BUF_LEN,
+						3,
+						&vecLangMsg))
+					{
+						strKbNum = WCharToAnsi(iter->m_wstrKBNumber);
+						strTitle = WCharToAnsi(iter->m_wstrPatchTitle);
+
+						errorMsg = vecLangMsg[0];
+						errorMsg += strTitle;
+						errorMsg += vecLangMsg[1];
+						errorMsg += strKbNum;
+						errorMsg += vecLangMsg[2];
+
+						strPatchName = strTitle;
+						strPatchName += strRmbFlag;
+						strPatchName += strKbNum;
+						strPatchName += strRmbFlag;
+						strPatchName += std::to_string((_ULonglong)iter->ipatchtype);
+ 
+						strFailIndex = std::to_string((_ULonglong)iFailIndex);
+						strPatchErrorMsg += SplicePatchErrorMsg(checkItem, errorMsg, strPatchName, strFailIndex);
+
+						iFailIndex++;
+					}
+				}
+			}
+			
+			strErrorMsg = strPatchErrorMsg;
+
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_SYSTEMPATCH, LOGLOCATION, (char*)strErrorMsg.c_str());
+		}
+	}
+	catch(...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"SystemPatchShowMsg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_SYSTEMPATCH, LOGLOCATION, "SystemPatchShowMsg Exception");
+	} 
+
+	return ret;
+}
+

@@ -1,0 +1,230 @@
+#include "stdafx.h"
+#include <Windows.h>
+#include <string>
+#include <vector>
+#include <winsvc.h>
+#include "InstallImanServer.h"
+
+using namespace std;
+
+const wchar_t *pServerName[]=
+{
+	L"Imhp",
+	L"Nacc",
+	L"Lasi",
+	L"FastUserLogon",
+};
+
+BOOL StartService(LPCTSTR lpService)
+{
+	SC_HANDLE        schSCManager;
+	SC_HANDLE        schService;
+	DWORD            dwErrorCode;
+
+	schSCManager=::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	if (schSCManager != NULL)
+	{
+		schService = ::OpenService(schSCManager, lpService, SERVICE_ALL_ACCESS);
+		if (schService != NULL)
+		{
+			if(::StartService(schService, 0, NULL) == 0)                     
+			{
+				dwErrorCode = GetLastError();
+				if( dwErrorCode == ERROR_SERVICE_ALREADY_RUNNING)
+				{
+					CloseServiceHandle(schSCManager);  
+					CloseServiceHandle(schService);
+					return TRUE;
+				}
+			}
+			CloseServiceHandle(schService);
+		}
+		CloseServiceHandle(schSCManager);
+	}
+	else
+		return FALSE;
+
+	return TRUE;
+}
+
+/************************************************************
+ Description: 获取REG_SZ键值数据
+ input: 
+ output:
+ Return: TRUE[成功]；FALSE[失败]
+*************************************************************/
+LONG GetValueDataFromReg(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName,  IN wchar_t* pCmpValueData, OUT vector<wstring>& wstrValueDataVector)
+{
+    LONG ret = 1;
+    HKEY hRetKey = NULL;
+	DWORD dwType = REG_SZ;
+    DWORD dwDataLen = 0;
+    WCHAR* pDatabuf = NULL;
+	WCHAR *pSzSubValue = NULL;
+
+    ret = RegOpenKeyEx(hKey, lpSubKey, 0, KEY_ALL_ACCESS, &hRetKey);
+    if(  ret == ERROR_SUCCESS )
+    {
+        ret = RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, NULL, &dwDataLen);
+        if ( ret == ERROR_SUCCESS )
+        {
+            pDatabuf = (WCHAR*)malloc(dwDataLen);
+
+            if ((ret = RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, (LPBYTE)pDatabuf, &dwDataLen)) == ERROR_SUCCESS )
+            {
+				wstring wstrValueData = L"";
+
+				for (pSzSubValue = pDatabuf; pDatabuf[0] != 0; pDatabuf+=(wcslen(pDatabuf)+1))
+				{
+					if (wcslen(pDatabuf) > 0 && _wcsicmp(pCmpValueData, pDatabuf) == 0)
+					{
+						ret = !ERROR_SUCCESS;
+						break;
+					}
+					wstrValueData = pDatabuf;
+					wstrValueDataVector.push_back(wstrValueData);
+				}
+            }
+            free(pSzSubValue);
+        }
+        RegCloseKey(hRetKey);
+    }
+    return ret;
+}
+
+/************************************************************
+ Description: 修改键值数据
+ Input: 
+ Output:
+ Return:  TRUE[成功]；FALSE[失败];
+*************************************************************/
+LONG SetValueData(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName, IN DWORD dwType, IN const BYTE* lpData, IN DWORD cbData)
+{
+    LONG ret = FALSE;
+    HKEY hRetKey = NULL;
+
+    ret = RegOpenKeyEx(hKey, lpSubKey, 0, KEY_ALL_ACCESS, &hRetKey);
+
+    if(  ret == ERROR_SUCCESS )
+    {
+        ret = RegSetValueEx(hRetKey, lpValueName, 0, dwType, lpData, cbData);
+        if ( ret == ERROR_SUCCESS )
+        {
+			RegFlushKey(hRetKey);
+            ret = TRUE;
+        }
+        RegCloseKey(hRetKey);
+    }
+    return ret;
+}
+
+/************************************************************
+ Description: 修改键值数据
+ Input: 
+ Output:
+ Return:  TRUE[成功]；FALSE[失败];
+*************************************************************/
+LONG CreateKeyAndSetValueData(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName, IN DWORD dwType, IN const BYTE* lpData, IN DWORD cbData)
+{
+    LONG ret = FALSE;
+    HKEY hRetKey = NULL;
+
+    ret = RegCreateKeyEx(hKey, lpSubKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hRetKey, NULL);
+
+    if(  ret == ERROR_SUCCESS )
+    {
+        ret = RegSetValueEx(hRetKey, lpValueName, 0, dwType, lpData, cbData);
+        if ( ret == ERROR_SUCCESS )
+        {
+			RegFlushKey(hRetKey);
+            ret = TRUE;
+        }
+        RegCloseKey(hRetKey);
+    }
+    return ret;
+}
+
+BOOL InstallService(wchar_t* pServiceName, wchar_t* pDisplayName, wchar_t* strPathName)
+{
+	BOOL bRet = FALSE;
+	SC_HANDLE svc = NULL, scm = NULL;
+
+	scm = OpenSCManager(0, 0, SC_MANAGER_ALL_ACCESS);
+
+	if (!scm)
+	{
+		printf("OpenSCManager failed error[%d]\n", GetLastError());
+		return bRet;
+	}
+
+	svc = CreateService(scm, 
+		pServiceName, 
+		pDisplayName,
+		SERVICE_ALL_ACCESS|SERVICE_INTERACTIVE_PROCESS,
+		SERVICE_WIN32_OWN_PROCESS,
+		SERVICE_AUTO_START,
+		SERVICE_ERROR_IGNORE,
+		strPathName,
+		NULL, NULL, NULL, NULL, NULL);
+
+	if (svc != NULL)
+	{
+		bRet = TRUE;
+		CloseServiceHandle(svc);
+		svc = NULL;
+		CloseServiceHandle(scm);
+		scm = NULL;
+	}
+	else
+	{
+		printf("CreateService failed error[%d]\n", GetLastError());
+	}
+
+	return bRet;
+}
+
+BOOL InstallSvchostService(wchar_t* pServiceName, wchar_t* pDisplayName, wchar_t* pDllPath)
+{
+	BOOL bRet = FALSE;
+	wstring wstrSubKey = L"";
+	wstring wstrScvhostKeyPath = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Svchost";
+	wstring wstrNetsvcsValueName = L"netsvcs";
+	wchar_t szNetsvcsValueData[MAX_BUF_LEN*2] = {0};
+	wchar_t* pSvcsValueData = NULL;
+	int iValueDataLen = 0;
+	vector<wstring> wstrValueDataVector;
+
+	wstrSubKey = L"SYSTEM\\CurrentControlSet\\Services\\";
+	wstrSubKey += (wstring)pServiceName;
+	wstrSubKey += L"\\Parameters";
+
+	pSvcsValueData = szNetsvcsValueData;
+	if (GetValueDataFromReg(HKEY_LOCAL_MACHINE, wstrScvhostKeyPath.c_str(), wstrNetsvcsValueName.c_str(), pServiceName, wstrValueDataVector) == ERROR_SUCCESS)
+	{
+		for (int i = 0; i < (int)wstrValueDataVector.size(); i++)
+		{
+			swprintf_s(pSvcsValueData, MAX_BUF_LEN*2, L"%ws%c", wstrValueDataVector[i].c_str(), 0);
+			iValueDataLen += wstrValueDataVector[i].length()+1;
+			pSvcsValueData += wstrValueDataVector[i].length()+1;
+			if (i == (wstrValueDataVector.size()/2))
+			{
+				swprintf_s(pSvcsValueData, MAX_BUF_LEN*2, L"%ws%c", pServiceName, 0);
+				iValueDataLen += wcslen(pServiceName)+1;
+				pSvcsValueData += wcslen(pServiceName)+1;
+			}
+			if (i == wstrValueDataVector.size())
+			{
+				swprintf_s(pSvcsValueData, MAX_BUF_LEN*2, L"%c%c", 0, 0);
+				iValueDataLen +=2 ;
+				pSvcsValueData +=2;
+			} 
+		}
+		SetValueData(HKEY_LOCAL_MACHINE, wstrScvhostKeyPath.c_str(), wstrNetsvcsValueName.c_str(), REG_MULTI_SZ, (const BYTE*)szNetsvcsValueData, iValueDataLen*sizeof(wchar_t));
+	}
+
+	bRet = InstallService(pServiceName, pDisplayName, L"%SystemRoot%\\System32\\svchost.exe -k netsvcs");
+	CreateKeyAndSetValueData(HKEY_LOCAL_MACHINE, wstrSubKey.c_str(), L"ServiceDll", REG_EXPAND_SZ, (const BYTE*)pDllPath, wcslen(pDllPath)*sizeof(wchar_t));
+	bRet = StartService(pServiceName);
+
+	return bRet;
+}

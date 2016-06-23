@@ -1,0 +1,174 @@
+// AeroEdit.cpp : implementation file
+//
+
+#include "stdafx.h"
+#include "SymbolEdit.h"
+
+// CSymbolEdit
+
+IMPLEMENT_DYNAMIC(CSymbolEdit, CEdit)
+
+ CSymbolEdit::CSymbolEdit()
+{
+    m_rcEditArea.SetRect(0,0,0,0);
+}
+
+CSymbolEdit::~CSymbolEdit()
+{
+    m_bmpEdit.DeleteObject();
+
+}
+
+
+BEGIN_MESSAGE_MAP(CSymbolEdit, CEdit)
+
+    ON_MESSAGE(WM_SETFONT, OnSetFont)
+    ON_WM_SIZE()
+    ON_WM_ERASEBKGND()
+    ON_WM_CHAR()
+    ON_WM_KEYDOWN()
+    ON_WM_LBUTTONUP()
+    ON_WM_SETCURSOR()
+    ON_WM_CREATE()
+END_MESSAGE_MAP()
+
+
+
+// CEditWithButton message handlers
+
+void CSymbolEdit::PreSubclassWindow( )
+{	
+    // We must have a multiline edit
+    // to be able to set the edit rect
+    ASSERT( GetStyle() & ES_MULTILINE );
+
+    ResizeWindow();
+
+}
+
+BOOL CSymbolEdit::PreTranslateMessage( MSG* pMsg )
+{
+    return CEdit::PreTranslateMessage(pMsg);
+}
+
+BOOL CSymbolEdit::SetBitmaps(UINT iEdit)
+{
+    BITMAP bmpInfo;
+
+    //delete if already loaded.. just in case
+    m_bmpEdit.DeleteObject();
+
+    m_bmpEdit.LoadBitmap(iEdit);
+
+    m_bmpEdit.GetBitmap(&bmpInfo);
+    m_sizeBitmap.SetSize(bmpInfo.bmWidth,bmpInfo.bmHeight);
+
+    return TRUE;
+}
+
+void CSymbolEdit::ResizeWindow()
+{
+    if (!::IsWindow(m_hWnd)) return;
+
+    //proceed only if edit area is set
+    if (m_rcEditArea == CRect(0,0,0,0)) return;
+
+     SetWindowPos(&wndTop,0,0,m_sizeBitmap.cx,m_sizeBitmap.cy,SWP_NOMOVE|SWP_NOZORDER);
+   
+    SetRect(&m_rcEditArea);
+}
+
+
+//set edit area may be called before creating the edit control
+//especially when using the CEdit::Create method
+//or after creating the edit control in CEdit::DoDataExchange
+//we call ResizeWindow once in SetEditArea and once in PreSubclassWindow
+BOOL CSymbolEdit::SetEditArea(CRect rcEditArea)
+{
+    m_rcEditArea = rcEditArea;
+
+    ResizeWindow();
+
+    return TRUE;
+}
+
+BOOL CSymbolEdit::OnEraseBkgnd(CDC* pDC)
+{
+    // Get the size of the bitmap
+    CDC dcMemory;
+    CSize sizeBitmap;
+    CBitmap* pOldBitmap = NULL;
+
+     sizeBitmap = m_sizeBitmap;
+ 
+    // Create an in-memory DC compatible with the
+    // display DC we're using to paint
+    dcMemory.CreateCompatibleDC(pDC);
+
+        // Select the bitmap into the in-memory DC
+      pOldBitmap = dcMemory.SelectObject(&m_bmpEdit);
+ 
+    // Copy the bits from the in-memory DC into the on-
+    // screen DC to actually do the painting. Use the centerpoint
+    // we computed for the target offset.
+    pDC->BitBlt(0,0, sizeBitmap.cx, sizeBitmap.cy, &dcMemory, 
+        0, 0, SRCCOPY);
+
+    dcMemory.SelectObject(pOldBitmap);
+
+    return TRUE;
+}
+
+
+//by default, when the mouse moves over the edit control
+//the system shows the I-beam cursor. However we want to
+//show the arrow cursor when it is over the Non-Edit area
+//where the button and icon is displayed
+//here is the code to do this
+BOOL CSymbolEdit::OnSetCursor(CWnd* pWnd, UINT nHitTest, UINT message)
+{
+    CPoint pntCursor;
+    GetCursorPos(&pntCursor);
+    ScreenToClient(&pntCursor);
+    //if mouse is not in the edit area then
+    //show arrow cursor
+    if (!m_rcEditArea.PtInRect(pntCursor))
+    {
+        SetCursor(AfxGetApp()->LoadStandardCursor(MAKEINTRESOURCE(IDC_ARROW)));
+        return TRUE;
+    }
+
+    return CEdit::OnSetCursor(pWnd, nHitTest, message);
+}
+
+
+
+int CSymbolEdit::OnCreate(LPCREATESTRUCT lpCreateStruct)
+{
+    if (CEdit::OnCreate(lpCreateStruct) == -1)
+        return -1;
+
+    ResizeWindow();
+
+    return 0;
+}
+
+
+LRESULT CSymbolEdit::OnSetFont( WPARAM wParam, LPARAM lParam )
+{
+    DefWindowProc( WM_SETFONT, wParam, lParam );
+
+    ResizeWindow();
+
+    return 0;
+
+}
+
+void CSymbolEdit::OnSize( UINT nType, int cx, int cy ) 
+{
+
+    CEdit::OnSize( nType, cx, cy );
+
+    ResizeWindow();
+
+}

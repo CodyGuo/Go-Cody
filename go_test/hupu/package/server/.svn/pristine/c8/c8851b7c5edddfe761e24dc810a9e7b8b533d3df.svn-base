@@ -1,0 +1,482 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : 
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#pragma once
+
+#ifndef ESTABLISHSOCKET_H
+#define ESTABLISHSOCKET_H 1
+
+#include "SocketComm.h"
+#include "OpStgClass.h"
+#include "CertificationStg.h"
+#include "SafeResult.h"
+#include "SafeCheckItem/SingServerPage.h"
+#include "SafeCheckItem/SafeCheckRealTime.h"
+
+//程序支持的同时安检的个数
+const int SAFECHECKSAMETIMENUM= 10;
+
+//安检结构体使用完之后清空的数据个数,改值一定要小于等于SAFECHECKSAMETIMENUM值
+const int SAFECHECKMAXZERONUM = 4;
+
+const char DEFAULTTIMESTAMP[] = {"#############"};
+
+const int SAFECHECKTIMEOUT = 3*60*1000;
+
+typedef struct  _safecheckMake
+{
+    // 服务器通知客户端进行安检:0表示时间戳还没有使用
+   //1:表示是服务器通知的安检, 2表示的是定时安检
+    int sersafecheck;    
+    char timeval[20];//安检时的时间戳
+}safecheckMake;
+
+class CEstablishSocket
+{
+public:
+
+    /************************************************************
+     Description: CEstablishSocket类构造函数
+    *************************************************************/
+	CEstablishSocket(void);
+
+    /************************************************************
+     Description: CEstablishSocket析构函数
+    *************************************************************/
+	~CEstablishSocket(void);
+
+    /************************************************************
+     Description: 初始化参数函数
+     Return: NULL
+    *************************************************************/
+	void InitEstablishSocketParam(IN wchar_t *serviceIp,
+                   IN int serviceport,
+                   IN int iflag,
+                   string inputparam,
+                   IN fnDataCallBackFunc callbackfn,
+				   IN int langtype);   
+
+    /************************************************************
+     Description: 执行函数
+     Return: NULL
+    *************************************************************/
+	void execute();
+
+    //当前路径
+    wchar_t m_ExeDirPath[MAX_PATH];
+
+private:
+
+    /************************************************************
+     Description: 判断客户端是否是新版本
+     input: serverver[版本信息]
+     Return: NULL
+    *************************************************************/
+    int Isnewversion(string serverver);
+
+    /************************************************************
+    Description: 初始化XML解析库
+    Return: NULL
+    *************************************************************/
+    //void InitXMLDoc();
+
+    /************************************************************
+     Description: 设置KeepALive
+     Return: 
+    *************************************************************/
+    void SettingKeepAlive();
+	
+private:
+
+    //服务器ip           
+    wchar_t fServiceIp[IPADDRESSLENGTH];     
+
+    //服务器端口
+    int m_FServicePort;    
+
+    int m_Fflag;
+
+     //退出标志
+    bool FClose;           
+
+    //用户自动登录时返回的用户信息
+    char m_userResInfo[MAX_PATH];  
+
+    //其他类传入的输入参数
+    string m_inputparam;
+
+    string m_inifilepath;
+private:
+
+    /************************************************************
+     Description: 处理接收到的数据
+     input: RecvFlag[接收标志]， totalLen[消息长度]， msgtmp[消息体]
+     Return: NULL
+    *************************************************************/
+	void HandleRecvDataSC(DWORD RecvFlag,DWORD totalLen,char *msgtmp);
+
+    /************************************************************
+     Description: 改变IP地址
+    *************************************************************/
+	void ChangeIpValue();
+
+    /************************************************************
+     Description: 发送用户登陆数据
+     Return: 
+    *************************************************************/
+	bool UserLogOnData(SERVREGISTERUSERTYPE usertype);
+
+    /************************************************************
+     Description: 获取登陆用户
+     Input:msginfo[消息体]
+     Return: true[获取成功]， false[获取失败]
+    *************************************************************/
+	bool GetLogOnUserFromServer(char *msginfo);
+
+    /************************************************************
+     Description: 显示安检的警告信息
+     input: 时间节点元素
+     Return: NULL
+    *************************************************************/
+    static unsigned __stdcall showsafecheckWarning(LPVOID pvParam);
+
+public:
+
+	  /************************************************************
+     Description: 若是ip和mac与本地ini中的ip或者mac不一致，则返回TRUE,
+	 一样则返回FALSE
+     Return: 
+    *************************************************************/
+    BOOL CurrentUseIpAndMacChange();
+
+     /************************************************************
+     Description: 发送客户端版本
+     Return:
+    *************************************************************/
+	bool SendClientVersion();
+
+    /************************************************************
+    Description: 是否需要更新客户端
+    Input:msginfo[消息体]
+    Return: true[需要更新]， false[不需要更新客户端]
+    *************************************************************/
+	bool NeedUpdateClient(char *msginfo);
+
+     /************************************************************
+     Description: 发送异常信息
+     Input:msginfo[消息体]
+     Return: NULL
+    *************************************************************/
+	void UploadExecptionInfo(char *msginfo);
+
+     /************************************************************
+     Description: 重定向URL
+     Input:
+     Return: 
+    *************************************************************/
+	bool SendRedirecData();
+
+    /************************************************************
+     Description: 发送安检详细信息
+     input: 
+     Return: 
+    *************************************************************/
+	int  SendSafeCheckDetailInfo(IN SFSAFECHECKTYPE sfchecktype, IN LANGUAGETYPE language,char *servertime,int safechecknum,BOOL bSendResToServer);
+
+     /************************************************************
+     Description: 总的安检项目和开始安检第一个项目
+     Input:msginfo[消息体]
+     Return: true[获取成功]， false[获取失败]
+    *************************************************************/
+	bool SendTotalItemAndFirstItem(char *msginfo,int safechecknum,BOOL bSendResToServer);
+
+    /************************************************************
+     Description: 发送检查结果
+     input: 
+     Return: 
+    *************************************************************/
+	void NoSafeCheckItemToServer(char *servertime, char *mac);
+
+    /************************************************************
+     Description: 发送安检检查到服务器
+     input: 
+     Return: 
+    *************************************************************/
+    int SendSafeCheckToServer(IN SFSAFECHECKTYPE sfchecktype,
+		                     IN LANGUAGETYPE language,
+		                     IN char *servertime, 
+                            IN char *mac, 
+                            IN int *nextitem, 
+                            IN int pCurrentItem,
+                            IN int safechecknum,
+                            BOOL bSendResToServer);
+
+    /************************************************************
+     Description: 获取当前路径
+     input: 
+     Return: NULL
+    *************************************************************/
+	void GetFilePath();
+    void SendConnectToservice(int iflag);
+
+    //显示警告信息
+    void  UpLoadSocketEventInfo(int numIndex, char* errerresult);
+
+    /************************************************************
+     Description: 显示需要修复的选项
+     input: 
+     Return: NULL
+    *************************************************************/
+    void ShowFailItem(int numbIndex,int safechecknum);
+
+    /************************************************************
+     Description: 处理调试日志
+     input: 
+     Return: NULL
+    *************************************************************/
+    void  HandleDebugLog(IN char*  msg);
+
+   /************************************************************
+     Description: 获取注册策略信息
+     input: 
+        
+     Return: 
+    *************************************************************/
+    bool  GetRegisterStgInfo(int userid,int usertype);
+
+    /************************************************************
+     Description: 处理认证策略
+     input: 
+     Return: NULL
+    *************************************************************/
+    void  HandleCertificationStg(char *certistg);
+
+    /************************************************************
+    Description: 请求上下线信息
+    input: 
+    Return: 
+    *************************************************************/
+   bool  SendServerOfflineOrOnlineInfo(int offlineoronline,char* reason);
+
+    /************************************************************
+     Description: 修复检查项
+     input: 
+     Return: 
+    *************************************************************/
+    int RepairFailItem(int safechecknum);
+
+    /************************************************************
+     Description: 修复检查项并回消息到服务器
+     input: 
+     Return: 
+    *************************************************************/
+    int RepairFailItemAndSendMsgToSrv(char*  timeval,int safechecknum);
+
+    /************************************************************
+     Description: 处理接收到的信息
+     input: 
+     Return: NULL
+    *************************************************************/
+    static  void  CALLBACK  OnDataReceived(int iflag,char* lpBuffer, int dwCount);
+    
+    static void CALLBACK OnDisConnect(int iflag);
+    /************************************************************
+     Description: 
+     input: 
+     Return: NULL
+    *************************************************************/
+    void HandleRecvMsg(int flag,DWORD len,char* msg);
+
+    //解析服务器时间,根据动作进行判断是要定时安检还是修改客户端时间
+     int HandleServiceTime(IN char* servicemsg);
+
+     //根据拉取的设备认证状态修改本地的设备状态
+     void  InitDeviceStateAndUserInfo(int iuserid,int iusertype,int devicestat,char* tipinfo);
+
+     static UINT WINAPI RecvDataThread(LPVOID  pParam);
+
+     void HandleNatState(IN char* servicemsg,IN int totallen);
+
+     void InitUserInfo();
+
+     void InitSendMsgParam(IN int iflag,string inputparam="");
+
+     //服务器IP变更时要清空用户，设备id，控制器mac信息
+     BOOL  InitDeviceAndUserInfo();
+
+     //根据用户id和用户类型查询用户的用户名,成功返回HP_SUCCESS
+     int GetUserNameFromDB(wchar_t *dirpath,int iuserid,int iusertype,string &userstr);
+
+public:
+
+    //判断现在是否已经获取到所有的安检策略
+    BOOL  GetStgTotalCount();
+
+    //回调
+    fnDataCallBackFunc m_esFCbFn;
+
+    //设置静默模式,并记录值到ini中
+    void SetSilentConfigAndWriteInIniFile();
+
+    //总策略个数
+    int m_itemCnt[SAFECHECKSAMETIMENUM];  
+
+    //安检项标志，value =0标志该项没有开启，1表示该项需要安检
+    int m_opencloseIndex[SAFECHECKSAMETIMENUM][LASTNUMBER];
+	
+	//记录每一个安检项的结果
+	int m_recordsfResult[SAFECHECKSAMETIMENUM][LASTNUMBER];
+
+    SingServerPage m_singleserver[SAFECHECKSAMETIMENUM][LASTNUMBER];
+
+     safecheckMake  m_sfmake[SAFECHECKSAMETIMENUM];//系统安检标志
+
+	 DomainUser  m_identifyDomain;
+	 BOOL  m_bidenDomainStg;
+
+    //认证策略
+    CertificationStg m_cstg;
+
+    //数据相关库类
+    OpStgClass dbstg;
+
+    //对接收到的策略进行记录
+    int stgnum[LASTNUMBER];
+
+	//stgnum互斥量
+	//CRITICAL_SECTION critical_section_stgnum;
+
+    static CEstablishSocket* pThis;
+
+    //安检结果类ku
+    CSafeResult m_result;
+
+    //显示安检结果线程句柄
+    HANDLE m_saferesMsg;
+
+    HANDLE m_datathread;
+
+    USERINFO m_userinfo;
+
+    //用户互斥量
+    CRITICAL_SECTION m_usercs;
+
+  //nat环境设置:取值为NOTINNAT或者INNAT
+   int  m_natsetting; 
+
+   //客户端消息提示静默
+   int m_iTipMsgSilence;
+
+   //客户端卸载标识
+   int m_noUninstallCode;
+
+   //允许设备入网:
+   int m_enableDeviceRegister;
+
+   int m_enableautologin;
+
+   //客户端使用的拉取策略的用户id,在服务器通知客户端安检时客户端判断
+   //是否已经拉取了该用户的安检策略
+    int m_iStgUserId; 
+
+	int m_iStgUserType;
+
+	SERVREGISTERUSERTYPE m_servusertype;
+
+	//使用
+	//实时检查
+	CSafeCheckRealTime m_sfrealTime;
+
+	//实时检查线程句柄
+	HANDLE m_hsfrealtime;
+
+	//获取服务器时间
+	char m_syncServtime[20];
+
+	DWORD m_alreadyusedtime;
+
+	int m_sflangtype;
+
+	//客户端与服务器端的时间差,定时安检时使用
+	unsigned long  m_ontimefre;
+
+	//开始定时安检的时间
+	unsigned long m_ontimestart;
+
+	//开始域用户验证定时安检的时间
+	unsigned long m_idendomainstarttime;
+
+
+	//域用户定时验证使用的时间
+	long long m_idenontime;
+
+	//同步延时下线的状态
+	 BOOL  m_asynofflinestat;
+
+	//客户端设备上线时间;上线设备首次定时安检时需要使用
+	string m_clientonlinetime;
+
+	//服务器端的域用户信息
+	list<SERVERADDOMAIN>  m_addomainlist;
+
+   //保存通讯日志信息
+  int  SaveSocketDataInDb(wchar_t* installpath,char* lpBuffer, int dwCount);
+
+  //查看身份认证界面是否已经打开：已经打开则放回成功，没有打开则返回失败
+  BOOL bAlreadyOpenWebRegister();
+
+  //发送安检信息到服务器，bSendResToServer为FALSE表示不上传安检信息到服务器,
+  //在定时安检中需要使用，定时安检的第一次安检不回传安检信息到服务器,防止
+  //时间戳一样的信息回传两次
+  //safeCheckRes安检结果:安检成功返回HP_SUCCESS,安检失败返回其他值
+  //safeCheckIndex:当前总安检项的下标(自动修复中需要使用):0到SAFECHECKSAMETIMENUM-1
+  //之间的数字,SAFECHECKSAMETIMENUM表示已经不支持安检项
+  //safechecktype表示系统安检类型,1表示服务器通知客户端进行自动修复,2表示定时安检
+  BOOL safeCheckAndSendResultToServer(IN SFSAFECHECKTYPE sfchecktype, IN LANGUAGETYPE language,IN char* timestamp,IN BOOL bSendResToServer,
+      OUT int* safeCheckIndex,OUT int* safeCheckRes);
+
+  //发送安检项总数为0的安检结果到服务器
+  void SendSuccessSafeCheckResultToServ(char* servtimeval,BOOL  bSendResToServer);
+
+  //记录socket连接的客户端ip地址
+  BOOL WriteSocketConnectIp(char* sockconnip);
+
+  //实时监测的线程处理
+  static UINT WINAPI startRealtimeThread(LPVOID  pParam);
+
+  //开启违规外联的安检项的检测
+  void startIllegalInternetSafeCheck(BOOL bStart);
+
+  //小助手右键菜单的用户界面显示
+  SERVREGISTERUSERTYPE  rightMenuUserType();
+
+  //在设备不在线的时设备禁止入网：若设备禁止入网则返回TRUE,否则返回FALSE
+  BOOL DeviceForbitTip(int devicestat);
+
+  //根据是否存在用户认证判断是否弹出web认证页面:弹出web页面则返回TRUE,用户登录成功返回TRUE,
+  //否则返回FALSE
+  BOOL  ShowWebbrowserWithUserRigister(SERVREGISTERUSERTYPE servusertype);
+
+  //根据服务器端配置的小助手无法自动认证的安检项配置，若开启这些项则返回TRUE,否则返回FALSE
+  BOOL ShowWebbrowserWithWebConfig();
+
+  int GetServerADDomainInfo(IN char* addomainmsg,IN int totallen);
+
+  void SendServerLanguageInfoRes(IN char* msg,IN int totallen);
+
+  //执行域用户延时下线
+  BOOL  AsynDelayOfflineDomainSafeCheck(char* servtimeval);
+
+  //解析服务器端手动修复的xml
+  BOOL ParseRepaireXml(IN char* failitemmsg,OUT int *whichSafeCheck,OUT string &timestamp,OUT list<int>& sfitemid,string &otherinfo);
+
+    //服务器端通知客户端进行手动修复
+  void RepaireFailItemByIndex(IN char* failitemmsg);
+};
+
+#endif
+

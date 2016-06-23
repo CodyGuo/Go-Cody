@@ -1,0 +1,1258 @@
+#include "StdAfx.h"
+#include "Httpdownload.h"
+#include "..\DebugInfo.h"
+
+#include <iostream>
+#include <sys/stat.h>
+
+using namespace std;
+
+
+int CHttpGet::m_nCount;
+DWORD64 CHttpGet::m_nFileLength = 0;
+CString CHttpGet::m_filemd5;
+
+unsigned long rdownloaded = 0;
+
+//---------------------------------------------------------------------------
+CHttpGet::CHttpGet()
+{
+    m_nFileLength=0;
+    m_filemd5.Format(L"");
+}
+
+//---------------------------------------------------------------------------
+CHttpGet::~CHttpGet()
+{
+}
+
+//---------------------------------------------------------------------------
+BOOL CHttpGet::HttpDownLoadProxy(
+    CString strProxyAddr,
+    int nProxyPort,
+    CString strHostAddr,
+    CString strHttpAddr,
+    CString strHttpFilename,
+    CString strWriteFileName,
+    int nSectNum,
+    DWORD64 &totalSize
+    )
+{
+    try
+    {
+        SOCKET hSocket;
+        hSocket=ConnectHttpProxy(strProxyAddr,nProxyPort);
+        if(hSocket == INVALID_SOCKET) return 1;
+
+        // 发送文件头，计算文件大小.
+        SendHttpHeader(hSocket,strHostAddr,strHttpAddr,strHttpFilename,(DWORD)-1,(DWORD)-1);
+        closesocket(hSocket);
+
+        totalSize = CHttpGet::m_nFileLength;
+
+        if(!HttpDownLoad(strProxyAddr,nProxyPort,strHostAddr,80,strHttpAddr,strHttpFilename,strWriteFileName,nSectNum,true))
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "HttpDownLoad fail");
+            return FALSE;
+        }
+        return TRUE;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+         MessageBox(NULL,L"HttpDownLoadProxy except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "HttpDownLoadProxy except");
+        return FALSE;
+    }
+ 
+ 
+}
+
+//---------------------------------------------------------------------------
+BOOL CHttpGet::HttpDownLoadNonProxy(
+    CString strHostAddr,
+    CString strHttpAddr,
+    CString strHttpFilename,
+    CString strWriteFileName,
+    int nSectNum,
+    DWORD64 &totalSize)
+{
+    try
+    {
+        int nHostPort=80;
+
+        SOCKET hSocket;
+        hSocket=ConnectHttpNonProxy(strHostAddr,nHostPort);
+        if(hSocket == INVALID_SOCKET) return 1;
+
+        // 发送文件头，计算文件大小.
+        SendHttpHeader(hSocket,strHostAddr,strHttpAddr,strHttpFilename,(DWORD)-1,(DWORD)-1);
+        closesocket(hSocket);
+        totalSize = CHttpGet::m_nFileLength;
+
+        if(!HttpDownLoad(TEXT(""),nHostPort,strHostAddr,nHostPort,strHttpAddr,strHttpFilename,strWriteFileName,nSectNum, false))
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "HttpDownLoad fail");
+            return FALSE;
+        }
+        return TRUE;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"HttpDownLoadNonProxy except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "HttpDownLoadNonProxy exception");
+    	return FALSE;
+    }
+  
+  
+}
+
+//---------------------------------------------------------------------------
+BOOL CHttpGet::HttpDownLoad(
+    CString strProxyAddr,
+    int nProxyPort,
+    CString strHostAddr,
+    int nHostPort,
+    CString strHttpAddr,
+    CString strHttpFilename,
+    CString strWriteFileName,
+    int nSectNum,
+    BOOL bProxy)
+{
+    ASSERT(nSectNum>0 && nSectNum<=50);
+    try
+    {
+        m_nCount=0;                                    // 把计数器清零.
+        m_filemd5.Format(L"");
+        sectinfo=new CHttpSect[nSectNum];              // 给信息结构申请内存.
+        DWORD64 nSize= m_nFileLength/nSectNum;           // 计算分割段的大小.
+
+        int i;
+        // 创建线程.不能超过50个。
+        CWinThread* pthread[50];
+        for(i=0;i<nSectNum;i++)
+        {
+            sectinfo[i].szProxyAddr=strProxyAddr;      // 代理服务器地址.
+            sectinfo[i].nProxyPort =nProxyPort;		   // Host地址.
+            sectinfo[i].szHostAddr =strHostAddr;       // Http文件地址.
+            sectinfo[i].nHostPort  =nHostPort;		   // Http文件名.
+
+            sectinfo[i].szHttpAddr =strHttpAddr;       // 代理服务端口号.
+            sectinfo[i].szHttpFilename=strHttpFilename;// Host端口号.
+            sectinfo[i].bProxyMode=bProxy;		       // 下载模态. 
+
+
+            // 计算临时文件名.
+            CString strTempFileName;
+            strTempFileName.Format(L"%s_%d",strWriteFileName, i);
+            sectinfo[i].szDesFilename=strTempFileName; // 下载后的文件名.
+
+            if(i<nSectNum-1){
+                sectinfo[i].nStart=i*nSize;            // 分割的起始位置.
+                sectinfo[i].nEnd=(i+1)*nSize-1;          // 分割的终止位置.
+            }
+            else{
+                sectinfo[i].nStart=i*nSize;            // 分割的起始位置.
+                sectinfo[i].nEnd=m_nFileLength-1;        // 分割的终止位置.
+            }
+
+            // AfxBeginThread(ThreadDownLoad,&sectinfo[i],THREAD_PRIORITY_HIGHEST);
+            pthread[i] = AfxBeginThread(ThreadDownLoad,&sectinfo[i]);
+
+        }
+
+        HANDLE hThread[50];
+        for(int ii = 0 ; ii < nSectNum ; ii++)
+            hThread[ii] = pthread[ii]->m_hThread;
+
+        // 等待所有线程结束.
+        WaitForMultipleObjects(nSectNum,hThread,TRUE,INFINITE);
+
+        //有某个文件块未下载完，返回错误，应由最上层调用者重新下载。
+        if(m_nCount != nSectNum)
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "HttpDownLoad Fail");
+            return FALSE;
+        }
+        FILE *fpwrite =NULL;
+
+        // 打开写文件.
+        errno_t err  = _wfopen_s(&fpwrite,strWriteFileName,L"wb");
+         if ( err != 0 )
+         {
+             return FALSE;
+         }
+      
+        for(i=0;i<nSectNum;i++){
+            FileCombine(&sectinfo[i],fpwrite);
+        }
+
+        fclose(fpwrite);
+
+        delete[] sectinfo;
+
+        return TRUE;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"HttpDownLoad except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "HttpDownLoad Fail");
+    	return FALSE;
+    }
+}
+
+//---------------------------------------------------------------------------
+BOOL CHttpGet::FileCombine(CHttpSect *pInfo, FILE *fpwrite)
+{	
+    try
+    {
+        FILE *fpread;
+        errno_t err=_wfopen_s(&fpread,pInfo->szDesFilename,L"rb");
+        if ( (err != 0) || (fpread == NULL))
+        {
+            return FALSE;
+        }
+
+        DWORD64 nPos= pInfo->nStart;
+
+
+        // 设置文件写指针起始位置.
+        fseek(fpwrite,(long)nPos,SEEK_SET);
+
+        int c;
+        // 把文件数据写入到子文件.		
+        while((c=fgetc(fpread))!=EOF)
+        {
+            fputc(c,fpwrite);
+            nPos++;
+            if(nPos>pInfo->nEnd) break;
+        }
+
+        fclose(fpread);
+        DeleteFile(pInfo->szDesFilename);
+
+        return TRUE;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"HttpDownLoad except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "FileCombine Fail");
+        return FALSE;
+    }
+}
+
+//---------------------------------------------------------------------------
+UINT CHttpGet::ThreadDownLoad(void* pParam)
+{
+    try
+    {
+        CHttpSect *pInfo=(CHttpSect*)pParam;
+        SOCKET hSocket;
+
+        if(pInfo->bProxyMode){	
+            hSocket=ConnectHttpProxy(pInfo->szProxyAddr,pInfo->nProxyPort);
+        }
+        else{
+            hSocket=ConnectHttpNonProxy(pInfo->szHostAddr,pInfo->nHostPort);
+        }
+        if(hSocket == INVALID_SOCKET) 
+            return 1;
+
+
+        // 计算临时文件大小，为了断点续传
+        DWORD64 nFileSize=myfile.GetFileSizeByName(pInfo->szDesFilename);
+        DWORD64 nSectSize=(pInfo->nEnd)-(pInfo->nStart);
+
+        // 此段已下载完毕.
+        if( (nFileSize==nSectSize) && (nFileSize != 0 )){
+            //mj
+            printf("文件下载成功！下载结束！\n");                //这里可以设置写信息
+            //mj
+
+            TRACE("文件已下载完毕!\n");                                     
+            CHttpGet::m_nCount++;  // 计数.
+            return 0;
+        }
+
+        FILE *fpwrite=myfile.GetFilePointer(pInfo->szDesFilename);
+        if(!fpwrite) return 1;
+
+        // 设置下载范围.
+        if ( !SendHttpHeader(hSocket,pInfo->szHostAddr,pInfo->szHttpAddr,
+            pInfo->szHttpFilename,nFileSize+pInfo->nStart,pInfo->nEnd) )
+        {
+            fclose(fpwrite);      // 关闭写文件.
+            closesocket(hSocket); // 关闭套接字.
+            return 1;
+        }
+
+        // 设置文件写指针起始位置，断点续传
+        fseek(fpwrite,(long)nFileSize,SEEK_SET);
+
+        DWORD nLen; 
+        DWORD nSumLen=0; 
+        //修改每次读写的字节大小
+        // char szBuffer[1024];
+        char *szBuffer = new char[1024*1024];
+        memset(szBuffer,0,1024*1024);
+        while(1)
+        {
+            if(nSumLen>=nSectSize-nFileSize) break;
+            nLen=recv(hSocket,szBuffer,1024*1024,0);
+
+            //原子操作，不用同步。
+            rdownloaded += nLen;
+
+            if (nLen == SOCKET_ERROR){
+                TRACE("Read error!\n");
+                fclose(fpwrite);
+                return 1;
+            }
+
+            if(nLen==0) 
+                break;
+            nSumLen +=nLen;
+            TRACE("%d\n",nLen);
+
+            // 把数据写入文件.		
+            fwrite(szBuffer,nLen,1,fpwrite);
+        }
+        fclose(fpwrite);      // 关闭写文件.
+        delete[] szBuffer;
+        szBuffer = NULL;
+        closesocket(hSocket); // 关闭套接字.
+        CHttpGet::m_nCount++; // 计数.
+        return 0;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"ThreadDownLoad except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "ThreadDownLoad Fail");
+        return 1;
+    }
+}
+
+//---------------------------------------------------------------------------
+SOCKET CHttpGet::ConnectHttpProxy(CString strProxyAddr,int nPort)
+{
+    TRACE("正在建立连接\n");
+    try
+    {
+        CString sTemp;
+        char cTmpBuffer[1024];
+        SOCKET hSocket=dealsocket.GetConnect(strProxyAddr,nPort);
+
+        if(hSocket == INVALID_SOCKET)
+        {
+            TRACE("连接http服务器失败！\n");
+            return INVALID_SOCKET;
+        }
+
+        // 发送CONNCET请求令到代理服务器，用于和代理建立连接代理服务器的
+        // 地址和端口放在strProxyAddr,nPort 里面.
+        sTemp.Format(L"CONNECT %s:%d HTTP/1.1\r\nUser-Agent:\
+                      HuPuApp/0.1\r\n\r\n",strProxyAddr,nPort);
+
+        if(!SocketSend(hSocket,sTemp))
+        {
+            TRACE("连接代理失败\n");
+            return INVALID_SOCKET;
+        }
+
+        // 取得代理响应，如果连接代理成功，代理服务器将
+        // 返回"200 Connection established".
+        int nLen=GetHttpHeader(hSocket, cTmpBuffer);
+        if ( nLen == 0 )
+        {
+            return INVALID_SOCKET;
+        }
+        sTemp=cTmpBuffer;
+        if(sTemp.Find(L"HTTP/1.0 200 Connection established",0)==-1)
+        {
+            TRACE("连接代理失败\n");
+            return INVALID_SOCKET;
+        }
+
+        TRACE(sTemp);
+        TRACE("代理连接完成\n");
+        return hSocket; 
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"ConnectHttpProxy except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "ConnectHttpProxy Fail");
+        return INVALID_SOCKET;
+    }
+}
+
+//---------------------------------------------------------------------------
+SOCKET CHttpGet::ConnectHttpNonProxy(CString strHostAddr, int nPort)
+{
+    TRACE("正在建立连接\n");
+    try
+    {
+        SOCKET hSocket=dealsocket.GetConnect(strHostAddr,nPort);
+        if(hSocket == INVALID_SOCKET)
+            return INVALID_SOCKET;
+
+        return hSocket;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"ConnectHttpNonProxy except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "ConnectHttpNonProxy Fail");
+        return INVALID_SOCKET;
+    }
+}
+
+//---------------------------------------------------------------------------
+// 例如: strHostAddr="www.aitenshi.com",
+// strHttpAddr="http://www.aitenshi.com/bbs/images/",
+// strHttpFilename="pics.jpg".
+BOOL CHttpGet::SendHttpHeader(SOCKET hSocket,CString strHostAddr,
+    CString strHttpAddr,CString strHttpFilename,DWORD64 nStart,DWORD64 nEnd)
+{
+    // 进行下载. 
+    try
+    {
+             CString sTemp;
+    char cTmpBuffer[1024+1] = {0};
+ 
+    wchar_t srctmp[MAX_PATH*2] ={L"0"};
+    _snwprintf_s(srctmp,MAX_PATH*2,L"%s%s",strHttpAddr.AllocSysString(),strHttpFilename.AllocSysString());
+    wchar_t sendtmp[MAX_PATH*2] ={L"0"};
+    UrlEncodeUtf8(srctmp,sendtmp,MAX_PATH*2);
+     sTemp.Format(L"GET %s HTTP/1.1\r\n",sendtmp);
+    if(!SocketSend(hSocket,sTemp))
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendHttpHeaderfilename fail");
+        return FALSE;
+    }
+     
+    // Line2:主机.
+    sTemp.Format(L"Host: %s\r\n",strHostAddr);
+    if(!SocketSend(hSocket,sTemp))
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendHttpHeaderhost fail");
+        return FALSE;
+    }
+   
+    // Line3:接收的数据类型.
+    sTemp.Format(L"Accept: */*\r\n");
+    if(!SocketSend(hSocket,sTemp))
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendHttpHeaderAccept fail");
+        return FALSE;
+    }
+  
+    // Line4:参考地址.
+    sTemp.Format(L"Referer: %s\r\n",strHttpAddr); 
+    if(!SocketSend(hSocket,sTemp)) 
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendHttpHeaderReferer fail");
+        return FALSE;
+    }
+    
+    // Line5:浏览器类型.
+    sTemp.Format(L"User-Agent: HUPUNAC\r\n");
+
+    if(!SocketSend(hSocket,sTemp)) 
+    {
+         WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendHttpHeaderUserAgent fail");
+        return FALSE;
+    }
+   
+    // 续传. Range 是要下载的数据范围，对续传很重要.
+    if ( nStart == (DWORD64)-1 )
+    {
+          sTemp.Format(L"Range: bytes=%d-\r\n",0);
+    }
+    else
+    {
+        wchar_t startstr[50] = {L"0"};
+        _ui64tow_s(nStart,startstr,50,10);
+        wchar_t endstr[50] = {L"0"};
+        _ui64tow_s(nEnd,endstr,50,10);
+       sTemp.Format(L"Range: bytes=%s-%s\r\n",startstr,endstr);
+    }
+    if(!SocketSend(hSocket,sTemp))
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendHttpHeaderRange fail");
+        return FALSE;
+    }
+   
+    // LastLine: 空行.
+    sTemp.Format(L"\r\n");
+    if(!SocketSend(hSocket,sTemp)) 
+    {
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendHttpHeaderEnd fail");
+        return FALSE;
+    }
+    
+    // 取得http头.
+    int i=GetHttpHeader(hSocket,cTmpBuffer);
+    if(!i)
+    {
+        TRACE("获取HTTP头出错!\n");
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "获取HTTP头出错 fail");
+        return 0;
+    }
+
+    sTemp=cTmpBuffer;
+     //TRACE(CString(cTmpBuffer).GetBuffer(200));
+     if ( (sTemp.Find(L"200 OK") != -1 ) || (sTemp.Find(L"206 Partial Content")!=-1))
+    {
+        // 得到待下载文件的大小.
+        m_nFileLength = GetFileLength(cTmpBuffer);
+        GetFileMD5(cTmpBuffer,m_filemd5);
+        return TRUE;
+    }
+     else
+         return FALSE;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"SendHttpHeader except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SendHttpHeader Fail");
+        return FALSE;
+    }
+}
+
+//---------------------------------------------------------------------------
+DWORD CHttpGet::GetHttpHeader(SOCKET sckDest,char *str)
+{
+    try 
+    {
+        BOOL bResponsed=FALSE;
+        DWORD nResponseHeaderSize = 0;
+
+        if(!bResponsed)
+        {
+            char c = 0;
+            int nIndex = 0;
+            BOOL bEndResponse = FALSE;
+            while(!bEndResponse && nIndex < 1024)
+            {
+                recv(sckDest,&c,1,0);
+                str[nIndex++] = c;
+                if(nIndex >= 4)
+                {
+                    if( str[nIndex - 4] == '\r' && 
+                        str[nIndex - 3] == '\n' && 
+                        str[nIndex - 2] == '\r' && 
+                        str[nIndex - 1] == '\n')
+                        bEndResponse = TRUE;
+                }
+            }
+
+            str[nIndex]=0;
+            nResponseHeaderSize = nIndex;
+            bResponsed = TRUE;
+        }
+
+        return nResponseHeaderSize;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetHttpHeader except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetHttpHeader Fail");
+        return 0;
+    }
+}
+
+//---------------------------------------------------------------------------
+DWORD CHttpGet:: GetFileLength(char *httpHeader)
+{
+    try
+    {
+        CString strHeader;
+        strHeader = (CString)httpHeader;
+        CString strFind = _T("Content-Range:");
+        int local = strHeader.Find(strFind);
+        if ( local == -1 )
+        {
+            CString strFindcntlen=_T("Content-Length:");
+            int local;
+            local=strHeader.Find(strFindcntlen,0);
+            local+=strFind.GetLength();
+            strHeader.Delete(0,local);
+            local=strHeader.Find(L"\r\n");
+
+            if(local!=-1){
+                strHeader=strHeader.Left(local);
+            }
+            strHeader.TrimLeft();
+            strHeader.TrimRight();
+            return (DWORD)_wtoi64(strHeader);
+        }
+        else
+        {
+            local += strFind.GetLength();
+            strHeader.Delete(0,local);
+            local = strHeader.Find(L"\r\n");
+            int filesizelocal = strHeader.Find(L"/");
+            CString strRange;
+            if ( (filesizelocal != -1) && (filesizelocal<local))
+            {
+                strRange = strHeader.Mid(filesizelocal+1,local-filesizelocal);
+            }
+            strRange.TrimLeft();
+            strRange.TrimRight();
+            return (DWORD)_wtoi64(strRange);
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetFileLength except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetFileLength Fail");
+        return 0;
+    }
+}
+
+BOOL CHttpGet::GetFileMD5(char *httpHeader,CString &Md5)
+{
+    try
+    {
+        BOOL res = TRUE;
+        CString strHeader;
+        CString strFind=_T("Content-MD5:");
+        int local;
+        strHeader=CString(httpHeader);
+        local=strHeader.Find(strFind,0);
+        if (local == -1 )
+        {
+            res = FALSE;
+        }
+        else
+        {
+            local+=strFind.GetLength();
+            strHeader.Delete(0,local);
+            local=strHeader.Find(L"\r\n");
+
+            if(local!=-1){
+                strHeader=strHeader.Left(local);
+            }
+            strHeader.TrimLeft();
+            strHeader.TrimRight();
+            Md5 = strHeader;
+        }
+
+        return res;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetFileMD5 except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetFileMD5 Fail");
+        return FALSE;
+    }
+}
+//--------------------------------------------------------------------------
+BOOL CHttpGet::GetSupportRange(char* httpHeader)
+{
+    try
+    {
+        CString strHeader;
+        CString strFind = _T("Accept-Ranges:");
+        int local;
+        strHeader = CString(httpHeader);
+        local = strHeader.Find(strFind,0);
+        if ( local == -1)
+        {
+            return FALSE;
+        }
+        else
+        {
+            local += strFind.GetLength();
+            strHeader.Delete(0,local);
+            local = strHeader.Find(L"\r\n");
+            if (local != -1 )
+            {
+                strHeader = strHeader.Left(local);
+            }
+            strHeader.TrimLeft();
+            strHeader.TrimRight();
+            if ( strHeader.CompareNoCase((CString)L"bytes") == 0 )
+            {
+                return TRUE;
+            }
+            else
+            {
+                return FALSE;
+            }
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetSupportRange except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetSupportRange Fail");
+        return FALSE;
+    }
+}
+
+BOOL CHttpGet::GetServerSendLen(char* httpHeader)
+{
+    try
+    {
+        CString strHeader;
+        strHeader = (CString)httpHeader;
+        CString strFind = _T("Content-Range:bytes");
+        int local = strHeader.Find(strFind);
+        if ( local == -1 )
+        {
+            return FALSE;
+        }
+        else
+        {
+            local += strFind.GetLength();
+            strHeader.Delete(0,local);
+            local = strHeader.Find(L"\r\n");
+            if ( local != -1 )
+            {
+                strHeader = strHeader.Left(local);
+            }
+            strHeader.TrimLeft();
+            strHeader.TrimRight();
+
+            return FALSE;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetServerSendLen except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetServerSendLen Fail");
+        return FALSE;
+    }
+   
+}
+//---------------------------------------------------------------------------
+BOOL CHttpGet::SocketSend(SOCKET sckDest,CString szHttp)
+{
+	ASSERT(szHttp.GetBuffer());
+    try
+    {
+        char httpstr[MAX_PATH*4] = {0};
+        ConvertW2A(szHttp,httpstr,MAX_PATH*4);
+        if(send (sckDest,httpstr,strlen(httpstr),0)==SOCKET_ERROR)
+        {
+            closesocket(sckDest);
+            TRACE("发送请求失败!\n");
+            return FALSE;
+        }
+
+        return TRUE;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"SocketSend except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SocketSend Fail");
+        return FALSE;
+    }
+   
+}
+
+int CHttpGet::UrlEncodeUtf8(LPCSTR pszUrl, LPSTR pszEncode, int nEncodeLen)
+{
+    try
+    {
+        int nRes = 0;
+        //定义变量
+        wchar_t* pWString = NULL;
+        char* pString = NULL;
+        char* pResult = NULL;
+
+        do 
+        {
+            if( pszUrl == NULL )
+                break;
+
+            //先将字符串由多字节转换成UTF-8编码  
+            int nLength = MultiByteToWideChar(CP_ACP, 0, pszUrl, -1, NULL, 0);
+
+            //分配Unicode空间  
+            pWString = new wchar_t[nLength+1];
+            if (pWString == NULL)
+                break;
+
+            memset(pWString, 0, (nLength+1)*sizeof(wchar_t));
+            //先转换成Unicode
+            MultiByteToWideChar(CP_ACP, 0, pszUrl, -1, pWString, nLength);
+
+            //分配UTF-8空间
+            nLength = WideCharToMultiByte(CP_UTF8, 0, pWString, -1, NULL, 0, NULL, NULL);
+            pString = new char[nLength+1];
+            if (pString == NULL)
+                break;
+
+            memset(pString, 0, nLength+1);
+            //Unicode转到UTF-8
+            nLength = WideCharToMultiByte(CP_UTF8, 0, pWString, -1, pString, nLength, NULL, NULL);
+
+            pResult = new char[nLength*2];
+            if (pResult == NULL)
+                break;
+
+            memset(pResult, 0, nLength*2);
+            char* pTmp = pResult;
+            static char hex[]={'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
+
+            for(int i = 0; i < nLength; i++)
+            {
+                unsigned char c = pString[i];
+                if (c == 0)
+                {
+                    break;
+                }
+
+                if(c > 0x20 && c < 0x7f)// 数字或字母
+                {
+                    *pTmp++ = c;
+                }
+                else if(c == 0x20)// 包含空格  
+                {
+                    *pTmp++ = '%';
+                    *pTmp++ = hex[c / 16];
+                    *pTmp++ = hex[c % 16];
+                }
+                else// 进行编码
+                {
+                    *pTmp++ = '%';
+                    *pTmp++ = hex[c / 16];
+                    *pTmp++ = hex[c % 16];
+                }
+            }
+            nLength = strlen(pResult);
+            nRes = nLength;
+            if( pszEncode == NULL || nEncodeLen < nLength)
+                break;
+
+            memcpy(pszEncode, pResult, nLength);
+        } while (0);
+
+        if (pWString != NULL)
+            delete []pWString;
+
+        if (pString != NULL)
+            delete []pString;
+
+        if (pResult != NULL)
+            delete []pResult;
+
+        return nRes;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"UrlEncodeUtf8 except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "UrlEncodeUtf8 Fail");
+        return 0;
+    }
+}
+
+int CHttpGet::UrlEncodeUtf8(LPCWSTR pszUrl, LPWSTR pszEncode, int nEncodeLen)
+{
+    try
+    {
+        int nRes = 0;
+        const int nBufferSize = 4096;
+        char* pStringA = new char[nBufferSize];
+        char* pCodeA = new char[nBufferSize];
+        wchar_t* pCodeW = new wchar_t[nBufferSize];
+
+        do
+        {
+            if (pszUrl == NULL)
+                break;
+
+            if (pStringA == NULL || pCodeA == NULL || pCodeW == NULL)
+                break;
+
+            memset(pStringA, 0, nBufferSize);
+            memset(pCodeA, 0, nBufferSize);
+            memset(pCodeW, 0, nBufferSize*2);
+
+            WideCharToMultiByte(CP_ACP, 0, pszUrl, -1, pStringA, nBufferSize, 0, 0);
+            nRes = UrlEncodeUtf8(pStringA, pCodeA, nBufferSize);
+            if (nRes == 0)
+                break;
+
+            nRes = MultiByteToWideChar(CP_ACP, 0, pCodeA, -1, pCodeW, nBufferSize);
+            if (nRes >= nEncodeLen)
+                break;
+
+            if (pszEncode != NULL)
+            {
+                memset(pszEncode, 0, nEncodeLen*2);
+                memcpy(pszEncode, pCodeW, nRes*2);
+            }
+        } while (0);
+
+        if (pStringA != NULL)
+            delete []pStringA;
+
+        if (pCodeA != NULL)
+            delete []pCodeA;
+
+        if (pCodeW != NULL)
+            delete []pCodeW;
+
+        return nRes;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"UrlEncodeUtf8 except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "UrlEncodeUtf8 Fail");
+        return 0;
+    }
+}
+
+CDealSocket dealsocket;
+
+//---------------------------------------------------------------------------
+CDealSocket::CDealSocket()
+{
+    try
+    {
+        // 套接字初始化.
+        WORD wVersionRequested = MAKEWORD(1,1);
+        WSADATA wsaData;
+
+        // 初始化WinSock.
+        if (WSAStartup(wVersionRequested, &wsaData)!=0)
+        {
+            TRACE("WSAStartup\n");
+            return;
+        }
+
+        // 检查 WinSock 版本.
+        if (wsaData.wVersion != wVersionRequested)
+        {
+            TRACE("WinSock version not supported\n");
+            WSACleanup();
+            return;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"CDealSocket except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "CDealSocket Fail");
+    }
+}
+
+//---------------------------------------------------------------------------
+CDealSocket::~CDealSocket()
+{
+    try
+    {
+        // 释放WinSock.
+        WSACleanup();
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"~CDealSocket except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "~CDealSocket Fail");
+    }
+}
+
+//---------------------------------------------------------------------------
+CString CDealSocket::GetResponse(SOCKET hSock)
+{
+    char szBufferA[MAX_RECV_LEN];  	// ASCII字符串. 
+    int	iReturn;					// recv函数返回的值.
+
+    CString szError;
+    CString strPlus;
+    strPlus.Empty();
+
+    try
+    {
+        while(1)
+        {
+            // 从套接字接收资料.
+            iReturn = recv (hSock, szBufferA, MAX_RECV_LEN, 0);
+            szBufferA[iReturn]=0;
+            strPlus +=szBufferA;
+
+            TRACE(szBufferA);
+
+            if (iReturn == SOCKET_ERROR)
+            {
+                szError.Format(L"No data is received, recv failed. Error: %d",
+                    WSAGetLastError ());
+                MessageBox (NULL, szError, TEXT("Client"), MB_OK);
+                break;
+            }
+            else if(iReturn<MAX_RECV_LEN){
+                TRACE("Finished receiving data\n");
+                break;
+            }
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetResponse except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetResponse Fail");
+    }
+
+    return strPlus;
+}
+
+//---------------------------------------------------------------------------
+SOCKET CDealSocket::GetConnect(CString host ,int port)
+{
+    SOCKET hSocket = INVALID_SOCKET;
+    SOCKADDR_IN saServer;          // 服务器套接字地址.
+    PHOSTENT phostent = NULL;	   // 指向HOSTENT结构指针.
+    try
+    {
+        // 创建一个绑定到服务器的TCP/IP套接字.
+        if ((hSocket = socket (AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+        {
+            TRACE("Allocating socket failed. Error: %d\n",WSAGetLastError ());
+            return INVALID_SOCKET;
+        }
+
+        // 使用TCP/IP协议.
+        saServer.sin_family = AF_INET;
+
+        // 获取与主机相关的信息.
+        char hoststr[MAX_PATH] = {0};
+        ConvertW2A(host,hoststr,MAX_PATH);
+        if ((phostent = gethostbyname (hoststr)) == NULL) 
+        {
+            TRACE("Unable to get the host name. Error: %d\n",WSAGetLastError ());
+            closesocket (hSocket);
+            return INVALID_SOCKET;
+        }
+
+        // 给套接字IP地址赋值.
+        memcpy ((char *)&(saServer.sin_addr), 
+            phostent->h_addr, 
+            phostent->h_length);
+
+        // 设定套接字端口号.
+        saServer.sin_port =htons (static_cast<u_short>(port)); 
+
+        // 建立到服务器的套接字连接.
+        if (connect (hSocket,(PSOCKADDR) &saServer, 
+            sizeof (saServer)) == SOCKET_ERROR) 
+        {
+            TRACE("Connecting to the server failed. Error: %d\n",WSAGetLastError ());
+            closesocket (hSocket);
+            return INVALID_SOCKET;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetConnect except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetConnect Fail");
+    }
+    return hSocket;
+}
+
+//---------------------------------------------------------------------------
+SOCKET CDealSocket::Listening(int port)
+{
+    SOCKET ListenSocket = INVALID_SOCKET;	// 监听套接字.
+    SOCKADDR_IN local_sin;				    // 本地套接字地址.
+    try
+    {
+        // 创建TCP/IP套接字.
+        if ((ListenSocket = socket (AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET) 
+        {
+            TRACE("Allocating socket failed. Error: %d\n",WSAGetLastError ());
+            return INVALID_SOCKET;
+        }
+
+        // 给套接字信息结构赋值.
+        local_sin.sin_family = AF_INET;
+        local_sin.sin_port = htons (static_cast<u_short>(port)); 
+        local_sin.sin_addr.s_addr = htonl (INADDR_ANY);
+
+        // 进行本机地址与监听套接字绑定.
+        if (bind (ListenSocket, 
+            (struct sockaddr *) &local_sin, 
+            sizeof (local_sin)) == SOCKET_ERROR) 
+        {
+            TRACE("Binding socket failed. Error: %d\n",WSAGetLastError ());
+            closesocket (ListenSocket);
+            return INVALID_SOCKET;
+        }
+
+        // 建立套接字对外部连接的监听.
+        if (listen (ListenSocket, MAX_PENDING_CONNECTS) == SOCKET_ERROR) 
+        {
+            TRACE("Listening to the client failed. Error: %d\n",	
+                WSAGetLastError ());
+            closesocket (ListenSocket);
+            return INVALID_SOCKET;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"Listening except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "Listening Fail");
+    }
+    return ListenSocket;
+}
+
+CMyFile myfile;
+
+//---------------------------------------------------------------------------
+CMyFile::CMyFile()
+{
+}
+
+//---------------------------------------------------------------------------
+CMyFile::~CMyFile()
+{
+}
+
+//---------------------------------------------------------------------------
+BOOL CMyFile::FileExists(LPCTSTR lpszFileName)
+{
+    try
+    {
+        DWORD dwAttributes = GetFileAttributes(lpszFileName);
+        if (dwAttributes == 0xFFFFFFFF)
+            return FALSE;
+
+        if ((dwAttributes & FILE_ATTRIBUTE_DIRECTORY) 
+            ==	FILE_ATTRIBUTE_DIRECTORY)
+        {
+
+            return FALSE;
+        }
+        else{
+            return TRUE;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"FileExists except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "FileExists Fail");
+        return FALSE;
+    }
+}
+
+//---------------------------------------------------------------------------
+FILE* CMyFile::GetFilePointer(LPCTSTR lpszFileName)
+{
+    FILE *fp = NULL;
+    errno_t err = 1;
+    try
+    {
+        if(FileExists(lpszFileName)){
+            // 打开已有文件进行写数据.
+            err=_wfopen_s(&fp,lpszFileName,L"r+b");
+        }
+        else{
+            // 创建新文件进行写数据.
+            err=_wfopen_s(&fp,lpszFileName,L"w+b");
+        }
+        if ( err != 0 )
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetFilePointer fail");
+            return NULL;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetFilePointer except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetFilePointer Fail");
+    }
+    return fp;
+}
+
+//---------------------------------------------------------------------------
+DWORD CMyFile::GetFileSizeByName(LPCTSTR lpszFileName)
+{
+    try
+    {
+        if(!FileExists(lpszFileName)) return 0;
+        struct _stat ST; 
+        char filename[MAX_PATH] = {0};
+        ConvertW2A(lpszFileName,filename,sizeof(filename));
+        // 获取文件长度.
+        _stat(filename, &ST);
+        UINT nFilesize=ST.st_size;
+        return nFilesize; 
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetFileSizeByName except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetFileSizeByName Fail");
+        return 0;
+    }
+}
+
+//---------------------------------------------------------------------------
+// 从全程文件名中提取短文件名.
+CString CMyFile::GetShortFileName(LPCTSTR lpszFullPathName)
+{
+    try
+    {
+        CString strFileName=lpszFullPathName;
+        CString strShortName;
+
+        strFileName.TrimLeft();
+        strFileName.TrimRight();
+        int n=strFileName.ReverseFind('=');
+        strShortName=strFileName.Right(strFileName.GetLength()-n-1);
+        return strShortName;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"GetShortFileName except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetShortFileName Fail");
+        return L"";
+    }
+}
+

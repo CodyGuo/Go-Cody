@@ -1,0 +1,431 @@
+#include "StdAfx.h"
+#include "ARP.h"
+#include "..\DebugInfo.h"
+
+#include <IPTypes.h>
+#include <IPHlpApi.h>
+
+map<unsigned long,char*> arpDevice;
+
+CARP::CARP(void)
+{
+	
+	for(int i=0;i<adaptercount;i++)
+	{
+		adapterinfo[i].Index=0;
+		memset(adapterinfo[i].description,0,sizeof(adapterinfo[i].description));
+	}
+
+	hMIBLibrary = LoadLibrary(TEXT("inetmib1.dll"));
+	if(hMIBLibrary)
+	{
+		pfnSnmpExtensionInit	= (PFNSNMPEXTENSIONINIT)	GetProcAddress(hMIBLibrary, "SnmpExtensionInit");
+		pfnSnmpExtensionQuery	= (PFNSNMPEXTENSIONQUERY)	GetProcAddress(hMIBLibrary, "SnmpExtensionQuery");
+		if(pfnSnmpExtensionInit && pfnSnmpExtensionQuery)
+		{
+			HANDLE				hPollForTrapEvent;
+			AsnObjectIdentifier	aoiSupportedView;
+
+			bInitialized		= pfnSnmpExtensionInit(0, &hPollForTrapEvent, &aoiSupportedView);
+
+		}
+	}
+	else
+	{
+		bInitialized=FALSE;
+		AfxMessageBox(_T("Load library fail"));
+	}
+}
+
+CARP::~CARP(void)
+{
+	if(hMIBLibrary)
+		FreeLibrary(hMIBLibrary);
+}
+
+string CARP::InitDataAndGetARPDynamicData(char *param)
+{
+	map<unsigned long,char*>::iterator it;
+	for(it=arpDevice.begin();it!=arpDevice.end();)
+	        arpDevice.erase(it++);
+	string strtmp=GetARPDynamicData(param);
+	return strtmp;
+}
+
+string CARP::GetARPDynamicData(char *param)
+{
+	int iIndex=0;
+	ULONG ulBufferSize= 0;
+	PIP_ADAPTER_INFO pAdapter, pAdapterInfo=NULL;
+
+	if(GetAdaptersInfo(NULL, &ulBufferSize)==ERROR_BUFFER_OVERFLOW)
+	{
+		pAdapterInfo=(PIP_ADAPTER_INFO)new BYTE[ulBufferSize];
+		if(pAdapterInfo)
+		{
+			if(GetAdaptersInfo(pAdapterInfo,&ulBufferSize)==ERROR_SUCCESS)
+			{
+				pAdapter = pAdapterInfo;
+				while(pAdapter)
+				{
+					adapterinfo[iIndex].Index=pAdapter->Index;
+					if(strlen(pAdapter->Description))
+					{
+						MultiByteToWideChar(CP_ACP,0,pAdapter->Description,-1,adapterinfo[iIndex].description,MAX_PATH);
+						WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"pAdapter->Description",pAdapter->Description);
+					}
+					else
+					{
+						MultiByteToWideChar(CP_ACP,0,pAdapter->AdapterName,-1,adapterinfo[iIndex].description,MAX_PATH);
+						WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"pAdapter->AdapterName",pAdapter->AdapterName);
+					}
+					iIndex++;
+					pAdapter=pAdapter->Next;
+				}
+			}
+			delete[] pAdapterInfo;
+		}
+	}
+
+	string tmpstr;
+	string sTmpStr;
+	long iStatic,iDynamic;
+	arpTable Table[256];
+	int Counter,TableLength = sizeof(Table)/sizeof(arpTable);
+	CString   Str;
+	for(int j=0; j < iIndex; j++)
+	{
+		Counter	= GetEntries(Table, TableLength, adapterinfo[j].Index);
+		iStatic	= 0;
+		iDynamic= 0;
+		for (int i=0; i<Counter; i++)
+		{
+			switch(Table[i].Type)
+			{
+			case 1:
+				Str	= _T("Other");
+				break;
+
+			case 2:
+				Str	= _T("Invalid");
+				break;
+
+			case 3:
+				Str	= _T("Dynamic");
+				iDynamic++;
+				break;
+
+			case 4:
+				Str	= _T("Static");
+				iStatic++;
+				break;
+
+			default:
+				Str.Format(_T("Type: %u"), Table[i].Type);
+			}
+			if(Table[i].Type==3)
+			{
+				char  IP[20]={0};
+				sprintf_s(IP,20,"%u.%u.%u.%u",Table[i].IPAddress[0], Table[i].IPAddress[1], Table[i].IPAddress[2], Table[i].IPAddress[3]);
+                ASSERT(IP);
+				char mac[20]={0};
+				sprintf_s(mac,20,"%02X-%02X-%02X-%02X-%02X-%02X",Table[i].MACAddress[0], Table[i].MACAddress[1], Table[i].MACAddress[2], 
+					Table[i].MACAddress[3], Table[i].MACAddress[4], Table[i].MACAddress[5]);
+                 ASSERT(mac);
+				unsigned long  ipnum=inet_addr(IP);
+				struct in_addr addr;
+				memcpy(&addr,&ipnum,4);
+				char zhuanhuaip[20]={0};
+				strcpy_s(zhuanhuaip,inet_ntoa(addr));
+				map<unsigned long,char*>::iterator iter;
+				iter=arpDevice.find(ipnum);
+				if(iter!=arpDevice.end())
+				{
+					//char msg[100]={0};
+					//sprintf(msg,"%lu-%s",iter->first,iter->second);
+					if(strcmp(iter->second, mac)!=0)
+					{
+						string ipinfo=IP;
+						string macinfo=mac;
+						arpDevice.erase(iter);
+					    arpDevice.insert(pair<unsigned long,char*>(ipnum, mac));
+						sTmpStr=sTmpStr+"<arpTable>"+ipinfo+";"+macinfo+";0</arpTable>";
+					}
+				}
+				else
+				{
+					string ipinfo=IP;
+					string macinfo=mac;
+					arpDevice.insert(pair<unsigned long,char*>(ipnum,mac));
+					sTmpStr=sTmpStr+"<arpTable>"+ipinfo+";"+macinfo+";0</arpTable>";
+				}
+			}
+		}
+	}
+	if(sTmpStr.length()<=0)
+		return tmpstr;
+	else
+	{
+		string ascmac = param;
+		string xmlstring1 = "<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+		string xmlstring2= "</nac>";
+		tmpstr=xmlstring1+"<ascMac>"+param+"</ascMac>"+sTmpStr+xmlstring2;
+	}
+	char totalres[100]={0};
+	sprintf_s(totalres,100,"Entries: %u - [Static: %u | Dynamic: %u]",Counter, iStatic, iDynamic);
+     ASSERT(totalres);
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"Arp Total Result",totalres);
+	return tmpstr;
+}
+
+//-----------------------------------------------------------------------
+// Function:	GetEntries: Read ARP table for specific NIC interface.
+//
+// Parameters:
+//	pTable	 		Pointer to array of arpTable struct
+//	TableLength		Length of the array
+//	AdapterIndex	NIC Adapter index number
+//
+// Returns:
+//					Number of read ARP entries
+//-----------------------------------------------------------------------
+int CARP::GetEntries(arpTable *pTable,int TableLength,int AdapterIndex)
+{
+	// Be sure initialize SNMP true
+	if (!bInitialized)
+		return 0;
+	SnmpVarBindList SVBList[3];
+	SnmpVarBind SVBVars[3];
+	UINT OID[3][10];
+	AsnInteger32 aiErrorStatus[3],aiErrorIndex[3];
+	AsnObjectIdentifier AsnOID0 = {sizeof(OID[0])/sizeof(UINT),OID[0]};
+	AsnObjectIdentifier AsnOID1 = {sizeof(OID[0])/sizeof(UINT),OID[1]};
+	AsnObjectIdentifier AsnOID2 = {sizeof(OID[0])/sizeof(UINT),OID[2]};
+	unsigned long pIPAddress;
+	unsigned long pMACAddress;
+	int iEntries;
+
+	//-----------------------------------------------------------------------
+	//	Fill array of 3 OIDs
+	//	
+	//	OID[0]	:	"1.3.6.1.2.1.4.22.1.1", ipNetToMediaIfIndex
+	//				The interface on which this entry's equivalence is effective
+	//
+	//	OID[1]	:	"1.3.6.1.2.1.4.22.1.2", ipNetToMediaPhysAddress
+	//				The media-dependent 'physical' address
+	//
+	//	OID[2]	:	"1.3.6.1.2.1.4.22.1.4", ipNetToMediaType
+	//				Entry type: 1:Other, 2:Invalid(Remove), 3:Dynamic, 4:Static
+	//
+	for(int count=0;count<3;count++)
+	{
+		OID[count][0]=1;
+		OID[count][1]=3;
+		OID[count][2]=6;
+		OID[count][3]=1;
+		OID[count][4]=2;
+		OID[count][5]=1;
+		OID[count][6]=4;
+		OID[count][7]=22;
+		OID[count][8]=1;
+		switch(count)
+		{
+		case 0:
+			// Adapter interface
+			OID[count][9]=1;
+			break;
+		case 1:
+			// MAC address
+			OID[count][9]=2;
+			break;
+		case 2:
+			// Entry Type
+			OID[count][9]=4;
+			break;
+		}
+	}
+	ZeroMemory(pTable,sizeof(arpTable)*TableLength);
+	SVBList[0].len = 1;
+	SVBList[0].list=&SVBVars[0];
+	SnmpUtilOidCpy(&SVBVars[0].name,&AsnOID0);
+
+	SVBList[1].len =1;
+	SVBList[1].list = &SVBVars[1];
+	SnmpUtilOidCpy(&SVBVars[1].name,&AsnOID1);
+
+	SVBList[2].len =1;
+	SVBList[2].list = &SVBVars[2];
+	SnmpUtilOidCpy(&SVBVars[2].name,&AsnOID2);
+
+	iEntries = 0;
+	do
+	{
+		aiErrorStatus[0]	= 0;
+		aiErrorIndex[0]		= 0;
+		aiErrorStatus[1]	= 0;
+		aiErrorIndex[1]		= 0;
+		aiErrorStatus[2]	= 0;
+		aiErrorIndex[2]		= 0;
+		//Query information of 3 OIDs
+		if(pfnSnmpExtensionQuery(SNMP_PDU_GETNEXT,&SVBList[0],&aiErrorStatus[0],&aiErrorIndex[0]))
+			if(pfnSnmpExtensionQuery(SNMP_PDU_GETNEXT,&SVBList[1],&aiErrorStatus[1],&aiErrorIndex[1]))
+				if(pfnSnmpExtensionQuery(SNMP_PDU_GETNEXT,&SVBList[2],&aiErrorStatus[2],&aiErrorIndex[2]))
+					if(aiErrorStatus[0] == SNMP_ERRORSTATUS_NOERROR &&
+						aiErrorStatus[1] ==SNMP_ERRORSTATUS_NOERROR &&
+						aiErrorStatus[2] == SNMP_ERRORSTATUS_NOERROR)
+					{
+						//-----------------------------------------------------------------------
+						// From MSDN Help: http://msdn2.microsoft.com/en-us/library/aa378021.aspx
+						// 
+						// If the extension agent cannot resolve the variable bindings on a Get Next request, 
+						// it must change the name field of the SnmpVarBind structure to the value of the object 
+						// identifier immediately following that of the currently supported MIB subtree view. 
+						// For example, if the extension agent supports view ".1.3.6.1.4.1.77.1", a Get Next 
+						// request on ".1.3.6.1.4.1.77.1.5.1" would result in a modified name field of ".1.3.6.1.4.1.77.2". 
+						// This signals the SNMP service to continue the attempt to resolve the variable bindings 
+						// with other extension agents
+						//-----------------------------------------------------------------------
+						if(SnmpUtilOidNCmp(&SVBVars[0].name, &AsnOID0, AsnOID0.idLength)) 
+							break;
+						if(SnmpUtilOidNCmp(&SVBVars[1].name, &AsnOID1, AsnOID1.idLength)) 
+							break;
+						if(SnmpUtilOidNCmp(&SVBVars[2].name, &AsnOID2, AsnOID2.idLength)) 
+							break;
+                        // Verify selected Adapter interface
+						if(AdapterIndex==SVBList[0].list->value.asnValue.number)
+						{
+							// pIPAddress get pointer ro IP Address
+							pIPAddress = (unsigned long)SVBList[1].list->name.ids;
+							pTable[iEntries].IPAddress[0]=*(unsigned char*)(pIPAddress+44);
+							pTable[iEntries].IPAddress[1]=*(unsigned char*)(pIPAddress+48);
+							pTable[iEntries].IPAddress[2]=*(unsigned char*)(pIPAddress+52);
+							pTable[iEntries].IPAddress[3]=*(unsigned char*)(pIPAddress+56);
+
+							// pIPAddress get pointer ro MAC Address
+							pMACAddress = (unsigned long)SVBList[1].list->value.asnValue.string.stream;
+							if(pMACAddress)
+							{
+								pTable[iEntries].MACAddress[0]=*(unsigned char*)(pMACAddress+0);
+								pTable[iEntries].MACAddress[1]=*(unsigned char*)(pMACAddress+1);
+								pTable[iEntries].MACAddress[2]=*(unsigned char*)(pMACAddress+2);
+								pTable[iEntries].MACAddress[3]=*(unsigned char*)(pMACAddress+3);
+								pTable[iEntries].MACAddress[4]=*(unsigned char*)(pMACAddress+4);
+								pTable[iEntries].MACAddress[5]=*(unsigned char*)(pMACAddress+5);
+							}
+							//Entry Type
+							pTable[iEntries].Type=(unsigned long)SVBList[2].list->value.asnValue.number;
+							//Type must be one of (1,2,3,4)
+							if(pTable[iEntries].Type>=1 && pTable[iEntries].Type<=4)
+								iEntries++;    // Move to next array position
+						}
+					}
+					else
+						break;
+	}
+	while(iEntries<TableLength);
+	/////Free the memory allocated for the specified object identifiers
+	SnmpUtilOidFree(&SVBVars[2].name);
+	SnmpUtilOidFree(&SVBVars[1].name);
+	SnmpUtilOidFree(&SVBVars[0].name);
+	return iEntries; ////Return number of Entries
+}
+
+//-----------------------------------------------------------------------
+// Function:	EditEntry: Add/Modify/Remove ARP entry for specific NIC interface.
+//
+// Parameters:
+//	IPAddress 		Array of 4 BYTES, 4 octs of IP Address
+//	MACAddress		Array of 4 BYTES, 6 octs of MAC Address
+//	Type			Entry type (2:Remove, 3:Dynamic, 4:Static)
+//	AdapterIndex	NIC Adapter index number
+//
+// Returns:
+//					TRUE if set successfully, FALSE otherwise.
+//-----------------------------------------------------------------------
+BOOL CARP::EditEntry(unsigned char IPAddress[4], unsigned char MACAddress[6], unsigned long Type, int AdapterIndex)
+{
+	if(!bInitialized)
+		return 0;
+	SnmpVarBindList SVBList;
+	SnmpVarBind SVBVars[4];
+	UINT OID[4][10];
+	AsnInteger32 aiErrorStatus,aiErrorIndex;
+	BOOL bReturn = FALSE;
+		//-----------------------------------------------------------------------
+	//	Fill array of 4 OIDs
+	//	
+	//	OID[0]	:	"1.3.6.1.2.1.4.22.1.1", ipNetToMediaIfIndex
+	//				The interface on which this entry's equivalence is effective
+	//
+	//	OID[1]	:	"1.3.6.1.2.1.4.22.1.2", ipNetToMediaPhysAddress
+	//				The media-dependent 'physical' address
+	//
+	//	OID[2]	:	"1.3.6.1.2.1.4.22.1.3", ipNetToMediaNetAddress
+	//				The IpAddress corresponding to the media-dependent 'physical' address
+	//
+	//	OID[3]	:	"1.3.6.1.2.1.4.22.1.4", ipNetToMediaType
+	//				Entry type: 1:Other, 2:Invalid(Remove), 3:Dynamic, 4:Static
+	//-----------------------------------------------------------------------
+	for(int count = 0;count<4;count++)
+	{
+		OID[count][0]		= 1;
+		OID[count][1]		= 3;
+		OID[count][2]		= 6;
+		OID[count][3]		= 1;
+		OID[count][4]		= 2;
+		OID[count][5]		= 1;
+		OID[count][6]		= 4;
+		OID[count][7]		= 22;
+		OID[count][8]		= 1;
+		OID[count][9]		= 1 + count;
+		switch(count)
+		{
+		case 0:
+			//	OID[0]	:	"1.3.6.1.2.1.4.22.1.1", ipNetToMediaIfIndex
+			//				The interface on which this entry's equivalence is effective
+			SVBVars[count].value.asnType				= ASN_INTEGER;
+			SVBVars[count].value.asnValue.number		= AdapterIndex;
+			break;
+
+		case 1:
+			//	OID[1]	:	"1.3.6.1.2.1.4.22.1.2", ipNetToMediaPhysAddress
+			//				The media-dependent 'physical' address
+			SVBVars[count].value.asnType				= ASN_OCTETSTRING;
+			SVBVars[count].value.asnValue.string.stream	= MACAddress;
+			SVBVars[count].value.asnValue.string.length	= 6;	// MAC Address length
+			SVBVars[count].value.asnValue.string.dynamic= FALSE;
+			break;
+		case 2:
+				//	OID[2]	:	"1.3.6.1.2.1.4.22.1.3", ipNetToMediaNetAddress
+			//				The IpAddress corresponding to the media-dependent 'physical' address
+			SVBVars[count].value.asnType				= ASN_IPADDRESS;
+			SVBVars[count].value.asnValue.string.stream	= IPAddress;
+			SVBVars[count].value.asnValue.string.length	= 4;	// IP Address length
+			SVBVars[count].value.asnValue.string.dynamic= FALSE;
+			break;
+		case 3:
+			//	OID[3]	:	"1.3.6.1.2.1.4.22.1.4", ipNetToMediaType
+			//				Entry type: 2:Remove, 3:Dynamic, 4:Static
+			SVBVars[count].value.asnType				= ASN_INTEGER;
+			SVBVars[count].value.asnValue.number		= Type;
+			break;
+		}
+		AsnObjectIdentifier AsnOID = {sizeof(OID[count])/sizeof(UINT),OID[count]};
+		SnmpUtilOidCpy(&SVBVars[count].name,&AsnOID);
+	}
+	SVBList.len =4;
+	SVBList.list=SVBVars;
+	aiErrorStatus = 0;
+	aiErrorIndex = 0;
+		// Set information of entry (4 OIDs)
+	if (pfnSnmpExtensionQuery(SNMP_PDU_SET, &SVBList, &aiErrorStatus, &aiErrorIndex))
+		if (aiErrorStatus == SNMP_ERRORSTATUS_NOERROR)
+			bReturn = TRUE; // If success set bReturn = true
+	
+	// Frees the memory allocated for the specified object identifiers
+	SnmpUtilOidFree(&SVBVars[3].name);
+	SnmpUtilOidFree(&SVBVars[2].name);
+	SnmpUtilOidFree(&SVBVars[1].name);
+	SnmpUtilOidFree(&SVBVars[0].name);
+	return bReturn;		// TRUE if set successfully, FALSE otherwise.
+}

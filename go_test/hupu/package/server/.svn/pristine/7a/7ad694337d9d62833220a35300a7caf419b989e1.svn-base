@@ -1,0 +1,33 @@
+#pragma once
+
+#include <Winsvc.h>
+#pragma  comment(lib,"Advapi32.lib")
+
+class SafeCheckServices
+{
+public:
+	SafeCheckServices(void);
+	~SafeCheckServices(void);
+public:
+	int GetServerState(char*  servername);///-1:失败，0:服务关闭，1:服务开启
+	BOOL SetServerStart(char* servername);
+	BOOL SetSetverClose(char* servername);
+
+	///////策略数据
+	int GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday);
+	string ExecSvItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess);
+	int RestoreFailItem(int index);
+	void DeleteData();
+	///////////执行函数
+public:
+	SC_HANDLE  HPOpenService(__in PWSTR ServiceName, __in ACCESS_MASK DesiredAccess);
+	VOID  DoEnableSvc(wchar_t *servername);
+	VOID DoDisableSvc(wchar_t *servername);
+
+	///////策略动作合并之后
+	int m_svCnt;      ///////服务项的总数
+	XMLSERVICECONTENT  *m_svInfo; //////执行的策略信息
+	int m_failsvnum;  //////失败的个数
+	XMLSERVICECONTENT *m_failsvInfo;/////失败的信息项
+};
+

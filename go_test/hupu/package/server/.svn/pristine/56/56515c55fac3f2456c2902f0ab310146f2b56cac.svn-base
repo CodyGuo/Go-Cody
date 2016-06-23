@@ -1,0 +1,47 @@
+#pragma once
+
+#include <atlcom.h>
+#include <netlistmgr.h>
+
+#include "NLANetwork.h"
+#include "NLMNetwork.h"
+
+typedef int (__cdecl *PFCALLBACK)(int Param1, int Param2);
+
+
+typedef enum OPSYSTEMTYPE
+{
+	WINERROR = 0,
+	WINVISTABLOW=1,
+	WINVISTATOWIN8,
+	WIN10ORHIGH,
+}_OPSYSTEMTYPE;
+
+
+class CNetworkChangeInfo
+{
+public:
+	CNetworkChangeInfo(void);
+	~CNetworkChangeInfo(void);
+
+	BOOL StartGetNetWorkChange(PFCALLBACK  pcallback);
+
+	BOOL StopNetWorkChange();
+
+private:
+	OPSYSTEMTYPE m_ostype;
+
+	IConnectionPointContainer *m_pcpcont;
+	IConnectionPoint *m_icp;
+	INetworkListManager *m_pNLM;
+	CNLMNetwork  * m_pSink;
+	LPUNKNOWN m_pUnkSink;
+	DWORD m_dwCookie;
+	static void APCInvoked(void *ptrNotificationContext);
+
+	BOOL GetNtVersion(DWORD& dwMajorVer, DWORD& dwMinorVer,DWORD& dwBuildNumber);
+	OPSYSTEMTYPE  GetOSVersion();
+	//开启系统的NLA服务
+	BOOL StartNLAService();
+
+};

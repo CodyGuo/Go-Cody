@@ -1,0 +1,33 @@
+#include "StdAfx.h"
+#include "Config.h"
+
+
+// WQL≤È—Ø”Ôæ‰
+const T_WQL_QUERY szWQLQuery[TOTALNUM] = {
+
+	// ”≤≈Ã–Ú¡–∫≈
+	"SELECT * FROM Win32_DiskDrive WHERE (SerialNumber IS NOT NULL) AND (MediaType LIKE 'Fixed hard disk%')",
+	L"SerialNumber",
+
+	//”≤≈ÃMDL
+	"SELECT * FROM Win32_DiskDrive WHERE (SerialNumber IS NOT NULL) AND (MediaType LIKE 'Fixed hard disk%')",
+	L"Model",
+
+	//  CPU ID
+	"SELECT * FROM Win32_Processor WHERE (ProcessorId IS NOT NULL)",
+	L"ProcessorId",
+
+	// BIOS–Ú¡–∫≈
+	"SELECT * FROM Win32_BIOS WHERE (SerialNumber IS NOT NULL)",
+	L"SerialNumber",
+
+	// ÷˜∞Â–Ú¡–∫≈
+	"SELECT * FROM Win32_BaseBoard WHERE (SerialNumber IS NOT NULL)",
+	L"SerialNumber",
+
+	// Õ¯ø®‘≠…˙MACµÿ÷∑
+	"SELECT * FROM Win32_NetworkAdapter WHERE (MACAddress IS NOT NULL) AND "
+	"(NOT (PNPDeviceID LIKE 'ROOT%'))",
+	L"PNPDeviceID",
+
+};

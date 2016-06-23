@@ -1,0 +1,45 @@
+#include "stdafx.h"
+#include "HardwareManage.h"
+#include "..\GlobalDate.h"
+#include "..\DebugInfo.h"
+#include "..\CommPub.h"
+
+#include <string>
+#include <vector>
+using namespace std;
+
+#define HARDWARE_MANAGE_DLL_NAME "HardwareManage.dll"
+
+//是否更新硬件资产标志
+BOOL bUpdateHarwareFlag = TRUE;
+int iHardwareDevNum = 0;
+
+void GetAllHardwareInfo(OUT int* piHardwareDevNum)
+{
+	char hardwareManageDllPath[MAX_PATH] = {0};
+	HINSTANCE hHardwareManageDll = NULL;	
+
+	sprintf_s(hardwareManageDllPath, "%s\\%s", g_nacdirpath, HARDWARE_MANAGE_DLL_NAME);
+	hHardwareManageDll = LoadLibraryA(hardwareManageDllPath); 
+
+	if (hHardwareManageDll == NULL)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_HARDWAREMANAGE, LOGLOCATION, "HardwareManage.Dll文件加载失败");
+		return;
+	}
+
+	pFnGetAllHardwareInfo fGetAllHardwareInfo = NULL;
+	fGetAllHardwareInfo = (pFnGetAllHardwareInfo)GetProcAddress(hHardwareManageDll, "GetAllHardwareInfo");
+
+	if(fGetAllHardwareInfo == NULL)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_HARDWAREMANAGE, LOGLOCATION, "GetAllHardwareInfo函数加载失败");
+		FreeLibrary(hHardwareManageDll);
+		return;
+	}
+
+	fGetAllHardwareInfo(piHardwareDevNum);
+
+	FreeLibrary(hHardwareManageDll);
+	hHardwareManageDll = NULL;
+}

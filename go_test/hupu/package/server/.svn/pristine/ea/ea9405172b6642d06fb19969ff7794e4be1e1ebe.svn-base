@@ -1,0 +1,352 @@
+#include "StdAfx.h"
+#include "ProcessInfo.h"
+#include "..\DebugInfo.h"
+
+#include <tlhelp32.h>
+#include <Psapi.h>
+#pragma comment(lib,"Psapi.lib")
+
+
+typedef unsigned long NTSTATUS;
+
+typedef NTSTATUS (__stdcall *NtQuerySystemInformation1)(
+	IN ULONG SysInfoClass,   
+IN OUT PVOID SystemInformation,   
+IN ULONG SystemInformationLength,   
+OUT PULONG RetLen  
+);
+
+typedef struct _RTL_PROCESS_MODULE_INFORMATION
+{
+    HANDLE Section;
+    PVOID MappedBase;
+    PVOID ImageBase;
+    ULONG ImageSize;
+    ULONG Flags;
+    USHORT LoadOrderIndex;
+    USHORT InitOrderIndex;
+    USHORT LoadCount;
+    USHORT OffsetToFileName;
+    UCHAR FullPathName[256];
+} RTL_PROCESS_MODULE_INFORMATION, *PRTL_PROCESS_MODULE_INFORMATION;
+
+typedef struct _RTL_PROCESS_MODULES
+{
+    ULONG NumberOfModules;
+    RTL_PROCESS_MODULE_INFORMATION Modules[1];
+} RTL_PROCESS_MODULES, *PRTL_PROCESS_MODULES;
+
+
+bool GetRunProcessFilePath(char* exefilename, char* exepath, int exepathlen, char* softwarepath)
+{
+    wchar_t  PROCESSNAME[MAX_PATH]={L"0"};
+
+    ConvertA2W(exefilename,PROCESSNAME,MAX_PATH);
+
+    PROCESSENTRY32 pe32; 
+    pe32.dwSize = sizeof(pe32); 
+    HANDLE hProcessSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0); 
+
+    if (hProcessSnap == INVALID_HANDLE_VALUE)
+    { 
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS,LOGLOCATION, "CreateToolhelp32Snapshot Fail");
+        return FALSE; 
+    } 
+
+    BOOL bMore = ::Process32First(hProcessSnap,&pe32);
+    while (bMore)
+    { 
+        if(_wcsnicmp(pe32.szExeFile, PROCESSNAME ,MAX_PATH) == 0)
+        {
+            TCHAR exePathW[MAX_PATH] = {_T("0")};
+            if ( GetProcessFullPath(pe32.th32ProcessID,exePathW))
+            {
+                ConvertW2A(exePathW,exepath,exepathlen);
+                if ( _strnicmp(exepath,softwarepath,strlen(exepath))== 0 )
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "GetProcessFullPath success");
+                    ::CloseHandle(hProcessSnap);
+                    hProcessSnap = NULL;
+                    return TRUE;
+                }
+                else
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "路径比较失败");
+                }
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS,LOGLOCATION, "GetProcessFullPath  fail");
+                ::CloseHandle(hProcessSnap);
+                hProcessSnap=NULL;
+                return FALSE;
+            }
+        }
+        bMore = ::Process32Next(hProcessSnap,&pe32); 
+    }
+    ::CloseHandle(hProcessSnap);
+    hProcessSnap=NULL;
+    WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS,LOGLOCATION, "GetRunProcessFilePath  fail");
+    return FALSE;
+}
+
+//获取进程完整路径
+bool GetProcessFullPath(DWORD dwPID, TCHAR* pszFullPath)
+{
+    try
+    {
+        TCHAR		szImagePath[MAX_PATH] = {_T("0")};
+        HANDLE		hProcess = NULL;
+
+        if(!pszFullPath)
+            return FALSE;
+
+        pszFullPath[0] = '\0';
+        hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, 0, dwPID);
+        if(!hProcess)
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS,LOGLOCATION, "OpenProcess  fail");
+            return FALSE;
+        }
+        if(!GetProcessImageFileName(hProcess, szImagePath, MAX_PATH))
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS, LOGLOCATION, "GetProcessImageFileName  fail");
+            CloseHandle(hProcess);
+            return FALSE;
+        }
+
+        if(!DosPathToNtPath(szImagePath, pszFullPath))
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_PROCESS,LOGLOCATION, "DosPathToNtPath  fail");
+            CloseHandle(hProcess);
+            return FALSE;
+        }
+
+        CloseHandle(hProcess);
+
+        return TRUE;
+    }
+    catch(...)
+    {
+        MessageBox(NULL,L"GetProcessFullPath except",L"err",0);
+        WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"GetProcessFullPath except");
+        return FALSE;
+    }
+
+}
+
+bool DosPathToNtPath(LPTSTR pszDosPath, LPTSTR pszNtPath)
+{
+    try
+    {
+        TCHAR		szDriveStr[500] = {_T("0")};
+        TCHAR		szDrive[3] = {};
+        TCHAR		szDevName[100] = {};
+        INT		cchDevName;
+        INT				i;
+
+        //检查参数
+        if(!pszDosPath || !pszNtPath )
+        {
+            WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"DosPathToNtPath fail");
+            return FALSE;
+        }
+        //获取本地磁盘字符串
+        if(GetLogicalDriveStrings(sizeof(szDriveStr), szDriveStr))
+        {
+            for(i = 0; szDriveStr[i]; i += 4)
+            {
+                if(!lstrcmpi(&(szDriveStr[i]), _T("A:\\")) || !lstrcmpi(&(szDriveStr[i]), _T("B:\\")))
+                    continue;
+
+                szDrive[0] = szDriveStr[i];
+                szDrive[1] = szDriveStr[i + 1];
+                szDrive[2] = '\0';
+                if(!QueryDosDevice(szDrive, szDevName, 100))//查询 Dos 设备名
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"QueryDosDevice fail");
+                    return FALSE;
+                }
+                cchDevName = lstrlen(szDevName);
+                if(_tcsnicmp(pszDosPath, szDevName, cchDevName) == 0)//命中
+                {
+                    lstrcpy(pszNtPath, szDrive);//复制驱动器
+                    lstrcat(pszNtPath, pszDosPath + cchDevName);//复制路径
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"DosPathToNtPath success");
+                    return TRUE;
+                }			
+            }
+        }
+
+        lstrcpy(pszNtPath, pszDosPath);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"DosPathToNtPath fail");
+        return FALSE;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"DosPathToNtPath except", L"err", 0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "DosPathToNtPath except");
+        return FALSE;
+    }
+}
+
+BOOL ProcEnableTokenPrivilege(LPCTSTR pszPrivilege)
+{
+	HANDLE hToken		 = 0;
+	TOKEN_PRIVILEGES tkp = {0}; 
+
+	// Get a token for this process. 
+	if (!OpenProcessToken(GetCurrentProcess(),
+						  TOKEN_ADJUST_PRIVILEGES |
+						  TOKEN_QUERY, &hToken))
+	{
+        return FALSE;
+	}
+
+	// Get the LUID for the privilege. 
+	if(LookupPrivilegeValue(NULL, pszPrivilege,
+						    &tkp.Privileges[0].Luid)) 
+	{
+        tkp.PrivilegeCount = 1;  // one privilege to set    
+		tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+		// Set the privilege for this process. 
+		AdjustTokenPrivileges(hToken, FALSE, &tkp, 0,
+							  (PTOKEN_PRIVILEGES)NULL, 0); 
+
+		if (GetLastError() != ERROR_SUCCESS)
+			return FALSE;
+		
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+int GetSystemProcessInfo(string  &filepath,string &tcreatetime,string &worksize)   
+{   
+	ProcEnableTokenPrivilege(SE_DEBUG_NAME);
+
+	HINSTANCE hNtDll;   
+	NtQuerySystemInformation1 NtQuerySystemInformation;//函数   
+	NTSTATUS rc;   
+	ULONG ulNeed = 0;   
+	void *buf = NULL;   
+	size_t len = 0;   
+	struct process_info *p ;//结构指针   
+	int done;   
+
+	hNtDll = LoadLibrary (L"NTDLL");   
+	if (!hNtDll)   
+		return 0;   
+	NtQuerySystemInformation = (NtQuerySystemInformation1)GetProcAddress (hNtDll,   
+		"NtQuerySystemInformation");   
+	if (!NtQuerySystemInformation)   
+		return 0;   
+	do {   
+		len += 0x1000;   
+		buf = realloc (buf, len);   
+		if (!buf)   
+			return 0;   
+		rc = NtQuerySystemInformation (5, buf, len, &ulNeed);   
+	}while (rc == 0xc0000004);// STATUS_INFO_LEN_MISMATCH   
+	if (rc <0){   
+		free (buf);   
+		return 0;   
+	}   
+	p = (struct process_info *)buf;   
+	done = 0;   
+	PRTL_PROCESS_MODULES modules;
+	while (!done) {   
+		if ((p->ProcessName.Buffer != 0))   
+		{   
+			if( p->ProcessId == SYSTEM_PROCESS_ID )
+			{
+				PVOID buffer=NULL;
+				ULONG bufferSize = 2048;
+
+				PVOID buffer2=NULL;
+
+				buffer = realloc (buffer, bufferSize);  
+				NTSTATUS status = NtQuerySystemInformation(
+					11,
+					buffer,
+					bufferSize,
+					&bufferSize
+					);
+				if (status == STATUS_INFO_LENGTH_MISMATCH)
+				{
+					buffer2=  realloc (buffer2, bufferSize);
+					status = NtQuerySystemInformation(
+						11,
+						buffer2,
+						bufferSize,
+						&bufferSize
+						);
+					modules=(PRTL_PROCESS_MODULES)buffer2;
+				}
+				else
+				{
+					modules=(PRTL_PROCESS_MODULES)buffer;
+				}
+				
+				if(modules->NumberOfModules>=1)
+			   {
+				   filepath = (char*)modules->Modules[0].FullPathName;
+				   int startpos = filepath.find("\\SystemRoot",0);
+				   if(startpos == 0)
+				   {
+					   char systempath[MAX_PATH] = {"0"};
+					   GetSystemDirectoryA(systempath,sizeof(systempath));
+					   string systempathstr = systempath;
+					   int prefixpos = systempathstr.rfind("\\");
+					   string prefixstr = systempathstr.substr(0,prefixpos+1);
+					   int suffixpos =strlen("\\SystemRoot"); 
+					   string suffixstr = filepath.substr(suffixpos+1);
+					   filepath=prefixstr;
+					   filepath +=suffixstr;
+				   }
+				  int windowspos = filepath.find("\\WINDOWS",0);
+				  if( windowspos == 0 )
+				  {
+					   char systempath[MAX_PATH] = {"0"};
+					   GetSystemDirectoryA(systempath,sizeof(systempath));
+					   string systempathstr = systempath;
+					   int prefixpos = systempathstr.rfind("\\");
+					   string prefixstr = systempathstr.substr(0,prefixpos+1);
+					   int suffixpos =strlen("\\WINDOWS"); 
+					   string suffixstr = filepath.substr(suffixpos+1);
+					   filepath=prefixstr;
+					   filepath +=suffixstr;
+				  }
+			   }
+
+				if(buffer)
+				   free (buffer); 
+				if(buffer2)
+					free(buffer2);
+				FILETIME fileTime;
+				FILETIME newFileTime;
+				SYSTEMTIME SystemTime;
+				fileTime.dwLowDateTime = p->CreateTime.LowPart;
+				fileTime.dwHighDateTime = p->CreateTime.HighPart;
+				FileTimeToLocalFileTime(&fileTime, &newFileTime);
+				FileTimeToSystemTime(&newFileTime, &SystemTime);
+				char starttimestr[50] = {"0"};
+				sprintf_s(starttimestr,"%04d-%02d-%02d %02d:%02d:%02d",SystemTime.wYear,
+					SystemTime.wMonth,SystemTime.wDay,SystemTime.wHour,SystemTime.wMinute,SystemTime.wSecond);
+				tcreatetime = starttimestr;
+				worksize = std::to_string((long long)(p->VmCounters.WorkingSetSize/1024.00));
+				worksize += "K";
+			}
+		}   
+		done = p->NextEntryDelta == 0;//     
+		p = (struct process_info *)(((char *)p) + p->NextEntryDelta);   
+
+	}   
+	free (buf);   
+	FreeLibrary (hNtDll);   
+	return 0;   
+} 

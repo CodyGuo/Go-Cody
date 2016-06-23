@@ -1,0 +1,83 @@
+#pragma once
+
+#include "SafeCheckItem/DomainIdentydlg.h"
+#include <list>
+using namespace std;
+
+
+
+class CDomainDelayOfflineTip
+{
+public:
+	CDomainDelayOfflineTip(void);
+	~CDomainDelayOfflineTip();
+
+	//获取服务器端的配置
+	void GetServDomainConfig(DELAYOFFLINETIP *domainidentifyconf,ADSERVERNAMEIP *addomainlist,BOOL basystate,unsigned long long asynstatofflintime);
+
+	//计算剩余时间
+	unsigned long long CalculateLastTime(LANGUAGETYPE lang,unsigned long long *alreadyusedtime,wchar_t*  tipmsg);
+
+	void initData();
+
+	//判断验证用户隶属于白名单或者黑名单HP_DOMAIN_BELONGDOMAINBLACK,,HP_DOMAIN_BELONGDOMAINWHITE
+	int InWhiteUserOrBlackUser(char* userName,int userNamelen,char* domain,int domainlen);
+
+	void  SendDomainIdentifyOfflineinfo(IN int identifyres,IN LANGUAGETYPE language,OUT char* identifydes,IN int identifydeslen,
+		char *identifyuser=NULL,char* identifydomain=NULL);
+
+	//向服务器上传域用户验证的信息
+	void SendDomainIdentifyInfoToServer(string username,string userdomain,string idenuser,string idendomain,BOOL  idenRes);
+
+	//判断是否需要向进行域用户验证提示
+	BOOL BNeedShowDomainIden(time_t currenttime,DWORD timediff);
+
+	void InitIdentifyNumber(int number);
+
+	//域用户验证提示开始时间:这个时间为当前时间+验证周期-提前多少天开始提示时间
+	unsigned long long m_startidentifytime;
+
+	//白名单用户
+	string m_whiteuser;
+
+	//黑名单用户
+	string m_blackuser;
+    
+	//气泡开始时间
+	DWORD m_idenstarttime;
+
+	//以秒为单位，定时使用
+	unsigned long long m_frequency;
+
+	//以秒为单位,剩余多久验证周期结束:总的验证周期
+	unsigned long long m_lastperiodtime;
+
+	//已经提示的下标
+	int m_alreadytipnum;
+
+	//气泡内容的提示信息
+	wchar_t m_servTipInfo[MAX_PATH];
+
+	//以秒为单位,验证周期
+	unsigned long long m_domainperiod;
+
+	//以秒为单位,剩余多长时间开始提示
+	unsigned long long m_advnoticetime;
+
+	//域用户验证超时时间
+	unsigned long long m_idendlgtimeout;
+
+	//域用户检查的域服务器配置
+	list<ADSERVERNAMEIP> m_addomainlist;
+
+	//域延时下线配置
+	DELAYOFFLINETIP m_domainidentify;
+
+	//是否需要域用户验证
+	BOOL m_bNeedDomainIden;
+
+	time_t m_timefre;
+
+private:
+	
+};

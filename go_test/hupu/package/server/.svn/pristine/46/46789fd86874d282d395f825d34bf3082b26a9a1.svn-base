@@ -1,0 +1,955 @@
+/*************************************************************************************
+Copyright (C) ,2013-2014, ShangHai HuPu 
+File name:      CAutoFindService
+Author    :gcy(gcy@hupu.net)
+Version   :0.0.1
+Description:该类主要用于抓取经过本地网卡的数据包
+            在客户端计算机被准入的情况下,该类可以抓到形如
+            "http://10.10.2.220/?ip=10.10.2.110&mac=8C-89-A5-E9-83-17&toDo=1&asmType=1"
+            "&natType=0&toUrl=http://www.hupu.net&eth0_mac=28-51-32-01-10-4f&weidun_switch=0"
+            的数据包，客户端解析数据包,获取服务器ip(10.10.2.224),nattype和etho_mac参数.
+            若客户端计算机有访问服务器端的认证流程页面，客户端还会获取该页面上的Token值，将该值发送到服务器。
+**************************************************************************************/
+
+#include "StdAfx.h"
+#include "AutoFindService.h"
+#include "DebugInfo.h"
+#include "SafeCheckItem/SafeCheckFuntion.h"
+#include "strconvert.h"
+#include <regex>
+#include "8021x/Hp8021x.h"
+#include "HttpClient.h"
+
+CAutoFindService *CAutoFindService::pautofindserv = NULL;
+
+ /*************************************************
+Function Name: GetIniConfigPath
+Description: 获取ini配置档得路径 
+Input and output:  无
+**************************************************/
+void CAutoFindService::GetIniConfigPath()
+{
+	try
+	{
+		TCHAR  IniPath[MAX_PATH]={_T("0")};
+		TCHAR  exePath[MAX_PATH]={_T("0")};
+
+		::GetModuleFileName(NULL,exePath,MAX_PATH);
+
+		LPCTSTR pstrSep = _tcsrchr(exePath,_T( '\\'));
+		TCHAR  pstrName[MAX_PATH]={_T("0")};
+		TCHAR  pstrPath[MAX_PATH]={_T("0")};
+
+		if( pstrSep != NULL )
+		{
+			::lstrcpy(pstrName, pstrSep + 1);
+			::lstrcpyn(pstrPath, exePath, (int)((pstrName - exePath) / sizeof(TCHAR)) + 1);
+			pstrPath[ pstrSep - exePath ] = _T('\0');
+		}
+		wsprintf(IniPath, L"%s\\data\\VersAndLog_config.ini", pstrPath);
+		ASSERT(IniPath);
+
+		ConvertW2A(IniPath, m_inifilepath, MAX_PATH);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetIniConfigPath except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetIniConfigPath except");
+	}
+}
+
+
+CAutoFindService::CAutoFindService(void)
+	:m_FClose(false),
+	m_nattype(NOTINNAT)
+{
+	try
+	{
+		memset(m_serviceip, 0, sizeof(m_serviceip));
+		memcpy(m_serviceip, HP_C_INITFINDSERVIP, wcslen(HP_C_INITFINDSERVIP)*2);
+
+		memset(m_inifilepath, 0, sizeof(m_inifilepath));
+		GetIniConfigPath();
+		m_FCbFn = NULL;
+		pautofindserv = this;
+		if(AfxSocketInit(NULL) == FALSE)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "Sorry, socket load error!");
+		}
+		for (lstokeniter=lstoken.begin(); lstokeniter != lstoken.end( ); )
+		{
+			lstoken.erase(lstokeniter++);
+		}
+		m_bInitHttpUrl = L"";
+		SetTaskOffloadValueInReg();
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"CAutoFindService except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "CAutoFindService except");
+	}
+}
+
+CAutoFindService::~CAutoFindService(void)
+{
+	try
+	{
+		for (lstokeniter=lstoken.begin(); lstokeniter != lstoken.end( ); )
+		{
+			lstoken.erase(lstokeniter++);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"~CAutoFindService except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "~CAutoFindService except");
+	}
+}
+
+/*************************************************
+Function Name: init
+Description: 初始化socket
+Input and output:  
+     成功返回TRUE,失败返回FALSE
+**************************************************/
+SOCKET CAutoFindService::InitSocket(char* ipvalue)
+{
+
+	DWORD dwErr ;
+	SOCKADDR_IN sa;
+	int rcvtimeo = 5000;
+	DWORD dwBufferLen[10] ;
+	DWORD dwBufferInLen = 1 ;
+	DWORD dwBytesReturned = 0 ;
+	SOCKET sock = NULL;
+	try
+	{
+		sock = socket(AF_INET, SOCK_RAW, IPPROTO_IP);
+		if(INVALID_SOCKET == sock)
+		{
+			dwErr = WSAGetLastError();
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "Error socket() = ", dwErr);
+			closesocket(sock);
+			sock = NULL;
+			return sock;
+		}
+		if(setsockopt(sock, SOL_SOCKET,SO_RCVTIMEO, (const char*)&rcvtimeo, sizeof(rcvtimeo)) == SOCKET_ERROR)
+		{
+			dwErr = WSAGetLastError();
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "Error socket() = ", dwErr);
+			closesocket(sock);
+			sock = NULL;
+			return sock;
+		}
+
+		sa.sin_family = AF_INET;
+		sa.sin_port = htons(7000);
+		sa.sin_addr.s_addr = inet_addr(ipvalue);
+
+		if(bind(sock, (PSOCKADDR)&sa, sizeof(sa)) == SOCKET_ERROR)
+		{
+			dwErr = WSAGetLastError();
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "Error socket() = ", dwErr);
+			closesocket(sock);
+			sock = NULL;
+			return sock;
+		}
+
+		if( SOCKET_ERROR != WSAIoctl( sock, 
+			SIO_RCVALL,
+			&dwBufferInLen, 
+			sizeof(dwBufferInLen),             
+			&dwBufferLen,
+			sizeof(dwBufferLen),
+			&dwBytesReturned,
+			NULL , 
+			NULL ) )
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "WSAIoctl()  Success");
+		}
+		else
+		{
+			dwErr = WSAGetLastError();
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "Error WSAIoctl() = ", dwErr);
+			closesocket(sock);
+			sock = NULL;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"CAutoFindService init except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "CAutoFindService init except");
+	}
+	return sock;
+}
+
+
+/*************************************************
+Function Name: InitParam
+Description: 接收服务器IP地址和回调函数接口
+Input and output:  
+      serviceIp:服务器ip地址
+      callbackfn:回调函数
+**************************************************/
+void CAutoFindService::InitCallBackParam(fnDataCallBackFunc callbackfn)
+{
+	ASSERT(callbackfn);
+	if ( m_FCbFn == NULL )
+	{
+		m_FCbFn = callbackfn;
+	}
+}
+
+/*************************************************
+Function Name: SetCloseSniffer
+Description: 关闭网络诱探抓包
+Input and output:  
+      bFlag:true表示关闭诱探程序，false表示开启诱探程序  
+**************************************************/
+void CAutoFindService::SetCloseSniffer(bool bFlag)
+{
+	m_FClose=bFlag;
+}
+
+/*************************************************
+Function Name: trim
+Description: 去除字符串开头和结尾的空格
+Input and output:  
+      str: 输入的字符串
+      retval:返回去除空格后的字符串
+**************************************************/
+string CAutoFindService::trim(const string& str)
+{
+	try
+	{
+		string::size_type pos = str.find_first_not_of(' ');
+		if (pos == string::npos)
+		{
+			return str;
+		}
+		string::size_type pos2 = str.find_last_not_of(' ');
+		if (pos2 != string::npos)
+		{
+			return str.substr(pos, pos2 - pos + 1);
+		}
+		return str.substr(pos);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"CAutoFindService trim except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "CAutoFindService trim except");
+	}
+	return "";
+}
+
+/*************************************************
+Function Name: GetASCMacData
+Description: 从data字符串获取控制器MAC信息
+Input and output:  
+      data: 输入的字符串
+**************************************************/
+void CAutoFindService::GetASCMacData(string data)
+{
+	try
+	{
+        string tmpdata(data);
+		ASSERT(tmpdata.c_str());
+		int acsmacpos = tmpdata.find(ASCMACMake,0);
+		int eth0maclen= strlen(ASCMACMake);
+		if(acsmacpos != string::npos)
+		{
+			int maclen = strlen(HPMACINITVALUE);
+			string nacmac = tmpdata.substr(acsmacpos+eth0maclen, maclen);
+
+			if (!nacmac.empty())
+			{
+                //判断本地的控制器mac是否与抓包抓到的一致,一样的话不重新上传设备信息，
+                //不一样的话若已经连上服务器则上传设备信息，修改本地的ini值，否则只修改g_strAscMac,不修改ini文件中的值
+                char iniascmac[20] = {0};
+                GetPrivateProfileStringA("eth0", "mac",HPMACINITVALUE, iniascmac, 20, m_inifilepath);
+                if ( strcmp(iniascmac,nacmac.c_str()) )
+                {
+                     g_strAscMac = nacmac;
+                    if ( g_EstliSocket.IsOpen())
+                    {
+                        WritePrivateProfileStringA("eth0", "mac", (char*)nacmac.c_str(), m_inifilepath);
+                        m_FCbFn(GETASCMAC, (char*)nacmac.c_str(), nacmac.length());
+                    }
+                }
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetASCMacData except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetASCMacData except");
+	}
+}
+
+/*************************************************
+Function Name: GetNatData
+Description: 从字符串data中查询NATTYPE的值,若NATTYPE与原始值不一样
+          则使用回调函数修改NAT类型的值
+Input and output:  
+      data: 输入的要查询的字符串
+**************************************************/
+void CAutoFindService::GetNatData(string data)
+{
+	try
+	{
+        string tmpdata(data);
+		ASSERT(tmpdata.c_str());
+		int natpos = tmpdata.find(NATTYPEMake,0);
+		int natlen = strlen(NATTYPEMake);
+
+		if(natpos != string::npos)
+		{
+			string natvaluestr = tmpdata.substr(natpos+natlen,1);
+			if (!natvaluestr.empty())
+			{
+				int natvalue = atoi((char*)natvaluestr.c_str());
+				m_FCbFn(GETNATSETTING, (char*)natvaluestr.c_str(), natvaluestr.length());
+				//WriteDebugInfomation(LEVEL_DEBUG, MODULE_SNIFFER, LOGLOCATION, "NATTYPE=", (char*)natvaluestr.c_str());
+				m_nattype = natvalue;
+			}		
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetNatData except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetNatData except");
+	}
+}
+
+/*************************************************
+Function Name: GetNatData
+Description: 从字符串data中查询NATTYPE的值,若NATTYPE与原始值不一样
+          则使用回调函数修改NAT类型的值
+Input and output:  
+      data: 输入的要查询的字符串
+**************************************************/
+void CAutoFindService::GetServerIpFromKNL(string data)
+{
+	try
+	{
+        string  tmpdata = data;
+
+		ASSERT(tmpdata.c_str());
+
+		int  redirecturlpos = tmpdata.find(knlredireURLMake, 0);
+		int findipstartlen = strlen(C_SERVERIPFORMAT);
+		int httppos = tmpdata.find("HTTP://", redirecturlpos-findipstartlen);
+
+		if((httppos != string::npos)&&(httppos < redirecturlpos))
+		{
+			string foundipandport = tmpdata.substr(httppos+strlen("HTTP://"), redirecturlpos-1-httppos-strlen("HTTP://"));
+			if(foundipandport.length() > HP_C_IPLEN+HTTPPORTLEN+1)
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "取服务器ip地址错误");
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_DEBUG, MODULE_SNIFFER, LOGLOCATION, "foundipandport=", (char*)foundipandport.c_str());
+
+                string knlserverip(foundipandport);
+                string knlport(C_INITPORT);
+                int portstartpos = foundipandport.find(":");
+                if ( portstartpos != string::npos )
+                {
+                     knlserverip = foundipandport.substr(0,portstartpos);
+                     knlport = foundipandport.substr(portstartpos+1);
+                }
+              
+                string rexp = "(\\d{1,3}).(\\d{1,3}).(\\d{1,3}).(\\d{1,3})";
+                if ( regexData((char*)knlserverip.c_str(),rexp.c_str()) )
+                {
+                    char srciniip[IPADDRESSLENGTH]={"0"};
+                    char srcport[HTTPPORTLEN] = {"80"};
+                    GetPrivateProfileStringA("Ip", "ServerIp",C_INITSERVERIP, srciniip, IPADDRESSLENGTH, m_inifilepath);
+                    GetPrivateProfileStringA("Ip", "HttpPort",C_INITPORT, srcport, HTTPPORTLEN, m_inifilepath);
+
+                    if(strcmp(srciniip, (char*)knlserverip.c_str())!= 0)
+                    {
+                        WritePrivateProfileStringA("Ip", "ServerIp2", (char*)knlserverip.c_str(), m_inifilepath);
+                        WritePrivateProfileStringA("Ip", "HttpPort2", (char*)knlport.c_str(), m_inifilepath);
+                    }
+                    else//修改端口
+                    {
+                        if ( strcmp(srcport, (char*)knlport.c_str())!= 0 )
+                        {
+                             WritePrivateProfileStringA("Ip", "HttpPort", (char*)knlport.c_str(), m_inifilepath);
+                        }
+                    }
+                }
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetServerIpFromKNL except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetServerIpFromKNL except");
+	}
+}
+
+BOOL CAutoFindService::GetServerIpFromWeb(string data)
+{
+	try
+	{
+		int servippos = data.find("HOST:");
+		if(servippos != string::npos)
+		{
+			unsigned int servipend = data.find("\r\n", servippos);
+			unsigned int serviplen = servipend-servippos-strlen("HOST:");
+
+			if(serviplen>strlen("127.127.127.127")+HTTPPORTLEN )
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "取服务器ip地址错误");
+                return FALSE;
+			}
+			else
+			{
+				string serveripstr = data.substr(servippos+strlen("HOST:"), servipend-servippos-strlen("HOST:"));
+
+				serveripstr = trim(serveripstr);
+				if(serveripstr.length() > strlen("127.127.127.127")+HTTPPORTLEN)
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "取服务器ip地址错误");
+                    return FALSE;
+				}
+				else
+				{
+                    string webserverip(serveripstr);
+                    string webport(C_INITPORT);
+                    int portstartpos = serveripstr.find(":");
+                    if ( portstartpos != string::npos )
+                    {
+                        webserverip = serveripstr.substr(0,portstartpos);
+                        webport = serveripstr.substr(portstartpos+1);
+                    }
+                     string rexp = "(\\d{1,3}).(\\d{1,3}).(\\d{1,3}).(\\d{1,3})";
+                     if ( regexData((char*)webserverip.c_str(),rexp.c_str()) )
+                    {
+                        char srciniip[IPADDRESSLENGTH]={"0"};
+                        char srcport[HTTPPORTLEN] = {"80"};
+                        GetPrivateProfileStringA("Ip", "ServerIp",C_INITSERVERIP, srciniip, IPADDRESSLENGTH, m_inifilepath);
+                        GetPrivateProfileStringA("Ip", "HttpPort",C_INITPORT, srcport, HTTPPORTLEN, m_inifilepath);
+
+                        if( strcmp(srciniip, (char*)webserverip.c_str())!= 0)
+                        {
+                            WritePrivateProfileStringA("Ip", "ServerIp2", (char*)webserverip.c_str(), m_inifilepath);
+                            WritePrivateProfileStringA("Ip", "HttpPort2", (char*)webport.c_str(), m_inifilepath);
+                            return FALSE;
+                        }
+                        else
+                        {
+                            if ( strcmp(srcport, (char*)webport.c_str())!= 0 )
+                            {
+                                WritePrivateProfileStringA("Ip", "HttpPort", (char*)webport.c_str(), m_inifilepath);
+                            }
+                            return TRUE;
+                        }
+                    }
+                     else
+                     {
+                         WriteDebugInfomation(LEVEL_DEBUG, MODULE_SNIFFER, LOGLOCATION, "正则匹配的服务器ip不对");
+                         return FALSE;
+                     }
+				}
+			}
+		}
+        else
+        {
+             return FALSE;
+        }
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetServerIpFromWeb except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetServerIpFromWeb except");
+        return FALSE;
+	}
+}
+
+void CAutoFindService::GetWebToken(string data)
+{
+	try
+	{
+           string tmpdata(data);
+            int Pos = tmpdata.find(webtokenMake,0);
+            int namelen = strlen(webtokenMake);
+            if(Pos != string::npos)
+            {
+                WriteDebugInfomation(LEVEL_DEBUG,MODULE_SNIFFER,LOGLOCATION,"Find HUPUNACTOKEN");
+
+                if ( GetServerIpFromWeb(tmpdata) )
+                {
+                    string tokenstr = tmpdata.substr(Pos+namelen,36);
+                    bool bflag;
+
+                    bflag = BoolRepLs(lstoken, tokenstr.c_str());
+
+                    if (bflag == false)
+                    {
+                        if ( g_EstliSocket.IsOpen())
+                        {
+                            m_FCbFn(GETUUIDSETTING, (char*)tokenstr.c_str(), 36);
+                            WriteDebugInfomation(LEVEL_DEBUG,MODULE_SNIFFER,LOGLOCATION,"Send Service HUPUNACTOKEN=",(char*)tokenstr.c_str());					
+                            //lstoken.push_back(tokenstr);
+                        }
+                    }
+                    else
+                    {
+                        //WriteDebugInfomation(LEVEL_DEBUG,MODULE_SNIFFER,LOGLOCATION,"已经向服务器上传过该HUPUNACTOKEN",(char*)tokenstr.c_str());			
+                    }
+                    //查找是否有NAT
+                    GetNatData(tmpdata);
+                    //查找是否有控制器MAC
+                    GetASCMacData(tmpdata);
+                }
+                else
+                {
+                    WriteDebugInfomation(LEVEL_DEBUG,MODULE_SNIFFER,LOGLOCATION,"不是当前服务器信息");	
+                }
+            }
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetWebToken except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetWebToken except");
+	}
+}
+
+void CAutoFindService::CloseSocket(SOCKET sock)
+{
+	try
+	{
+		DWORD dwBufferLen[10] ;
+		DWORD dwBufferInLen= 0 ;
+		DWORD dwBytesReturned = 0 ;
+
+		if(SOCKET_ERROR != WSAIoctl( sock, SIO_RCVALL , &dwBufferInLen, sizeof(dwBufferInLen),             
+			&dwBufferLen, sizeof(dwBufferLen), &dwBytesReturned , NULL , NULL ))
+		{
+			//WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "WSAIoctl取消混杂模式");
+		}
+		closesocket(sock );
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"CloseSocket except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "CloseSocket except");
+	}
+}
+
+void CAutoFindService::HandleRecvData(SOCKET sock,char *recvdata, int recvlen)
+{
+	try
+	{
+		ASSERT(recvdata);
+		char *bufwork ;
+		int iRet = recvlen ;
+		IPHEADER *pIpHeader ;
+		BYTE *pdata = NULL;
+		in_addr ina ;
+		char szSource[IPADDRESSLENGTH], szDest[IPADDRESSLENGTH] ;
+		wchar_t DesIp[IPADDRESSLENGTH] = {L"0"};
+		int HdrLen, totallen;
+		WORD sourport, destport;
+		struct TCPPacketHead *pTCPHead;
+
+		bufwork   = recvdata ;
+
+		pIpHeader = (IPHEADER *)bufwork ;
+		WORD iLen = ntohs(pIpHeader->total_len) ;
+		if((iLen < 20)/* ||(iLen > 4096)*/)
+		{
+			return;
+		}
+
+		if(iLen<=iRet)
+		{
+			ina.S_un.S_addr = pIpHeader->sourceIP ;
+			strcpy_s( szSource , inet_ntoa( ina )) ;
+			ina.S_un.S_addr = pIpHeader->destIP ;
+			strcpy_s( szDest,  inet_ntoa( ina )) ;
+			MultiByteToWideChar(CP_ACP, 0, szDest, -1, DesIp, IPADDRESSLENGTH);
+
+			HdrLen = pIpHeader->header_len&0xf;
+			HdrLen *= 4;
+			totallen = ntohs(pIpHeader->total_len);
+			totallen-=HdrLen;
+			if(pIpHeader->proto == IPPROTO_TCP)
+			{
+				pTCPHead=(struct TCPPacketHead *)(recvdata+HdrLen);
+				sourport = ntohs(pTCPHead->SourPort);
+				destport = ntohs(pTCPHead->DestPort);
+				HdrLen = (pTCPHead->HLen)>>4;  //in fact only 4 bits
+				HdrLen *= 4;
+				pdata=((BYTE *)pTCPHead)+HdrLen;
+				totallen -= HdrLen;
+				int lentcp =  (ntohs(pIpHeader->total_len)-(sizeof(struct _IPHEADER)+sizeof(struct TCPPacketHead)));
+				if((iLen < 20) ||(iLen > 4096))
+				{
+					Sleep(100);
+					return;
+				}
+				char *datastr = new char[lentcp+1];
+				memset(datastr,0,lentcp+1);
+				for (int i=0;i<lentcp;i++){
+					datastr[i] = (char)toupper(*(pdata+i));
+				}
+				datastr[lentcp]='\0';
+				string data = datastr;
+                delete[] datastr;
+                datastr = NULL;
+                
+                int  redirectippos = data.find(knlredireURLMake,0);
+                int webtokenpos = data.find(webtokenMake,0);
+                if ( webtokenpos != string::npos )
+                {
+                      WriteDebugInfomation(LEVEL_DEBUG, MODULE_SNIFFER, LOGLOCATION, "weburl数据", (char*)data.c_str());
+                      GetWebToken(data);
+                }
+                if ( redirectippos != string::npos )
+                {
+                    int macpos = data.find("MAC");
+                    int natpos = data.find(NATTYPEMake);
+                    int eth0macpos = data.find(ASCMACMake);
+                    if( (macpos != string::npos ) &&(natpos != string::npos)&&(eth0macpos != string::npos))
+                    {
+                        WriteDebugInfomation(LEVEL_DEBUG, MODULE_SNIFFER, LOGLOCATION, "内核重定向url数据", (char*)data.c_str());
+                        GetServerIpFromKNL(data);
+                        //查找是否有NAT
+                        GetNatData(data);
+                        //查找是否有控制器MAC
+                        GetASCMacData(data);
+						//记录重定向ip和mac
+						GetRedictIpAndMac(data);
+                    }
+                }
+			}
+			if(iLen<iRet)
+			{
+				WriteDebugInfomation(LEVEL_DEBUG, MODULE_SNIFFER, LOGLOCATION, "iLen<iRet");
+				iRet -= iLen ;
+				bufwork  += iLen ;
+				pIpHeader = (IPHEADER *)bufwork ;
+			}
+		}
+		else
+		{ 
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_SNIFFER, LOGLOCATION, "iLen>iRet");
+			HandleRecvLastData(sock,bufwork, iLen, (WORD)iRet);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleRecvData except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "HandleRecvData except");
+	}
+}
+
+void CAutoFindService::HandleRecvLastData(SOCKET sock,char *recvdata, DWORD totllen, DWORD iretlen)
+{
+	try
+	{
+		IPHEADER *pIpHeader ;
+		char *pLastBuf = NULL ;
+		int iLast = totllen - iretlen ;
+		pLastBuf = new char [ totllen ] ;
+		int iReaden = iretlen ;
+
+		memcpy( pLastBuf , recvdata , iReaden ) ;
+
+		int iRet = recv( sock , pLastBuf + iReaden , iLast , 0 ) ;
+		if( iRet == SOCKET_ERROR )
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_SNIFFER,LOGLOCATION,"Error recv() = ",WSAGetLastError());
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_SNIFFER,LOGLOCATION,"recv success");
+			recvdata = pLastBuf ;	
+			pIpHeader = (IPHEADER *)recvdata ;
+			if( iRet == iLast )
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_SNIFFER,LOGLOCATION,"已获取所有数据");
+			else
+			{ 
+				iReaden += iRet ;
+				iLast -= iRet ;
+
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_SNIFFER,LOGLOCATION,"recv ");
+				iRet = recv(sock , pLastBuf +iReaden , iLast , 0 ) ;
+				if( iRet == SOCKET_ERROR )
+				{
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION,"Error recv() = ",WSAGetLastError());
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_SNIFFER, LOGLOCATION,"recv success");
+					iReaden += iRet ;
+					iLast -= iRet ;
+
+					if( iLast <= 0 ) 
+					{
+						WriteDebugInfomation(LEVEL_DEBUG, MODULE_SNIFFER, LOGLOCATION, "pLastBuf=",(char*)pLastBuf);
+					}
+				}	
+			}
+		}
+		if( pLastBuf )
+		{
+			delete [ ] pLastBuf ;
+			pLastBuf = NULL;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleRecvLastData except", L"err", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "HandleRecvLastData except");
+	}
+}
+
+ bool CAutoFindService::regexData(const char* sourcestr,const char* regexpatter)
+{
+    try
+    {
+        std::string s(sourcestr);
+        std::regex e (regexpatter);
+
+        if (std::regex_match (s,e))  
+        {
+            return TRUE;
+        }
+    }
+    catch (std::regex_error&  e)
+    {
+        if (e.code()== std::regex_constants::error_badrepeat)
+        {
+            WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_COMPUTERNAEM,LOGLOCATION,"Repeat was not preceded by a valid regular expression.");    
+        }
+        else
+        {
+            WriteExceptionDebugInfomation(LEVEL_RELEASE,MODULE_COMPUTERNAEM,LOGLOCATION," Some other regex exception happened."); 
+        }
+
+        return FALSE;
+    }
+
+    return FALSE;
+}
+
+ //从重定向参数中获取重定向ip和mac
+ void CAutoFindService::GetRedictIpAndMac(string data)
+ {
+	 try
+	 {
+		 string tmpdata(data);
+		 ASSERT(tmpdata.c_str());
+		 int ippos = tmpdata.find("IP=",0);
+		 int macpos = tmpdata.find("&MAC=",ippos);
+		 if ((ippos != string::npos )&&
+			 (macpos != string::npos)&&
+			 ((macpos-ippos)<IPADDRESSLENGTH+3) )
+		 {
+			 
+			 string ipvalue = tmpdata.substr(ippos+3,macpos-ippos-3);
+			 string macvalue = tmpdata.substr(macpos+5,MACADDRESSBYTE+5);//mac地址加上中间的分隔符
+			 WritePrivateProfileStringA("Device", "REDIRECTIP", (char*)ipvalue.c_str(), m_inifilepath);
+			  WritePrivateProfileStringA("Device", "REDIRECTMAC", (char*)macvalue.c_str(), m_inifilepath);
+		 }		
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 MessageBox(NULL, L"GetRedictIpAndMac except", L"err", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "GetRedictIpAndMac except");
+	 }
+ }
+
+unsigned  __stdcall  CAutoFindService::threadFunc(LPVOID pvParam)
+ {
+	 char*  ipvalue = (char*)pvParam;
+	 char getipvalue[IPADDRESSLENGTH] = {"0"};
+	 sprintf_s(getipvalue,sizeof(getipvalue),"%s",ipvalue);
+	 delete[] ipvalue;
+	 ipvalue = NULL;
+	 try
+	 {
+		 HANDLE hEvent = CreateEventA(NULL, FALSE, FALSE, getipvalue);
+		 DWORD dw = GetLastError();
+		 if(hEvent)
+		 {
+			 if((ERROR_ALREADY_EXISTS == dw)||(ERROR_ACCESS_DENIED == dw))
+			 {
+				 WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"already recv");
+				 CloseHandle(hEvent);
+				 hEvent = NULL;
+				 return 0;
+			 }
+		 }
+		 else
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"already CreateEventA");
+			 return 0;
+		 }
+
+		 SOCKET sock = pautofindserv->InitSocket(getipvalue);
+		 if(sock == NULL)
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"invilad ip:",getipvalue);
+			 return 0;
+		 }
+		 else
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"sniffer ip:",getipvalue);
+		 }
+		 int iRet = 0;
+		 char  buf [65535] = {"0"};
+
+		 while( !g_bEnable8021x )
+		 {
+			 Sleep(100);
+			 if(pautofindserv->m_FClose)
+			 {
+				 WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "m_FClose  closesocket,ip:",getipvalue);
+				 pautofindserv->CloseSocket(sock);
+				 break;
+			 }
+			 memset( buf , 0 , sizeof(buf) );
+			 iRet = recv(sock , buf , sizeof( buf ), 0 ) ;
+			 if( iRet == SOCKET_ERROR )
+			 {
+				 DWORD dwret = WSAGetLastError();
+				 WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "Error recv() = ", dwret);
+				 pautofindserv->CloseSocket(sock);
+				 WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "Ret == SOCKET_ERROR,ip=",getipvalue);
+				 break;
+			 }
+			 else
+			 {
+				 if( *buf )
+				 {
+					 ASSERT(buf);
+					 pautofindserv->HandleRecvData(sock,buf, iRet);
+				 }
+				 else
+				 {
+					 WriteDebugInfomation(LEVEL_RELEASE, MODULE_SNIFFER, LOGLOCATION, "No data on network");
+					 Sleep(100);
+					 continue ;
+				 }
+			 }   
+		 }
+		 if(hEvent)
+		 {
+			 CloseHandle(hEvent);
+			 hEvent = NULL;
+		 }
+		 return TRUE ;
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 MessageBox(NULL, L"threadFunc except", L"err", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "threadFunc except");
+	 }
+	 return FALSE;
+ }
+
+void  CAutoFindService::bStartSniffer(char* ipvalue)
+{
+	char *ipvalueinfo = new char[IPADDRESSLENGTH];
+	memset(ipvalueinfo,0,IPADDRESSLENGTH);
+	sprintf_s(ipvalueinfo,IPADDRESSLENGTH,"%s",ipvalue);
+	unsigned int dwsinfferid = 0;
+	HANDLE hSniffer =(HANDLE)_beginthreadex(NULL, 0, threadFunc, ipvalueinfo, 0, &dwsinfferid);
+	assert(hSniffer != NULL);
+	CloseHandle(hSniffer);
+	hSniffer = NULL;
+}
+
+void CAutoFindService::StartHttpRequest(wstring httpurl)
+{
+	CHttpClient httpRes(httpurl);
+	httpRes.SendHttpRequest();
+}
+
+int CAutoFindService::SetTaskOffloadValueInReg()
+{
+	BYTE Vals[100] = {0};
+	DWORD lenIt = 100;
+	HKEY hk = NULL;
+
+	if ( ::RegCreateKey( HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\", &hk ) == ERROR_SUCCESS )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "Open Tcp Parameters Success");
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "Open Tcp Parameters Fail");
+		return -1;
+	}
+	try
+	{
+		BOOL bDisable=FALSE;
+		if ( ::RegQueryValueEx(hk, L"DisableTaskOffload",0,NULL, (BYTE*)Vals, &lenIt ) == ERROR_SUCCESS )
+		{
+			int valueinfo= (int) ((Vals[0] & 0xFF));  
+			if(valueinfo == 1)
+			{
+				bDisable = TRUE;
+				WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "RegQueryValueEx DisableTaskOffload Success");
+			}
+		}
+
+		if (!bDisable)
+		{
+			DWORD regd = 1;
+			if ( ::RegSetValueEx( hk, L"DisableTaskOffload", 0, REG_DWORD, (BYTE*)&regd, sizeof( regd ) ) == ERROR_SUCCESS )
+			{
+				WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "Set DisableTaskOffload Success");
+			}
+			else
+			{
+				WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "Set DisableTaskOffload Fail");
+			}
+			RegFlushKey(hk);
+		}
+		::RegCloseKey( hk );
+	}
+	catch(...)
+	{
+	   WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SetTaskOffloadValueInReg Exception");
+		return -1;
+	}
+	return 0;
+}

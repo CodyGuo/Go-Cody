@@ -1,0 +1,329 @@
+// UninstallDlg.cpp : implementation file
+//
+
+#include "stdafx.h"
+#include "hpidmnac.h"
+#include "UninstallDlg.h"
+#include "resource.h"
+#include "ControlName.h"
+
+
+const TCHAR MENU_UNINSTALL_CLOSEBTN[] = _T("MENU_UNINSTALL_CLOSEBTN");
+const TCHAR MENU_UNINSTALL_APPLYNAME[] =_T("MENU_UNINSTALL_APPLYNAME");
+const TCHAR MENU_UNINSTALL_IDENTIFYNAME[] = _T("MENU_UNINSTALL_IDENTIFYNAME");
+
+
+UninstallDlg::UninstallDlg()
+{
+	m_lang = ENGLISH;
+	memset(m_langinipath,0,sizeof(m_langinipath));
+   m_noUninstallcode = 0;
+   ZeroMemory(&m_guisetting,sizeof(GUISETTING));
+}
+
+LPCTSTR UninstallDlg::GetWindowClassName() const
+{ 
+	return MenuUninstallDlg;
+}
+
+UINT UninstallDlg::GetClassStyle() const
+{
+	return UI_CLASSSTYLE_DIALOG; 
+};
+
+void UninstallDlg::OnFinalMessage(HWND /*hWnd*/) 
+{ 
+	m_pm.RemovePreMessageFilter(this);
+	delete this; 
+};
+
+void UninstallDlg::Init(wchar_t *xmlpath,LANGUAGETYPE lang,int noUninstallcode) 
+{
+	if (xmlpath != NULL)
+	{
+		m_xmlpath=xmlpath;
+	}
+	memset(m_langinipath,0,sizeof(m_langinipath));
+	wchar_t  dirptahW[MAX_PATH] = {L"0"};
+	ConvertA2W(g_nacdirpath,dirptahW,sizeof(dirptahW));
+	wsprintf(m_langinipath,L"%s\\lang\\%s.ini",dirptahW,LANGUAGECONFIG[lang]);
+	m_noUninstallcode = noUninstallcode;
+}
+
+void UninstallDlg::Notify(TNotifyUI& msg)
+{
+	if( msg.sType == _T("click") ) {
+		if( msg.pSender->GetName() == MENU_UNINSTALL_CLOSEBTN )
+		{
+			Close();
+			return; 
+		}	
+		else if (msg.pSender->GetName() == UNINSTALLCONTROLSTR[MENU_UNINSTALL_IDOK])
+		{
+			if (SendApplyCodeAndIndetifyCode())
+			{
+				//Close();
+				return;
+			}
+		}
+	}
+}
+
+LRESULT UninstallDlg::OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	LONG styleValue = ::GetWindowLong(*this, GWL_STYLE);
+	styleValue &= ~WS_CAPTION;
+	::SetWindowLong(*this, GWL_STYLE, styleValue | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);
+
+	m_pm.Init(m_hWnd);
+	m_pm.AddPreMessageFilter(this);
+	CDialogBuilder builder;
+	CControlUI* pRoot = builder.Create(m_xmlpath.GetData(), (UINT)0,(UINT)0, &m_pm);
+	ASSERT(pRoot && "Failed to parse XML");
+	if (pRoot == NULL )
+	{
+		MessageBox(NULL,L"UninstallDlgpRoot==NULL",L"error",0);
+		return 0;
+	}
+
+	if (GetGuiSizeAndFontSize(FALSE,&m_guisetting))
+	{
+		m_pm.SetInitSize(m_guisetting.xsize,m_guisetting.ysize);
+		m_pm.SetDefaultFont(L"微软雅黑",m_guisetting.fontsize,FALSE,FALSE,FALSE);
+	}
+
+	m_pm.AttachDialog(pRoot);
+	m_pm.AddNotifier(this);
+	RECT rcDlg;
+	::GetClientRect(*this, &rcDlg);
+	RECT rcParent;
+	HWND hWndParent = GetDesktopWindow();
+	SystemParametersInfo(SPI_GETWORKAREA, 0, (PVOID)&rcParent, 0);
+	POINT ptParentInScreen;
+	ptParentInScreen.x = rcParent.left;
+	ptParentInScreen.y = rcParent.top;
+	::ClientToScreen(hWndParent, (LPPOINT)&ptParentInScreen);
+	SetWindowPos(*this, NULL,  ptParentInScreen.x+((rcParent.right - rcParent.left)- (rcDlg.right - rcDlg.left))/2 , 
+		ptParentInScreen.y+((rcParent.bottom - rcParent.top)- (rcDlg.bottom - rcDlg.top))/2 , 0, 0,  
+		SWP_NOZORDER | SWP_NOSIZE);
+	InitControlText();
+	return 0;
+}
+
+LRESULT UninstallDlg::OnNcActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	if( ::IsIconic(*this) ) bHandled = FALSE;
+	return (wParam == 0) ? TRUE : FALSE;
+}
+
+LRESULT UninstallDlg::OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	return 0;
+}
+
+LRESULT UninstallDlg::OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	return 0;
+}
+
+LRESULT UninstallDlg::OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	POINT pt; pt.x = GET_X_LPARAM(lParam); pt.y = GET_Y_LPARAM(lParam);
+	::ScreenToClient(*this, &pt);
+
+	RECT rcClient;
+	::GetClientRect(*this, &rcClient);
+
+	RECT rcCaption = m_pm.GetCaptionRect();
+	if( pt.x >= rcClient.left + rcCaption.left && pt.x < rcClient.right - rcCaption.right \
+		&& pt.y >= rcCaption.top && pt.y < rcCaption.bottom ) {
+			CControlUI* pControl = static_cast<CControlUI*>(m_pm.FindControl(pt));
+			if( pControl && _tcscmp(pControl->GetClass(), _T("ButtonUI")) != 0 )
+				return HTCAPTION;
+	}
+
+	return HTCLIENT;
+}
+
+LRESULT UninstallDlg::OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+	SIZE szRoundCorner = m_pm.GetRoundCorner();
+	if( !::IsIconic(*this) && (szRoundCorner.cx != 0 || szRoundCorner.cy != 0) ) {
+		DuiLib::CRect rcWnd;
+		::GetWindowRect(*this, &rcWnd);
+		rcWnd.Offset(-rcWnd.left, -rcWnd.top);
+		rcWnd.right++; rcWnd.bottom++;
+		HRGN hRgn = ::CreateRoundRectRgn(rcWnd.left, rcWnd.top, rcWnd.right, rcWnd.bottom, szRoundCorner.cx, szRoundCorner.cy);
+		::SetWindowRgn(*this, hRgn, TRUE);
+		::DeleteObject(hRgn);
+	}
+
+	bHandled = FALSE;
+	return 0;
+}
+
+LRESULT UninstallDlg::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	LRESULT lRes = 0;
+	BOOL bHandled = TRUE;
+	switch( uMsg ) {
+	case WM_CREATE:        lRes = OnCreate(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCACTIVATE:    lRes = OnNcActivate(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCCALCSIZE:    lRes = OnNcCalcSize(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCPAINT:       lRes = OnNcPaint(uMsg, wParam, lParam, bHandled); break;
+	case WM_NCHITTEST:     lRes = OnNcHitTest(uMsg, wParam, lParam, bHandled); break;
+	case WM_SIZE:          lRes = OnSize(uMsg, wParam, lParam, bHandled); break;
+    case WM_LANGCHANGE:lRes=0;Close();break;
+	default:
+		bHandled = FALSE;
+	}
+	if( bHandled ) return lRes;
+	if( m_pm.MessageHandler(uMsg, wParam, lParam, lRes) ) return lRes;
+	return CWindowWnd::HandleMessage(uMsg, wParam, lParam);
+}
+
+LRESULT UninstallDlg::MessageHandler(UINT uMsg, WPARAM wParam, LPARAM lParam, bool& bHandled)
+{
+	if( uMsg == WM_KEYDOWN ) {
+		if( wParam == VK_RETURN ) {
+		if (SendApplyCodeAndIndetifyCode())
+		{
+		//Close();
+		}
+		return true;
+		}
+	}
+	return false;
+}
+
+
+void  UninstallDlg::InitControlText()
+{
+	for (int i=0;i<MENU_UNINSTALL_TOTAL;i++)
+	{
+		CControlUI  *contrui = m_pm.FindControl(UNINSTALLCONTROLSTR[i]);
+		if (contrui)
+		{
+			wchar_t contruitext[MAX_PATH] = {L"0"};
+			GetPrivateProfileString(MenuUninstallDlg,UNINSTALLCONTROLSTR[i],
+				UNINSTALLCONTROLSTR[i],
+				contruitext,sizeof(contruitext),m_langinipath);
+			contrui->SetText(contruitext);
+			
+			if ( (i ==MENU_UNINSTALL_APPLYLABEL)||(i == MENU_UNINSTALL_IDENTIFYLABEL))
+			{
+				if (m_noUninstallcode)
+				{
+					contrui->SetVisible(false);
+				}
+				if (m_guisetting.xsize != 0 )
+				{
+					contrui->SetAttribute(L"width",m_guisetting.lefttextwidth);
+				}
+			}
+			else if (i ==MENU_UNINSTALL_UNINSTALLTIP)
+			{
+				if (!m_noUninstallcode)
+				{
+					contrui->SetVisible(false);
+				}
+			}
+			else if ((i ==MENU_UNINSTALL_IDOK)||(i ==MENU_UNINSTALL_TITLE))
+			{
+				if (m_guisetting.xsize != 0 )
+				{
+					contrui->SetAttribute(L"width",m_guisetting.lefttextwidth);
+				}
+			}
+		}
+	}
+
+	papplyedit = (CEditUI *)m_pm.FindControl(MENU_UNINSTALL_APPLYNAME);
+	if (papplyedit)
+	{
+		if (m_noUninstallcode)
+		{
+			papplyedit->SetVisible(false);
+		}
+		else
+		{
+			//生成申请码
+			int number[7]={0};
+			srand((unsigned)time(NULL));
+
+			for(int i=0; i<7; i++)
+			{
+				//产生10以内的随机数
+				number[i] = rand()%10;
+
+				if(i == 0 && number[i] == 0)
+				{
+					number[i]=1;
+				}
+			}
+			wchar_t applycode[HP_C_USERCONTENTLEN] = {L"0"};
+			wsprintf(applycode,
+				L"%d%d%d%d%d%d",
+				number[0],
+				number[1],
+				number[2],
+				number[3],
+				number[4],
+				number[5]);
+			papplyedit->SetText(applycode);
+		}
+	}
+	pidentifyedit = (CEditUI *)m_pm.FindControl(MENU_UNINSTALL_IDENTIFYNAME);
+	if (pidentifyedit)
+	{
+		if (m_noUninstallcode)
+		{
+			pidentifyedit->SetVisible(false);
+		}
+		else
+		{
+			pidentifyedit->SetFocus();
+		}
+	}
+}
+
+BOOL UninstallDlg::SendApplyCodeAndIndetifyCode()
+{
+	 if (m_noUninstallcode)
+	 {
+		 ::PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd, WM_UNINSTALLCLIENT, (WPARAM)L"1",(LPARAM)1);
+	 }
+	 else
+	 {
+		 if (pidentifyedit)
+		 {
+			CStdString  idencode =  pidentifyedit->GetText();
+			if (idencode.GetLength() != 6)
+			{
+				DWORD color = 0xFFFF0000;
+				pidentifyedit->SetBorderColor(color);
+				return FALSE;
+			}
+
+			if ( wcscmp(idencode.GetData(),L"GCYGCY") == 0 )
+			{
+				wchar_t *tmpcode = new wchar_t[HP_C_USERCONTENTLEN];
+				memset(tmpcode,0,sizeof(wchar_t)*HP_C_USERCONTENTLEN);
+				memcpy(tmpcode,L"GCYGCY",sizeof(L"GCYGCY"));
+				::PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd, WM_UNINSTALLCLIENT, (WPARAM)tmpcode, (LPARAM)wcslen(L"GCYGCY"));
+				return TRUE;
+			}
+			else
+			{
+				wchar_t *uninstallinfo = new wchar_t[MAX_PATH];
+				memset(uninstallinfo,0,sizeof(wchar_t)*MAX_PATH);
+				CStdString applycode = papplyedit->GetText();
+
+				wsprintf(uninstallinfo,L"%s;%s",applycode.GetData(),idencode.GetData());
+				::PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd, WM_UNINSTALLCLIENT, (WPARAM)uninstallinfo, (LPARAM)wcslen(uninstallinfo));
+				return TRUE;
+			}
+		 }
+	 }
+	  return FALSE;
+}

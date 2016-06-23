@@ -1,0 +1,94 @@
+#include "StdAfx.h"  
+#include "GlobalFunction.h"  
+
+#include <string>
+#include <list>
+using namespace std;
+
+/************************************************************
+ Description: LPCWSTR转String
+ input: wstr[转换的字符串]
+ Return:  返回转换的string
+*************************************************************/
+std::string WCharToAnsi(LPCWSTR pwszSrc)
+{
+	try
+	{
+		char* pszDst = NULL;
+		std::string strTemp("");
+
+		int nLen = WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, NULL, 0, NULL, NULL);
+
+		if (nLen <= 0) 
+		{
+			return std::string("");
+		}
+
+		pszDst = new char[nLen];
+
+		if (NULL == pszDst) 
+		{
+			return std::string("");
+		}
+		WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, pszDst, nLen, NULL, NULL);
+		pszDst[nLen -1] = 0;
+
+		strTemp = pszDst;
+
+		delete [] pszDst;
+
+		return strTemp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"WCharToAnsi Exception", L"Msg", 0);
+#endif
+	}
+	return "";
+}
+
+/************************************************************
+ Description: char*转wstring
+ input: pszSrc[转换的字符串]
+ Return:  返回转换的wstring
+*************************************************************/
+std::wstring AnsiToWChar(IN const char* pszSrc)
+{
+	try
+	{
+		wchar_t* pwszDst = NULL;
+		std::wstring wstrTemp(L"");
+
+		int nLen = MultiByteToWideChar(CP_ACP, 0, pszSrc, -1, pwszDst, 0);
+
+		if (nLen <= 0) 
+		{
+			return std::wstring(L"");
+		}
+
+		pwszDst = new wchar_t[nLen];
+
+		if (NULL == pwszDst) 
+		{
+			return std::wstring(L"");
+		}
+
+		MultiByteToWideChar(CP_ACP, 0, pszSrc, (int)strlen(pszSrc), pwszDst, nLen);
+
+		pwszDst[nLen -1] = 0;
+
+		wstrTemp = pwszDst;
+
+		delete [] pwszDst;
+
+		return wstrTemp;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"AnsiToWChar Exception", L"Msg", 0);
+#endif
+	}
+	return L"";
+}

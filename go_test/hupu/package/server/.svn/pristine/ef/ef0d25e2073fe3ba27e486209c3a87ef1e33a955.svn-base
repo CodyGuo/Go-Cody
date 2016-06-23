@@ -1,0 +1,49 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#ifndef _HPPROCPROTECT_H_
+#define _HPPROCPROTECT_H_ 1
+
+#define CREATED_PROC_FLAG		"CreatedProc"
+#define TERMINATED_PROC_FLAG	"TerminatedProc"
+
+#define PROCESS_TERMINATE                  (0x0001)  
+#define PROCESS_VM_OPERATION               (0x0008)  
+#define PROCESS_VM_READ                    (0x0010)  
+#define PROCESS_VM_WRITE                   (0x0020)  
+#define PROCESS_CREATE_PROCESS             (0x0080)  
+
+typedef struct _MntProtectProcList
+{
+	LIST_ENTRY m_protectProcListEntry;
+	ULONG ulProcId;
+	//WCHAR m_wProcNameInfo[1];
+}MntProtectProcList; 
+
+typedef	struct _PROC_MONITOR_EVENT 
+{
+	HANDLE	hEvent;
+}PROC_MONITOR_EVENT,*PPROC_MONITOR_EVENT;
+
+PVOID MntAlloc(IN SIZE_T numberOfBytes);
+VOID MntFree(IN PVOID* p);
+NTSTATUS RegProcProtectCallback(__in PDRIVER_OBJECT DriverObject);
+VOID UnProcProtectRegCallback();
+VOID CreateProcCallBack(IN HANDLE hParentId, IN HANDLE hProcessId, IN BOOLEAN bCreate);
+VOID ProtectProcClean();
+
+extern PDEVICE_OBJECT mntDeviceObject;
+extern PDRIVER_OBJECT mntDriverObject;
+
+extern ULONG g_protectProcFlag;
+extern FAST_MUTEX g_protectProcIoFastMutex;
+extern LIST_ENTRY s_protectProcListHead;
+
+extern PRKEVENT	g_MntEvntObject;
+extern 	char g_szCreateProcBuf[MIN_BUF_LEN];
+extern char	g_szTerminatedProcBuf[MIN_BUF_LEN];
+#endif

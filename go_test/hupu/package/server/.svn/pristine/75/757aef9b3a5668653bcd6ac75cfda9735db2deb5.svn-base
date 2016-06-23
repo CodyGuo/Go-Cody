@@ -1,0 +1,199 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include <Windows.h>
+#include "GlobalFunction.h"
+
+/************************************************************
+ Description: LPCWSTR转String
+ input: wstr[转换的字符串]
+ Return:  返回转换的string
+*************************************************************/
+std::string WCharToAnsi(LPCWSTR pwszSrc)
+{
+    char* pszDst = NULL;
+    std::string strTemp("");
+
+    int nLen = WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, NULL, 0, NULL, NULL);
+
+    if (nLen <= 0) 
+    {
+        return std::string("");
+    }
+
+    pszDst = new char[nLen];
+
+    if (NULL == pszDst) 
+    {
+        return std::string("");
+    }
+
+    WideCharToMultiByte(CP_ACP, 0, pwszSrc, -1, pszDst, nLen, NULL, NULL);
+    pszDst[nLen -1] = 0;
+
+    strTemp = pszDst;
+
+    delete [] pszDst;
+
+    return strTemp;
+}
+
+/************************************************************
+ Description: ansi转unicode
+ input: instr[转换的字符串]
+ Output: outstr[转换后的字符串]
+ Return:  返回转换的长度
+*************************************************************/
+INT ans_to_uni(IN CHAR* instr, OUT WCHAR* outstr)
+{
+    return MultiByteToWideChar(CP_ACP, 
+        0, 
+        instr, 
+        (INT)strlen(instr), 
+        outstr, 
+        (INT)strlen(instr));
+}
+
+/************************************************************
+ Description: unicode转ansi
+ input: instr[转换的字符串]
+ Output: outstr[转换后的字符串]
+ Return:  返回转换的长度
+*************************************************************/
+INT uni_to_ans(IN WCHAR* instr, OUT CHAR* outstr)
+{
+    return WideCharToMultiByte(	CP_ACP, 
+        NULL, 
+        instr, 
+        (INT)wcslen(instr),
+        outstr, 
+        (INT)wcslen(instr), 
+        NULL, 
+        NULL );
+}
+
+/************************************************************
+ Description: 提升进程权限
+ input: ProcId[进程ID]
+ Return:  TRUE[成功]，FALSE[失败]
+*************************************************************/
+BOOL RaiseProcPrivilegToDebug(const HANDLE ProcId)
+{
+    LUID				Luid;
+    BOOL				bRet = TRUE;
+    HANDLE				hProcToken = NULL;
+    TOKEN_PRIVILEGES	TokenPrivilege;
+
+    if ( ProcId <= 0 )
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    bRet = OpenProcessToken(ProcId, TOKEN_ALL_ACCESS, &hProcToken);
+    if ( !bRet )
+    {
+        return FALSE;
+    }
+
+    bRet = LookupPrivilegeValue(NULL, SE_DEBUG_NAME , &Luid);
+    if ( !bRet )
+    {
+        CloseHandle(hProcToken);
+        return FALSE;
+    }
+
+    TokenPrivilege.PrivilegeCount = 1;
+    TokenPrivilege.Privileges[0].Luid = Luid;
+    TokenPrivilege.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    bRet = AdjustTokenPrivileges(hProcToken, FALSE, &TokenPrivilege, sizeof(TOKEN_PRIVILEGES), NULL, NULL);
+
+
+    bRet = LookupPrivilegeValue(NULL, SE_RESTORE_NAME , &Luid);
+    if ( !bRet )
+    {
+        CloseHandle(hProcToken);
+        return FALSE;
+    }
+
+    TokenPrivilege.PrivilegeCount = 1;
+    TokenPrivilege.Privileges[0].Luid = Luid;
+    TokenPrivilege.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    bRet = AdjustTokenPrivileges(hProcToken, FALSE, &TokenPrivilege, sizeof(TOKEN_PRIVILEGES), NULL, NULL);
+
+    bRet = LookupPrivilegeValue(NULL, SE_BACKUP_NAME , &Luid);
+    if ( !bRet )
+    {
+        CloseHandle(hProcToken);
+        return FALSE;
+    }
+
+    TokenPrivilege.PrivilegeCount = 1;
+    TokenPrivilege.Privileges[0].Luid = Luid;
+    TokenPrivilege.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    bRet = AdjustTokenPrivileges(hProcToken, FALSE, &TokenPrivilege, sizeof(TOKEN_PRIVILEGES), NULL, NULL);
+
+    CloseHandle(hProcToken);
+
+    return bRet;
+}
+
+/************************************************************
+ Description: 运行程序
+ input: sCommand[运行命令]；imilsec[运行等待时间]
+ Return: true[启动成功]；false[启动失败]
+*************************************************************/
+bool RunProcess(const char* sCommand, const unsigned long imilsec)
+{
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+
+	memset(&si, 0, sizeof(si));
+	si.cb = sizeof(si);
+	si.dwFlags = STARTF_USESHOWWINDOW;
+	si.wShowWindow = SW_HIDE;
+	memset(&pi, 0, sizeof(pi));
+
+	if(!CreateProcessA(NULL, (LPSTR)sCommand, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+		return false;
+
+	WaitForSingleObject(pi.hProcess, imilsec);
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+	return true;
+}
+
+/************************************************************
+ Description: 获取当前程序所在路径
+ output: pFullPath【当前路径】
+ Return: FALSE【获取失败】，TRUE【获取成功】
+*************************************************************/
+int	GetCurrentPath(__out PSTR pFullPath)
+{
+	BOOL					ret= FALSE;
+	CHAR					szPath[MAX_PATH];
+	CHAR					szDrive[_MAX_DRIVE];
+	CHAR					szDir[_MAX_DIR];
+	CHAR					szFname[_MAX_FNAME];
+	CHAR					szExtname[_MAX_EXT];
+
+	if(GetModuleFileNameA(NULL,szPath,MAX_PATH))
+	{
+		if(! _splitpath_s(szPath,szDrive,_MAX_DRIVE,szDir,_MAX_DIR,szFname,_MAX_FNAME,szExtname,_MAX_EXT))
+		{
+			sprintf_s(pFullPath, MAX_PATH, "%s%s", szDrive, szDir);
+			ret = TRUE;
+		}
+	}
+
+	return	ret;
+}

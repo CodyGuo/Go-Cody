@@ -1,0 +1,18 @@
+#ifndef _CREMOVSTORAGEBLOBALDATA_H  
+#define _CREMOVSTORAGEBLOBALDATA_H 1
+
+#include "../../common/GlobalData/DeviceGlobalData.h"
+
+#define MAX_USB_DEV_CLASS_NUM 2
+#define DEVINFOBUFLEN 256
+
+typedef std::map<int, DEVBASICVECTOR>ALL_USB_STORAGE_DEV_MAP;
+typedef std::map<int, DEVBASICVECTOR>UPDATE_USB_STORAGE_DEV_MAP;
+
+static const wchar_t* pUsbStorageDeShowName[] = 
+{
+	L"“∆∂Ø”≤≈Ã", 
+	L"U≈Ãµ»",
+};
+
+#endif

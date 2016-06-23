@@ -1,0 +1,327 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "..\GetLangValue.h"
+#include "..\GlobalDate.h"
+#include "..\CustomCheck\CommData.h"
+#include "CheckNetShareResource.h"
+#include "..\DebugInfo.h"
+
+#include <lm.h>
+#include "..\GlobalFunction.h"
+
+/************************************************************ 
+ Description: 从数据库中获取资源共享策略
+ input: 
+ Return: 
+*************************************************************/
+int GetNetShareDataFromDB(  IN wchar_t *pDirPath, 
+                            IN char *pUserId, 
+                            IN char* pUserType, 
+                            IN char *pCurrdata, 
+                            IN char *pMilliSecond, 
+                            IN char *pWeekday, 
+                            OUT PSHAREDIRPOLICY pShareDirPolicy,
+                            OUT safecheckattr *pNetShareAttriInfo)
+{
+    int ret = SQLITE_OK;
+    int iResult = HP_DB_GETTABLEFAIL;
+
+    if (HP_openDB(pDirPath) == HP_DB_OPENFAIL)
+    {
+        WriteDebugInfomation(LEVEL_RELEASE, MODULE_NETSHARE, LOGLOCATION, "打开数据库失败");
+        return HP_DB_OPENFAIL;
+    }
+    else
+    {
+        char sql[HP_C_SQLDATA]={'0'}; 
+        char **pszResult='\0';
+        CHAR *szErrMsg='\0';
+        INT nRow = 0;
+        INT nCloumn = 0;
+
+        sprintf_s(sql,
+            HP_C_SQLDATA,
+            "SELECT %s FROM  (SELECT * FROM tstgnetshare a WHERE (a.iuserid=%d) AND (a.usertype = \'%s\')AND (a.dstartdate<=\'%s\') AND (a.denddate>=\'%s\') AND (%ld>a.sstarttime) AND \
+            (%ld<a.sendtime) AND (a.sweekday LIKE \"%%%d%%\")  ORDER BY a.ipriority DESC) ORDER BY ipriority ASC ", 
+            HP_ATTRIBUTE_SQLNAME, atoi(pUserId), pUserType, pCurrdata, pCurrdata, atol(pMilliSecond), atol(pMilliSecond), atoi(pWeekday));	
+
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_NETSHARE, LOGLOCATION, "查询网络共享策略的SQL语句:", sql);
+
+        ret = sqlite3_get_table(g_db, sql, &pszResult, &nRow, &nCloumn, &szErrMsg);
+
+        if(SQLITE_OK != ret)
+        {
+            sqlite3_free_table(pszResult);
+            ret = sqlite3_close(g_db);
+            g_db = NULL;
+            return HP_DB_GETTABLEFAIL;
+        }
+
+        memset(pNetShareAttriInfo, 0, sizeof(safecheckattr) );
+
+        if ((nRow > 0) && (nCloumn > 0))
+        {	
+            for (int i=0; i < nRow; i++)
+            {
+                for (int j = 0; j < nCloumn; j++)
+                {
+                    if(strcmp(pszResult[j], "ipriority") == 0)
+                    {			
+                        Convert(pszResult[(i+1)*nCloumn+j], pNetShareAttriInfo->ipriority, sizeof(pNetShareAttriInfo->ipriority), CP_UTF8, CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j], "spolicyaction") == 0)
+                    {			
+                        Convert(pszResult[(i+1)*nCloumn+j], pNetShareAttriInfo->spolicyaction, sizeof(pNetShareAttriInfo->spolicyaction), CP_UTF8, CP_ACP);					
+                    }
+                    else if(strcmp(pszResult[j], "spromptinfo") == 0)
+                    {
+                        Convert(pszResult[(i+1)*nCloumn+j], pNetShareAttriInfo->spromptinfo, sizeof(pNetShareAttriInfo->spromptinfo), CP_UTF8, CP_ACP);					
+                    }
+                    else  if(strcmp(pszResult[j], "warningcont") == 0)
+                    {
+                        Convert(pszResult[(i+1)*nCloumn+j], pNetShareAttriInfo->warningcont, sizeof(pNetShareAttriInfo->warningcont), CP_UTF8, CP_ACP);					
+                    }	
+                    else  if(strcmp(pszResult[j],"warninglevel") == 0)
+                    {
+                        Convert(pszResult[(i+1)*nCloumn+j], pNetShareAttriInfo->warninglevel, sizeof(pNetShareAttriInfo->warninglevel), CP_UTF8, CP_ACP);					
+                    }	
+                    else  if(strcmp(pszResult[j], "srcevent") == 0)
+                    {
+                        Convert(pszResult[(i+1)*nCloumn+j], pNetShareAttriInfo->srcevent, sizeof(pNetShareAttriInfo->srcevent), CP_UTF8,CP_ACP);					
+                    }                    
+                }
+            }
+            iResult = HP_SUCCESS;
+        }
+        sqlite3_free_table(pszResult);
+
+        {
+            char *pExceptSql = "SELECT sexceptsharedir FROM  (SELECT * FROM tstgnetshare a, tstgnetsharecontent b  WHERE a.ipolicyauthid = b.ipolicyauthid) AS tb GROUP BY tb.sexceptsharedir";
+
+            nRow = 0;
+            nCloumn = 0;
+
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_NETSHARE, LOGLOCATION, "查询网络共享例外策略的SQL语句:", sql);
+            ret = sqlite3_get_table(g_db, pExceptSql, &pszResult, &nRow, &nCloumn, &szErrMsg);
+
+            if(SQLITE_OK != ret)
+            {
+                sqlite3_free_table(pszResult);
+                ret = sqlite3_close(g_db);
+                g_db = NULL;
+                return iResult;
+            }
+
+            pShareDirPolicy->exceptShareDir.clear();
+            if ((nRow > 0) && (nCloumn > 0))
+            {
+                for (int i=0; i < nRow; i++)
+                {
+                    for (int j = 0; j < nCloumn; j++)
+                    {
+                        if(strcmp(pszResult[j], "sexceptsharedir") == 0)
+                        {
+                            char exceptDir[MAX_PATH] = {0};
+                            wchar_t wExceptDir[MAX_PATH] = {0};
+
+                            Convert(pszResult[(i+1)*nCloumn+j], exceptDir, sizeof(exceptDir), CP_UTF8, CP_ACP);					
+                            ConvertA2W(exceptDir, wExceptDir, MAX_PATH);
+
+                            pShareDirPolicy->exceptShareDir.push_back(wExceptDir);
+
+                        }	
+                    }
+                }
+            }   
+            sqlite3_free_table(pszResult);
+        }
+
+    }
+    return iResult;
+}
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input:   
+ Return: 
+*************************************************************/
+bool NetShareRetShowMsg(IN int iCheckState,  IN safecheckattr checkItem, IN PSHAREDIRPOLICY pShareDirPolicy, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language)
+{
+    bool ret = true;
+    std::wstring violationShareDir(L"");
+    std::string tempShareDir("");
+
+    if (iCheckState)
+    {
+		char strNetShareName[MAX_BUF_LEN] = {0};
+		char strLangMsg[MAX_BUF_LEN] = {0};
+
+		GetLangValueByKeyA(language, 
+			"SF_NETSHARE_MSG", 
+			"SF_NETSHARE_NAME", 
+			"共享资源检查", 
+			strNetShareName, 
+			MAX_BUF_LEN);
+
+
+		GetLangValueByKeyA(language, 
+			"SF_NETSHARE_MSG", 
+			"SF_NETSHARE_LANG_MSG", 
+			"存在违规的共享资源", 
+			strLangMsg, 
+			MAX_BUF_LEN);
+
+        (*pFailNum)++;
+        ret = false;
+
+        if(!pShareDirPolicy->violationShareDir.empty())
+        {
+            SHAREDIR::iterator iter;
+
+            for (iter = pShareDirPolicy->violationShareDir.begin(); iter != pShareDirPolicy->violationShareDir.end(); iter++)
+            {
+				if (iter != pShareDirPolicy->violationShareDir.begin())
+				{
+					violationShareDir += (std::wstring)L",";
+				}
+                violationShareDir += (std::wstring)iter->c_str();
+            }
+        }
+
+        tempShareDir = WCharToAnsi(violationShareDir.c_str());
+
+        sprintf_s(  pMsgBuf, 
+                    msgBufLen,
+                    "<subitem checkItemId=\"0\" faildes=\"%s%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+					strLangMsg,
+					tempShareDir.c_str(),
+					strNetShareName,
+                    checkItem.warningcont, 
+                    checkItem.warninglevel, 
+                    checkItem.srcevent);
+
+        WriteDebugInfomation(LEVEL_DEBUG, MODULE_NETSHARE, LOGLOCATION, pMsgBuf);
+    }
+
+    return ret;
+}
+
+/************************************************************
+ Description: 处理网络共享资源
+ Input: isRestore[是否修复]
+ Return: TRUE[检查网络存在共享资源不符合要求或修复成功]
+         FALSE[检查网络共享资源符合要求或修复失败]
+*************************************************************/
+BOOL NetShareResourceEnum(IN BOOL isRestore, _Inout_ PSHAREDIRPOLICY pShareDirPolicy)
+{
+    PSHARE_INFO_502 bufPtr, p;
+    NET_API_STATUS res;
+    LPTSTR lpszServer = NULL;
+    DWORD er = 0, tr = 0, resume = 0;
+    BOOL ret = FALSE;
+    std::wstring writeLog(L"");
+
+    do 
+    {
+        if (!isRestore)
+        {
+            pShareDirPolicy->violationShareDir.clear();
+        }
+
+        res = NetShareEnum (lpszServer, (DWORD)502, (LPBYTE *)&bufPtr, (DWORD)-1, &er, &tr, &resume);
+
+        if(res == ERROR_SUCCESS || res == ERROR_MORE_DATA)
+        {
+            p = bufPtr;
+          
+            for(DWORD i = 1; i <= er; i++)
+            {
+                BOOL isExceptFalg = FALSE;
+
+                writeLog.clear();
+                writeLog = L"共享名[";
+                writeLog += p->shi502_netname;
+                writeLog += L"] 共享路径[";
+                writeLog += p->shi502_path;
+                writeLog += L"]";
+
+                WriteDebugInfomation(LEVEL_DEBUG, MODULE_NETSHARE, LOGLOCATION, (wchar_t*)writeLog.c_str());
+
+                if ( _wcsnicmp(p->shi502_netname, L"ADMIN$", MAX(wcslen(p->shi502_netname), wcslen(L"ADMIN$"))) == 0 ||
+                    _wcsnicmp(p->shi502_netname, L"IPC$", MAX(wcslen(p->shi502_netname), wcslen(L"IPC$"))) == 0)
+                {
+                    isExceptFalg = TRUE;
+                }
+
+                if(!isExceptFalg)
+                {
+                    if (!pShareDirPolicy->exceptShareDir.empty())
+                    {
+                        SHAREDIR::iterator iter;
+
+                        for (iter = pShareDirPolicy->exceptShareDir.begin(); iter  != pShareDirPolicy->exceptShareDir.end(); iter++)
+                        {
+                            if (_wcsnicmp(iter->c_str(), p->shi502_netname, MAX(wcslen(iter->c_str()), wcslen(p->shi502_netname))) == 0 )
+                            {
+                                isExceptFalg = TRUE;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!isExceptFalg )
+                    {
+                        if (!isRestore)
+                        {
+                            pShareDirPolicy->violationShareDir.push_back(p->shi502_netname);
+                        }
+                        ret = TRUE;
+                    }
+                }
+
+                if (!isExceptFalg && isRestore)
+                {
+                    writeLog.clear();
+                    writeLog = L"Net Share Del share name[";
+                    writeLog += p->shi502_netname;
+
+                    res = NetShareDel(NULL, p->shi502_netname, 0);
+                    if (res == NERR_Success)
+                    {
+                        writeLog += L"]success!";
+                        ret = TRUE;
+                    }
+                    else
+                    {
+                        writeLog += L"]fail!";
+                        ret = FALSE;
+                        break;
+                    }
+
+                    WriteDebugInfomation(LEVEL_DEBUG, MODULE_NETSHARE, LOGLOCATION, (wchar_t*)writeLog.c_str());
+                }
+                p++;
+            }
+
+            NetApiBufferFree(bufPtr);
+        }
+        else 
+        {
+            writeLog.clear();
+            writeLog = L"NetShareEnum Error!";
+
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_NETSHARE, LOGLOCATION, (wchar_t*)writeLog.c_str());
+        }
+
+    }while (res == ERROR_MORE_DATA); 
+
+    return ret;
+
+}

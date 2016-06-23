@@ -1,0 +1,449 @@
+// ImanSvc.cpp : Defines the exported functions for the DLL application.
+//
+
+#include "stdafx.h"
+#include "ImanSvc.h"
+#include "HpMntIoCtrl.h"
+#include "GlobalFunction.h"
+#include <shellapi.h>
+#include <shlwapi.h>
+
+#pragma comment(lib, "shlwapi.lib")
+
+#define HP_IMAN_SERVICE_NAME L"HpImanService"
+
+#pragma data_seg ( "Shared" )
+SERVICE_STATUS_HANDLE hSrv = NULL; 
+HANDLE m_hMonThread = NULL;
+DWORD dwCurrState = SERVICE_STOPPED;
+#pragma data_seg()
+
+#pragma comment (linker, "/SECTION:Shared,RWS" )
+
+HMODULE g_hDllModule = NULL; 
+
+int SetServStatus( DWORD dwState, DWORD dwExitCode, DWORD dwControlsAccepted ) 
+{ 
+	SERVICE_STATUS srvStatus; 
+	static DWORD dwCheckPoint = 1;
+	int iRet = FALSE;
+
+	if (dwCurrState == SERVICE_START_PENDING)
+		srvStatus.dwControlsAccepted = 0;
+	else 
+		srvStatus.dwControlsAccepted = dwControlsAccepted;
+
+	if ( (dwCurrState == SERVICE_RUNNING) ||
+		(dwCurrState == SERVICE_STOPPED) )
+		srvStatus.dwCheckPoint = 0;
+	else 
+		srvStatus.dwCheckPoint = dwCheckPoint++;
+
+	dwCurrState = dwState;
+	srvStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS; 
+	srvStatus.dwCurrentState = dwState; 
+	srvStatus.dwWin32ExitCode = dwExitCode; 
+	srvStatus.dwServiceSpecificExitCode = 0; 
+	srvStatus.dwWaitHint = 3000; 
+
+	iRet = SetServiceStatus( hSrv, &srvStatus ); 
+
+	return  iRet;
+} 
+
+DWORD WINAPI  ServiceHandler( __in  DWORD dwControl) 
+{ 
+	switch( dwControl ) 
+	{ 
+		case SERVICE_CONTROL_STOP: 
+			{
+				SetServStatus( SERVICE_STOP_PENDING, 
+								0, 
+								SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_PAUSE_CONTINUE | SERVICE_ACCEPT_SHUTDOWN); 
+				Sleep(10); 
+				SetServStatus( SERVICE_STOPPED, 
+								0, 
+								SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_PAUSE_CONTINUE | SERVICE_ACCEPT_SHUTDOWN); 
+			}
+			break; 
+		case SERVICE_CONTROL_PAUSE: 
+			{
+				SetServStatus( SERVICE_PAUSE_PENDING, 
+								0, 
+								SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_PAUSE_CONTINUE | SERVICE_ACCEPT_SHUTDOWN); 
+				SetServStatus( SERVICE_PAUSED, 
+								0, 
+								SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_PAUSE_CONTINUE | SERVICE_ACCEPT_SHUTDOWN); 
+			}
+			break; 
+		case SERVICE_CONTROL_CONTINUE: 
+			{
+				SetServStatus( SERVICE_CONTINUE_PENDING, 0, SERVICE_ACCEPT_STOP|SERVICE_ACCEPT_PAUSE_CONTINUE|SERVICE_ACCEPT_SHUTDOWN); 
+				SetServStatus( SERVICE_RUNNING, 0, SERVICE_ACCEPT_PARAMCHANGE);//SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_PAUSE_CONTINUE | SERVICE_ACCEPT_SHUTDOWN); 
+			}
+			break; 
+		case SERVICE_CONTROL_INTERROGATE: 
+			SetServStatus( dwCurrState, 0, SERVICE_ACCEPT_STOP|SERVICE_ACCEPT_PAUSE_CONTINUE|SERVICE_ACCEPT_SHUTDOWN); 
+			break; 
+		case SERVICE_CONTROL_SHUTDOWN: 
+			SetServStatus( SERVICE_STOPPED, 0, SERVICE_ACCEPT_STOP|SERVICE_ACCEPT_PAUSE_CONTINUE|SERVICE_ACCEPT_SHUTDOWN); 
+			break; 
+	} 
+
+	return NO_ERROR;
+}
+
+BOOL StartService(LPCTSTR lpService)
+{
+	SC_HANDLE        schSCManager;
+	SC_HANDLE        schService;
+
+	schSCManager = ::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	if (schSCManager != NULL)
+	{
+		schService = ::OpenService(schSCManager, lpService, SERVICE_ALL_ACCESS);
+		if (schService != NULL)
+		{
+			::StartService(schService, 0, NULL);
+			CloseServiceHandle(schService);
+		}
+		CloseServiceHandle(schSCManager);
+	}
+	else
+		return FALSE;
+
+	return TRUE;
+}
+
+BOOL StopService(LPCTSTR lpService)
+{
+	SC_HANDLE        schSCManager;
+	SC_HANDLE        schService;
+	SERVICE_STATUS serviceStatus;
+
+	schSCManager = ::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	if (schSCManager != NULL)
+	{
+		schService = ::OpenService(schSCManager, lpService, SERVICE_ALL_ACCESS);
+		if (schService != NULL)
+		{
+			BOOL bRet = FALSE;
+
+			bRet = ControlService(schService, SERVICE_CONTROL_STOP, &serviceStatus);
+			CloseServiceHandle(schService);
+		}
+		CloseServiceHandle(schSCManager);
+	}
+	else
+		return FALSE;
+
+	return TRUE;
+}
+
+void BackupSetupDir(IN string& strFromDir, IN string& strToDir)
+{
+	try
+	{
+		string strDirPath = "";
+		WIN32_FIND_DATAA wfd;
+		HANDLE hFind = NULL;
+
+		strDirPath = strFromDir;
+		strDirPath += "\\";
+		strDirPath += "*.*";
+
+		CreateDirectoryA(strToDir.c_str(), NULL);
+
+		hFind = FindFirstFileA(strDirPath.c_str(), &wfd);
+
+		if(hFind == INVALID_HANDLE_VALUE)
+		{
+			return;
+		}
+
+		do
+		{
+			if((strcmp(wfd.cFileName, ".") == 0)||
+				(strcmp(wfd.cFileName, "..") == 0))
+			{
+				continue;
+			}
+
+			string strFilePath = "";
+			DWORD dwAttributes = INVALID_FILE_ATTRIBUTES; 
+			string strSourceDir = "";
+			string strDesDir = "";
+
+			strFilePath = strFromDir;
+			strFilePath += "\\";
+			strFilePath += wfd.cFileName;
+
+			dwAttributes = GetFileAttributesA(strFilePath.c_str());
+
+			if(dwAttributes & FILE_ATTRIBUTE_READONLY)
+			{
+				dwAttributes &= ~FILE_ATTRIBUTE_READONLY;
+				SetFileAttributesA(strFilePath.c_str(), dwAttributes);
+			}
+
+			strSourceDir = strFromDir;
+			strSourceDir += "\\";
+			strSourceDir += wfd.cFileName;
+
+			strDesDir = strToDir;
+			strDesDir += "\\";
+			strDesDir += wfd.cFileName;
+
+			if(wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			{
+				BackupSetupDir(strSourceDir, strDesDir);
+			}
+			else
+			{
+				if (!(strSourceDir.find("VersAndLog_config.ini") != string::npos) &&
+					!(strSourceDir.find("nacdata.db") != string::npos)&&
+					!(strSourceDir.find(".log") != string::npos))
+				{
+					if (!PathFileExistsA(strDesDir.c_str()) || 
+						!CmpFileMd5(strSourceDir, strDesDir))
+					{
+						CopyFileA(strSourceDir.c_str(), strDesDir.c_str(), FALSE);
+					}
+				}
+			}
+
+		}while(FindNextFileA(hFind, &wfd));
+
+		FindClose(hFind);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"BackupSetupDir Exception", L"error", 0);
+#endif
+	}
+}
+
+void RestoreSetupFiles(IN string& strFromDir, IN string& strToDir)
+{
+	BOOL bRedirectionFlag = FALSE;
+	PVOID OldValue = NULL;
+	HMODULE hModule = LoadLibraryW(L"kernel32.dll");
+
+	if (hModule == NULL)
+	{
+		return;
+	}
+
+	pFnWow64DisableWow64FsRedirection pWow64DisableWow64FsRedirection;
+	pWow64DisableWow64FsRedirection = (pFnWow64DisableWow64FsRedirection)GetProcAddress(hModule, "Wow64DisableWow64FsRedirection");
+
+	pFnWow64RevertWow64FsRedirection pWow64RevertWow64FsRedirection;
+	pWow64RevertWow64FsRedirection = (pFnWow64RevertWow64FsRedirection)GetProcAddress(hModule, "Wow64RevertWow64FsRedirection");
+
+	if (pWow64DisableWow64FsRedirection != NULL)
+	{
+		bRedirectionFlag = pWow64DisableWow64FsRedirection(&OldValue);
+	}
+
+	BackupSetupDir(strFromDir, strToDir);
+
+	if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+	{
+		pWow64RevertWow64FsRedirection(OldValue);
+	}
+}
+
+int ClearDirectory(IN const wchar_t* wszClearDirPath) 
+{
+	SHFILEOPSTRUCT FileOp={0};
+	wchar_t wClearDirPath[MAX_PATH] = {0};
+	BOOL bRedirectionFlag = FALSE;
+	PVOID OldValue = NULL;
+	HMODULE hModule = LoadLibraryW(L"kernel32.dll");
+	int iRet = 0;
+
+	if (hModule == NULL)
+	{
+		return iRet;
+	}
+
+	pFnWow64DisableWow64FsRedirection pWow64DisableWow64FsRedirection;
+	pWow64DisableWow64FsRedirection = (pFnWow64DisableWow64FsRedirection)GetProcAddress(hModule, "Wow64DisableWow64FsRedirection");
+
+	pFnWow64RevertWow64FsRedirection pWow64RevertWow64FsRedirection;
+	pWow64RevertWow64FsRedirection = (pFnWow64RevertWow64FsRedirection)GetProcAddress(hModule, "Wow64RevertWow64FsRedirection");
+
+	if (pWow64DisableWow64FsRedirection != NULL)
+	{
+		bRedirectionFlag = pWow64DisableWow64FsRedirection(&OldValue);
+	}
+
+	wcsncpy_s(wClearDirPath, MAX_PATH, wszClearDirPath, wcslen(wszClearDirPath));
+	wClearDirPath[wcslen(wClearDirPath)] = '\0';
+	wClearDirPath[wcslen(wClearDirPath)+1] = '\0';
+
+	FileOp.fFlags = FOF_SILENT|FOF_ALLOWUNDO|FOF_NOCONFIRMATION; 
+	FileOp.pFrom = wClearDirPath;
+	FileOp.pTo = NULL; 
+	FileOp.wFunc = FO_DELETE;
+
+	iRet = SHFileOperation(&FileOp);
+
+	if (pWow64RevertWow64FsRedirection && bRedirectionFlag)
+	{
+		pWow64RevertWow64FsRedirection(OldValue);
+	}
+
+	return iRet;
+}
+
+DWORD _stdcall ProcMonitorThread(LPVOID lParam) 
+{ 
+	PROC_MONITOR_EVENT proc_monitor_event;
+	BOOL	bRet = FALSE;
+	int		iCount = 0;
+
+	bRet = MntDeviceIOControl((LPVOID)"1", 1, HNM_SET_PROTECT_PROC, NULL, 0);
+
+	while(!bRet)
+	{
+		iCount++;
+		Sleep(1000);
+		bRet = MntDeviceIOControl((LPVOID)"1", 1, HNM_SET_PROTECT_PROC, NULL, 0);
+		if (iCount > 5 )
+		{
+			break;
+		}
+	}
+
+	if (bRet)
+	{
+		proc_monitor_event.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);  
+		bRet = MntDeviceIOControl((LPVOID)&proc_monitor_event.hEvent, sizeof(proc_monitor_event.hEvent), HNM_SET_MONITOR_PROC, NULL, 0);
+
+		while (bRet)
+		{
+			char		szOutputBuf[64]			= {0};
+			string		strOutputBuf			= "";
+			DWORD		dwProcId				= 0;
+			size_t		stnpos					= string::npos;
+
+			WaitForSingleObject(proc_monitor_event.hEvent, INFINITE);
+			bRet = MntDeviceIOControl((LPVOID)"0", 1, HNM_GET_TERMINATED_PROC_ID, (LPVOID)szOutputBuf, sizeof(szOutputBuf));
+			strOutputBuf = (string)szOutputBuf;
+
+			stnpos = strOutputBuf.find(TERMINATED_PROC_FLAG);
+			if (stnpos != string::npos)
+			{
+				string strProId = "";
+
+				strProId = strOutputBuf.substr(strlen(TERMINATED_PROC_FLAG)+1, strOutputBuf.length()-strlen(TERMINATED_PROC_FLAG)-1);
+				dwProcId = atoi(strProId.c_str());
+			}
+
+			if (dwProcId > 0)
+			{
+				StartService(HP_IMAN_SERVICE_NAME);
+			}
+
+			ResetEvent(proc_monitor_event.hEvent);
+		}
+
+		if (proc_monitor_event.hEvent)
+		{
+			CloseHandle(proc_monitor_event.hEvent);
+			proc_monitor_event.hEvent = NULL;
+		}
+	}
+
+	return 0; 
+}
+
+void ServiceMain( int argc, wchar_t *argv[] )
+{ 
+	DWORD dwMonThreadId = 0;
+	char szIniFilePath[MAX_PATH] = {0};
+	/*string strCurPath = "";
+	string strBackupPath = "";*/
+	int iCount = 0;
+	OSVERSIONINFO   osVer;    
+
+	hSrv = RegisterServiceCtrlHandler(argv[0], (LPHANDLER_FUNCTION)ServiceHandler);  
+	 
+	if( hSrv == NULL ) 
+		return; 
+	else  
+		FreeConsole(); 
+
+	osVer.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);     
+	GetVersionEx(&osVer);    
+
+	//GetSystemDirectoryA(szIniFilePath, MAX_PATH);
+	//strBackupPath = (string)szIniFilePath;
+	//strBackupPath += (string)"\\hp_backup";
+
+	memset(szIniFilePath, 0, sizeof(szIniFilePath));
+	GetWindowsDirectoryA(szIniFilePath, MAX_PATH);
+	/*strCurPath = (string)szIniFilePath;
+	strCurPath += (string)"\\hpNacIdm";*/
+	sprintf_s(szIniFilePath, MAX_PATH, "%s\\hpNacIdm\\data\\VersAndLog_config.ini", szIniFilePath);
+
+	SetServStatus( SERVICE_START_PENDING, 0, SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_PAUSE_CONTINUE | SERVICE_ACCEPT_SHUTDOWN); 
+	SetServStatus( SERVICE_RUNNING, 0, SERVICE_ACCEPT_PARAMCHANGE);
+
+	if (osVer.dwMajorVersion >= 6)
+	{
+		m_hMonThread = CreateThread(NULL, NULL, ProcMonitorThread, NULL, NULL, &dwMonThreadId); 
+	}
+
+	do 
+	{ 
+		int iExceptFlag = 0;
+		int iUninstallFlag = 0;
+
+		iExceptFlag = GetPrivateProfileIntA("Param", "EXCEPTION", 0, szIniFilePath);
+		iUninstallFlag = GetPrivateProfileIntA("Param", "Uninstall", 0, szIniFilePath);
+
+		if( iExceptFlag ||  iUninstallFlag == 1 || iUninstallFlag == 4)
+		{
+			HANDLE hProcess = GetCurrentProcess();
+
+			/*if (iUninstallFlag == 1)
+			{
+			wstring wstrBackupDir = AnsiToWChar(strBackupPath.c_str());
+			if (wstrBackupDir.length() > 0)
+			{
+			ClearDirectory(wstrBackupDir.c_str());
+			}
+			}*/
+			 
+			if (osVer.dwMajorVersion >= 6 && m_hMonThread != NULL)
+			{
+				TerminateThread(m_hMonThread, 0);
+				CloseHandle(m_hMonThread);
+				m_hMonThread = NULL;
+			}	
+			ServiceHandler(SERVICE_CONTROL_STOP);
+			dwCurrState = SERVICE_STOPPED;
+			if (hProcess)
+			{ 
+				TerminateProcess( hProcess, 0 );
+			}
+			return;
+		}
+		else
+		{
+			if (iCount > 10)
+			{
+				iCount = 0;
+				//RestoreSetupFiles(strBackupPath, strCurPath);
+				StartService(HP_IMAN_SERVICE_NAME);
+			}
+		}
+
+		iCount++;
+		Sleep(1000);
+
+	}while(dwCurrState != SERVICE_STOP_PENDING && dwCurrState != SERVICE_STOPPED); 
+} 

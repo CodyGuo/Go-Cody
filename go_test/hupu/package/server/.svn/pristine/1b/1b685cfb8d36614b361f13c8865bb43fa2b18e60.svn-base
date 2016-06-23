@@ -1,0 +1,499 @@
+// HpUninstall.cpp : Defines the entry point for the console application.
+//
+
+#include "stdafx.h"
+#include "GlobalFunction.h"
+
+#include <shlwapi.h>
+#include <io.h>
+#include "CheckDeskWallPaper.h"
+#pragma comment( lib, "shlwapi.lib") 
+
+#define HPIDMNAC_EXE_NAME "hpIdmNac.exe"
+
+TCHAR szServiceName[] = _T("HpImanService");
+
+const char INSTALLDRIVERNAME[] = {"hpintallAnduninstall"};
+
+const DWORD  UNINSTALLDRIVERTIMEOUT = 10000;
+
+/************************************************************
+ Description: 卸载或更新时创建写入BAT文件
+ output: strBatFilePath【生成bat文件路径】strClearDir【清理目录】
+ Return: 
+*************************************************************/
+errno_t ClearSetupDir(IN string& strBatFilePath, IN string& strClearDir,  IN BOOL bEndUpdateProFlag )
+{
+	FILE *pfile = NULL;
+	errno_t err = 0;
+	string strDataPath = "";
+
+	err = fopen_s(&pfile, strBatFilePath.c_str(), "w");
+
+	if(err == 0) 
+	{
+		string strWritebBuf = "";
+		int iEndProNum = TERMINATE_PRO_NUMBER-1;
+
+		if (bEndUpdateProFlag)
+		{
+			iEndProNum = TERMINATE_PRO_NUMBER;
+		}
+		for (int i = 0; i < iEndProNum; i++)
+		{
+			strWritebBuf = "taskkill /f /im ";
+			strWritebBuf += pProNameList[i];
+			strWritebBuf += "\r\n";
+			fwrite(strWritebBuf.c_str(), 1, strWritebBuf.length(), pfile);
+		}
+
+		strWritebBuf = "rmdir /S /Q ";
+		strWritebBuf += strClearDir;
+		strWritebBuf += "\r\n";
+		fwrite(strWritebBuf.c_str(), 1, strWritebBuf.length(), pfile);
+
+        strWritebBuf = "del ";
+        strWritebBuf += strBatFilePath;
+        strWritebBuf += "\r\n";
+        fwrite(strWritebBuf.c_str(), 1, strWritebBuf.length(), pfile);
+
+		strWritebBuf = "exit \r\n";
+		fwrite(strWritebBuf.c_str(), 1, strWritebBuf.length(), pfile);
+
+		fclose(pfile);
+	}
+
+	strDataPath = strClearDir;
+	strDataPath += "\\data";
+
+	ClearDirectory(strDataPath.c_str(), true);
+	ClearDirectory(strClearDir.c_str(), true);
+	RunProcess(strBatFilePath.c_str(), INFINITE);
+
+	return err;
+}
+
+/************************************************************
+ Description: 查看是否需要安装驱动
+*************************************************************/
+//不需要安装返回FALSE
+BOOL bInstallDriver(char* dirpath)
+{
+    char inipath[MAX_PATH] = {"0"};
+    sprintf_s(inipath,sizeof(inipath),"%sdata\\VersAndLog_config.ini",dirpath);
+    int  driveMake = 0;//0表示不安装驱动，1表示安装驱动
+    driveMake=GetPrivateProfileIntA("Param", "DriverMake",0, inipath);
+    if (driveMake)
+    {
+        return TRUE;
+    }
+    else
+    {
+        return FALSE;
+    }
+}
+
+BOOL IsWin64Os()
+{
+    BOOL bwin64 = FALSE;
+
+    SYSTEM_INFO  si;
+    ::GetNativeSystemInfo(&si);
+    if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||   
+        si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 )  
+    {  
+        bwin64 = TRUE;
+    } 
+    return bwin64;
+}
+
+//卸载hupu的驱动程序
+void UninstallHupuDriver(char* dirpath)
+{
+    char exepath[MAX_PATH] = {"0"};
+    if (IsWin64Os())
+    {
+        sprintf_s(exepath,MAX_PATH,"%s%s64.exe",dirpath,INSTALLDRIVERNAME); 
+    }
+    else
+    {
+        sprintf_s(exepath,MAX_PATH,"%s%s32.exe",dirpath,INSTALLDRIVERNAME); 
+    }
+
+	SHELLEXECUTEINFOA ShExecInfo = {0};
+    ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFOA);
+    ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+    ShExecInfo.hwnd = NULL;
+    ShExecInfo.lpVerb = "open";
+    ShExecInfo.lpFile = exepath;
+    ShExecInfo.lpParameters = "/uninstall";
+    ShExecInfo.lpDirectory = NULL;
+    ShExecInfo.nShow = SW_HIDE;
+    ShExecInfo.hInstApp = NULL;
+    ShellExecuteExA(&ShExecInfo);
+    DWORD res = WaitForSingleObject(ShExecInfo.hProcess,UNINSTALLDRIVERTIMEOUT);//等待5s中驱动安装
+    if ( res == WAIT_OBJECT_0 )
+    {
+        OutputDebugString(L"WAIT_OBJECT_0 驱动卸载成功");
+    }
+    else if (res == WAIT_TIMEOUT)
+    {
+        OutputDebugString(L"WAIT_OBJECT_0 驱动卸载失败");
+    }
+    else
+    {
+         OutputDebugString(L"其他错误");
+    }
+}
+
+void UninstallService(wchar_t* pServiceName)
+{
+	SC_HANDLE scm = NULL, svc = nullptr;
+	SERVICE_STATUS serviceStatus;
+
+	scm = ::OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	if (scm != NULL)
+	{
+		svc = ::OpenService(scm, pServiceName, SERVICE_ALL_ACCESS);
+		if (svc != NULL)
+		{
+			ChangeServiceConfig(svc, SERVICE_NO_CHANGE, SERVICE_DISABLED, SERVICE_NO_CHANGE, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+			ControlService(svc, SERVICE_CONTROL_STOP, &serviceStatus);
+			::DeleteService(svc);
+			::CloseServiceHandle(svc);
+		}
+		::CloseServiceHandle(scm);
+	}
+}
+
+void UninstallClient()
+{
+	try
+	{
+		string strCurPath = "";
+		size_t szRight_LeftSlash_Pos = string::npos;
+		string hpservice_pro_path = "";
+		string strHpUninstallFilePath = "";
+
+		strCurPath = GetCurrentPath();
+
+		hpservice_pro_path = strCurPath;
+		hpservice_pro_path += pProNameList[0];
+
+		//卸载保护驱动与服务
+		MntDeviceIOControl((LPVOID)"0", 1, HNM_SET_PROTECT_PROC, NULL, 0);
+		UninstallService(L"HpNacMntor");
+		UninstallService(L"Imhp");
+
+       if (bInstallDriver((char*)strCurPath.c_str()))
+       {
+           UninstallHupuDriver((char*)strCurPath.c_str());
+       }
+
+		TerminateAllProcess();
+		ShellExecuteA(NULL, "open", hpservice_pro_path.c_str(), "/u", "", SW_HIDE);
+
+		/*szRight_LeftSlash_Pos = strCurPath.rfind("\\");
+		strCurPath  = strCurPath.substr(0, szRight_LeftSlash_Pos);
+
+		szRight_LeftSlash_Pos = strCurPath.rfind("\\");
+		strHpUninstallFilePath = strCurPath.substr(0, szRight_LeftSlash_Pos);
+		strHpUninstallFilePath += "\\HpUninstall.bat";
+
+		ClearSetupDir(strHpUninstallFilePath,  strCurPath, TRUE );*/
+	}
+	catch (...)
+	{
+
+	}
+}
+
+/************************************************************
+Description: 判断Hpservice是否启动
+Return: TRUE【启用】 FALSE【没有启用】
+*************************************************************/
+BOOL HpServiceIsStart()
+{
+	SC_HANDLE hSCM = NULL;
+	SC_HANDLE hService = NULL;
+	BOOL bRet = FALSE;
+
+	hSCM = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+	if ( NULL == hSCM )
+	{
+		return bRet;
+	}
+
+	hService = OpenService(hSCM, szServiceName, SERVICE_ALL_ACCESS);
+	if ( NULL == hService )
+	{
+		CloseServiceHandle(hSCM);
+		return bRet;
+	}
+
+	if (StartServiceA(hService, 0, NULL) != 0)
+	{
+		bRet = TRUE;
+	}
+
+	CloseServiceHandle(hService);
+	CloseServiceHandle(hSCM);
+	return bRet;
+}
+
+/************************************************************
+Description: 安装回滚
+*************************************************************/
+void RenameSetupDir(IN char* pFromDir, IN string& strToDir)
+{
+	SHFILEOPSTRUCTA  sfo;    
+
+	sfo.hwnd = NULL;       
+	sfo.wFunc = FO_RENAME;       
+	sfo.pFrom = pFromDir; 
+
+	sfo.pTo = strToDir.c_str();         
+	sfo.fFlags = FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOCONFIRMMKDIR;       
+
+	SHFileOperationA(&sfo);
+}
+
+/************************************************************
+Description: 清除更新相关文件
+output: strBatFilePath【生成bat文件路径】
+		strBackupPath【备份安装包路径】
+Return: 0【成功】 否则【失败】
+*************************************************************/
+errno_t ClearUpdateFiles(IN string& strBatFilePath,  IN string& strBackupPath )
+{
+	FILE *pfile = NULL;
+	errno_t err = 0;
+
+	err = fopen_s(&pfile, strBatFilePath.c_str(), "w");
+
+	if(err == 0) 
+	{
+		string strWritebBuf = "";
+
+		strWritebBuf = "taskkill /f /im ";
+		strWritebBuf += "HpUninstall.exe";
+		strWritebBuf += "\r\n";
+		fwrite(strWritebBuf.c_str(), 1, strWritebBuf.length(), pfile);
+
+		strWritebBuf = "rmdir /S /Q ";
+		strWritebBuf += strBackupPath;
+		strWritebBuf += "\r\n";
+		fwrite(strWritebBuf.c_str(), 1, strWritebBuf.length(), pfile);
+
+		strWritebBuf = "del ";
+		strWritebBuf += strBatFilePath;
+		strWritebBuf += "\r\n";
+		fwrite(strWritebBuf.c_str(), 1, strWritebBuf.length(), pfile);
+
+		strWritebBuf = "exit \r\n";
+		fwrite(strWritebBuf.c_str(), 1, strWritebBuf.length(), pfile);
+		fclose(pfile);
+	}
+
+	RunProcess(strBatFilePath.c_str(), 0);
+
+	return err;
+}
+
+/************************************************************
+ Description: 更新客户端函数
+*************************************************************/
+void UpdataClient(wstring exefilepath)
+{
+	try
+	{
+		string strCurPath= "";
+		string strSetupPath = "";
+		string::size_type stBackupPos = string::npos;
+		string strDbpath = "";
+		vector<USERINFO> userInfoVector;
+
+		strCurPath = GetCurrentPath();
+
+		strSetupPath = strCurPath;
+		stBackupPos = strSetupPath.find("_backup");
+		strSetupPath = strSetupPath.substr(0, stBackupPos);
+
+		strDbpath = strSetupPath;
+		strDbpath += "\\nacdata.db";
+
+		BackupUserInfoFromDB(strDbpath.c_str(), userInfoVector);
+
+		string hpservice_pro_path = "";
+		string strUpdateBatFile = "";
+		string strIniPath = "";
+		string strSetupPackagePath = "";
+		string strDelUpdateFile = "";
+		string::size_type stLeftSlashPos = string::npos;
+		string strClearUpdatePath = "";
+		DWORD dwTempPathLen = 0;
+		char serIp[IP_BUF_LENGTH] = {0};
+
+		strUpdateBatFile = strCurPath;
+		strUpdateBatFile += "HpUpdate.bat";
+
+		hpservice_pro_path = strSetupPath;
+		hpservice_pro_path += "\\";
+		hpservice_pro_path += pProNameList[0];
+
+		strIniPath = strSetupPath;
+		strIniPath += "\\data\\VersAndLog_config.ini";
+		GetPrivateProfileStringA("Ip", "ServerIp", "127.0.0.1", serIp, IP_BUF_LENGTH, strIniPath.c_str());
+
+		int Len = WideCharToMultiByte(CP_ACP,0,exefilepath.c_str(),exefilepath.size(),NULL,0,NULL,NULL);
+		char*  filepath = new char[Len+1];
+		memset(filepath,0,Len+1);
+		WideCharToMultiByte(CP_ACP,0,exefilepath.c_str(),exefilepath.size(),filepath,Len,NULL,NULL);
+		filepath[Len]='\0';
+		strSetupPackagePath =filepath;
+		if (filepath)
+		{
+			delete[] filepath;
+			filepath = NULL;
+		}
+
+		OutputDebugStringA("安装包路径:");
+		OutputDebugStringA(strSetupPackagePath.c_str());
+
+		if(PathFileExistsA(strSetupPackagePath.c_str()))
+		{
+			if ( bInstallDriver((char*)strSetupPath.c_str()))
+			{
+				//在程序更新时不卸载驱动
+				//UninstallHupuDriver((char*)strSetupPath.c_str());
+			}
+
+			MntDeviceIOControl((LPVOID)"0", 1, HNM_SET_PROTECT_PROC, NULL, 0);
+			//ShellExecuteA(NULL, "open", hpservice_pro_path.c_str(), "/u", "", SW_HIDE);
+			TerminateAllProcess();
+
+			OutputDebugStringA("strSetupPath");
+			OutputDebugStringA(strSetupPath.c_str());
+
+			ClearSetupDir(strUpdateBatFile, strSetupPath, FALSE );
+
+			string  exepathandparam = strSetupPackagePath;
+			exepathandparam +=" /S";
+
+			if (RunProcess(exepathandparam.c_str(), INFINITE))
+			{
+				Sleep(5000);
+				if (_access( strSetupPath.c_str(), 0 ) != -1)
+				{
+					SaveUserInfoToDB(strDbpath.c_str(), userInfoVector);
+
+					if (!HpServiceIsStart())
+					{
+						ShellExecuteA(NULL, "open", hpservice_pro_path.c_str(), "/i", "", SW_HIDE);
+					}
+					OutputDebugStringA("执行安装包成功.....");
+				}
+				else
+				{
+					RenameSetupDir((char*)strCurPath.c_str(), strSetupPath);
+					if (!HpServiceIsStart())
+					{
+						ShellExecuteA(NULL, "open", hpservice_pro_path.c_str(), "/install", "", SW_HIDE);
+					}
+					//MessageBox(NULL, L"客户端更新失败，请手动卸载、重新安装更新", L"提示", 0);
+				}
+			}
+			else
+			{
+				RenameSetupDir((char*)strCurPath.c_str(), strSetupPath);
+				if (!HpServiceIsStart())
+				{
+					ShellExecuteA(NULL, "open", hpservice_pro_path.c_str(), "/i", "", SW_HIDE);
+				}
+				//MessageBox(NULL, L"客户端更新失败，请手动卸载、重新安装更新", L"提示", 0);
+				OutputDebugStringA("执行安装包失败.....");
+			}
+		}
+
+		strClearUpdatePath = strCurPath;
+		stLeftSlashPos = strSetupPath.rfind("\\");
+		strDelUpdateFile = strSetupPath.substr(0, stLeftSlashPos);
+		strDelUpdateFile += "\\HpDelUpdateFile.bat";
+
+		ClearUpdateFiles(strDelUpdateFile,  strClearUpdatePath );
+	}
+	catch (...)
+	{
+
+	}
+}
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	if ( argc > 1 && lstrcmpi(argv[1], TEXT("/uninstall")) == 0 ) 
+	{
+		OutputDebugStringA("uninstall client!");
+		UninstallClient();
+		return TRUE;
+	}
+
+	else if ( argc > 1 && lstrcmpi(argv[1], TEXT("/update")) == 0 ) 
+	{
+		OutputDebugStringA("update client!");
+		wstring  exepath = argv[2];
+		UpdataClient(exepath);
+
+		return TRUE;
+	}
+	else if ( argc > 1 && lstrcmpi(argv[1], TEXT("/run")) == 0 ) 
+	{
+        if(CreateEvent(NULL, FALSE, FALSE, L"HPUNINSTALL"))
+        {
+            DWORD dw = GetLastError();
+            if((ERROR_ALREADY_EXISTS ==dw )||(ERROR_ACCESS_DENIED == dw ))
+            {
+				OutputDebugStringA("HPUNINSTALL exit!");
+                return FALSE;
+            }
+        }
+        else
+        {
+			OutputDebugStringA("CreateEvent HPUNINSTALL exit!");
+            return FALSE;
+        }
+        if(OpenEvent(EVENT_ALL_ACCESS, FALSE, L"ProgramExec"))
+        {
+			OutputDebugStringA("OpenEvent ProgramExec exit!");
+              return FALSE;
+        }
+		string strHpIdmNacPt = "";
+
+		strHpIdmNacPt += GetCurrentPath();
+		strHpIdmNacPt += HPIDMNAC_EXE_NAME;
+		if ( PathFileExistsA(strHpIdmNacPt.c_str()))
+		{
+			RunProcess(strHpIdmNacPt.c_str(), 0);
+		}
+		else
+		{
+			OutputDebugStringA("主程序文件不存在!");
+		}
+
+		return TRUE;
+	}
+
+	else if ( argc > 1 && lstrcmpi(argv[1], TEXT("/GetWallPaper")) == 0 )
+	{
+		GetDeskWallPaper();
+		return TRUE;
+	}
+
+	else if ( argc > 1 && lstrcmpi(argv[1], TEXT("/SetWallPaper")) == 0 )
+	{
+		SetDeskWallPaper();
+		return TRUE;
+	}
+
+	return FALSE;
+}
+

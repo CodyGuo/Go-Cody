@@ -1,0 +1,28 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : 
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _MDUMP_H 
+#define _MDUMP_H 1
+
+#include <windows.h>
+
+class CrashDumper
+{
+public:
+	CrashDumper();
+	~CrashDumper();
+	static bool PlaceHolder();
+
+private:
+	LPTOP_LEVEL_EXCEPTION_FILTER m_OriginalFilter;
+	static LONG WINAPI ExceptionFilter(struct _EXCEPTION_POINTERS* ExceptionInfo);
+};
+
+extern CrashDumper dumper;
+
+#endif

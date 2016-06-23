@@ -1,0 +1,16 @@
+#pragma once
+#include <Windows.h>
+
+class CWallPaper
+{
+public:
+	CWallPaper(void);
+	~CWallPaper(void);
+
+	BOOL SetWallPaper(wchar_t* wallpaperpath,int wallpaperstyle);
+
+private:
+	HINSTANCE m_handle;
+	wchar_t m_DirPath[MAX_PATH];
+};
+

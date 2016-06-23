@@ -1,0 +1,14 @@
+#pragma once
+
+#include "..\..\DuiLib\UIlib.h"
+using namespace DuiLib;
+
+#pragma comment(lib, "..\\..\\..\\lib\\DuiLib.lib")
+
+class CDuilibConfig
+{
+public:
+	CDuilibConfig(void);
+	~CDuilibConfig(void);
+};
+

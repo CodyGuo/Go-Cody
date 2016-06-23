@@ -1,0 +1,33 @@
+#pragma once
+
+///////// INetFwMgr
+#include <crtdbg.h>
+#include <ObjBase.h>
+#include  <stdio.h>
+
+#include <netfw.h>
+#pragma comment(lib,"ole32.lib")
+
+#include  "../CommPub.h"
+
+
+class CFireWall
+{
+public:
+	CFireWall(void);
+	~CFireWall(void);
+
+    int GetFireWareStat(int  *flag);/////flag为1表示开启，flag为0表示关闭，-1表示失败
+    int SetFireWareOption(bool turnoffflag);
+
+private:
+
+	int TurnOffFireWallOnXP(bool turnoffflag);
+	HRESULT WFCOMInitialize(INetFwPolicy2 ** ppNetFwPolicy2);
+	int DisableWindowsFirewallOnWin7(bool turnoffflag);
+
+	int GetFireWallXP(int  *flag);
+	int GetFireWallWin7(int  *flag);
+
+};
+

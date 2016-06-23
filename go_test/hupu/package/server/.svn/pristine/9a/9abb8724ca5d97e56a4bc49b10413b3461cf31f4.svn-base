@@ -1,0 +1,27 @@
+#pragma once
+
+
+// CDlgLogInfo dialog
+
+class CDlgLogInfo : public CDialogEx
+{
+	DECLARE_DYNAMIC(CDlgLogInfo)
+
+public:
+	CDlgLogInfo(CWnd* pParent = NULL);   // standard constructor
+	virtual ~CDlgLogInfo();
+
+// Dialog Data
+	enum { IDD = IDD_DLG_LOGINFO };
+
+protected:
+	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
+
+	DECLARE_MESSAGE_MAP()
+
+public:
+	virtual BOOL OnInitDialog();
+	afx_msg LRESULT OnUpdateLogInfo(WPARAM wparam, LPARAM lparam);
+
+	CString m_DisplayInfo;
+};

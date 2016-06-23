@@ -1,0 +1,106 @@
+
+#pragma once
+
+#define MAX_RULES 50
+#define MAX_IPRULE 15
+
+const int MD5VALUELEN = 32;
+
+#define ACL_DELAYBYRULE 0
+#define ACL_PASSALL 1
+
+#define ACL_ACTIONALLOW 1
+#define ACL_ACTIONREFUSE 2
+
+#define PACKET_STATE_PASS 0
+#define PACKET_STATE_DROP 1
+#define PACKET_STATE_LIMITSPEED 2
+
+const unsigned long DEFAULTGUNIT = 1048576;//1024*1024;
+
+
+typedef enum _SOCKETDIRECT
+{
+	ALLDIRECT = 1,
+	SENDDIRECT = 2,
+	RECVDIRECT = 3,
+}SOCKETDIRECT;
+typedef enum _TOTALFLOWUNIT
+{
+	BUNIT=0,
+	KBUNIT = 1,
+	MUNIT = 2,
+	GUNIT = 3,
+	TUNIT = 4,
+}TOTALFLOWUNIT;
+typedef enum _FLOWSPEEDUNIT
+{
+	BPERSEC = 0,
+	KBPERSEC = 1,
+	MBPERSEC = 2,
+}FLOWSPEEDUNIT;
+typedef enum _ADDUPFLOWUNIT
+{
+	DAYTIME = 0,
+	MONTHTIME = 1,
+	YEARTIME = 2,
+}ADDUPFLOWUNIT;
+
+typedef enum _TOTALCYCLETYPE
+{
+	NOCYCLE=0,
+	ALWAYCYCLE,//一直累计
+	EVERYDAYCYCLE,//每天累计
+	EVERYMONTHCYCLE,//每月累计
+	EVERYYEARCYCLE,//每年累计
+}TOTALCYCLETYPE;
+
+typedef struct _ACLIPLIST
+{
+	unsigned long startip;
+	unsigned long endip;
+}ACLIPLIST;
+
+typedef struct _RuleInfo
+{
+	ACLIPLIST iplist[MAX_IPRULE];
+	unsigned int ipcount;
+	 int stgid;
+	 int stgaction;
+    int direction;
+	double totalflow;
+	 int totalflowunit;
+	double flowspeed;
+	 int flowspeedunit;
+	 int totalcycle;
+	double alreadyuse;
+    int alreadyuseunit;
+	WCHAR md5str[MD5VALUELEN+1];
+}RuleInfo, *PRuleInfo;
+
+//规则
+typedef struct _ACLRULE
+{
+	RuleInfo ruleinfo;
+	DWORD  dwFirstPacketTime;
+   	int packstate;
+	double dwTotalBytes;
+	int dwTotalBytesUnit;
+}ACLRULE;
+
+const wchar_t RECORDPACKETFILE[] = {L"packetfile.ini"};
+const int INIAPPNAMELISTLEN = 2000;
+const wchar_t  INISTGID[] = {L"stgid"};
+const wchar_t  INITOTAL[] = {L"total"};
+const wchar_t INIUNIT[] = {L"unit"};
+const wchar_t  INISTSTATE[] = {L"state"};
+const wchar_t TIME[]={L"time"};
+const wchar_t USEDTOTAL[] = {L"used"};
+const wchar_t USEDUNIT[] = {L"usedunit"};
+
+
+#define  FILTER_DLL				L"hpLimitDll.dll"
+#define  FILTER_DLLNAME				L"hpLimitDll"
+
+const unsigned long passstartip = 2130706433;//127.0.0.1
+const unsigned long passendip = 2147483647;//127.255.255.255

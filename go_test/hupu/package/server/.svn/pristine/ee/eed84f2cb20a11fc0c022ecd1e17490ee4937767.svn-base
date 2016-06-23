@@ -1,0 +1,127 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include "..\GetLangValue.h"
+#include "..\CustomCheck\CommData.h"
+#include "..\GlobalDate.h"
+#include "CheckIEMain.h"
+#include "..\GlobalFunction.h"
+#include "..\DebugInfo.h"
+
+/************************************************************ 
+ Description: 初始化主页策略
+ input: pItemName[字段名]、pItemValue[字段值]、pMainPagePolicy[主页策略]
+ Return: TRUE[检查IE主页不符合要求或修复成功]；FALSE[检查IE主页符合要求或修复失败];
+*************************************************************/
+void InitMainPagePolicy(IN char* pItemName, IN char* pItemValue, IN PMAINPAGEPOLICY pMainPagePolicy)
+{
+    if(strcmp(pItemName, "smainpage")==0)
+    {
+		char szMainPageUrl[MAXL_URL_LEN] = {0};
+
+        wmemset(pMainPagePolicy->mainPageUrl, 0, sizeof(pMainPagePolicy->mainPageUrl));
+		Convert(pItemValue, szMainPageUrl, sizeof(szMainPageUrl), CP_UTF8, CP_ACP);					
+        ConvertA2W(szMainPageUrl, pMainPagePolicy->mainPageUrl, MAXL_URL_LEN);	
+    }
+}
+
+/************************************************************ 
+ Description: 检查IE主页并是否修复
+ input: pMainPagePolicy[IE主页策略]
+ Return: TRUE[检查IE主页不符合要求或修复成功]；FALSE[检查IE主页符合要求或修复失败];
+*************************************************************/
+int CheckIEMainPage(IN MAINPAGEPOLICY mPagePolicy)
+{
+    int ret = FALSE;
+    HINSTANCE hSystemCheckDll = NULL;
+    HWND hwnd = NULL;
+    char systemCheckDllPath[MAX_PATH] = {0};
+
+    if (StartRegExePro(2000))
+    {
+        sprintf_s(systemCheckDllPath, "%s\\%s", g_nacdirpath, SYSTEMCHECKDLLNAME);
+        hSystemCheckDll = LoadLibraryA(systemCheckDllPath); 
+
+        if (hSystemCheckDll == NULL)
+        {
+            WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "SystemCheck.Dll文件加载失败");
+            return ret;
+        }
+
+        pSetIEMainPagePolicy fSetIEMainPagePolicy = NULL;
+        fSetIEMainPagePolicy = (pSetIEMainPagePolicy)GetProcAddress(hSystemCheckDll, "SetIEMainPagePolicy");
+        if (fSetIEMainPagePolicy == NULL)
+        {
+            return ret;
+        }
+
+        fSetIEMainPagePolicy(mPagePolicy);
+
+        hwnd = ::FindWindow(NULL, L"身份认证/安全检测");
+        if (hwnd)
+        {
+            ret = ::SendMessage(hwnd, WM_CHECKIEMAIN_MSG, 0, 0);
+        }
+
+        FreeLibrary(hSystemCheckDll);
+    }
+
+    return ret;
+}
+
+bool IEMainRetShowMsg(IN int iCheckState, IN safecheckattr checkItem, IN MAINPAGEPOLICY mainPagePolicy, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language)
+{
+	bool ret = true;
+
+	if (iCheckState)
+	{
+		char strIEMainName[MAX_BUF_LEN] = {0};
+		vector<string> vecLangMsg;
+		string strLangMsg = "";
+
+		(*pFailNum)++;
+		ret = false;
+
+		GetLangValueByKeyA(language, 
+			"SF_IEMAIN_MSG", 
+			"SF_IEMAIN_NAME", 
+			"IE主页", 
+			strIEMainName, 
+			MAX_BUF_LEN);
+
+		if (GetLangVectorByKeyA(language, 
+			"SF_IEMAIN_MSG", 
+			"SF_IEMAIN_LANG_MSG", 
+			"SF_IEMAIN_LANG_MSG", 
+			MAX_BUF_LEN,
+			2,
+			&vecLangMsg))
+		{
+			strLangMsg = vecLangMsg[0];
+			if (wcslen(mainPagePolicy.mainPageUrl) > 0)
+			{
+				strLangMsg += WCharToAnsi(mainPagePolicy.mainPageUrl);
+			}
+			strLangMsg += vecLangMsg[1];
+		}
+
+		sprintf_s(  pMsgBuf, 
+			msgBufLen,
+			"<subitem checkItemId=\"0\" faildes=\"%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\" ilogrecord=\"%s\" />",
+			strLangMsg.c_str(),
+			strIEMainName,
+			checkItem.warningcont, 
+			checkItem.warninglevel, 
+			checkItem.srcevent);
+
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_NETSHARE, LOGLOCATION, pMsgBuf);
+	}
+
+	return ret;
+}

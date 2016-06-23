@@ -1,0 +1,33 @@
+#pragma once
+
+#include <winsvc.h>
+
+//ERROR CODES
+#define DRV_SUCCESS						 (DWORD)0
+
+#define DRV_ERROR_SCM					 (DWORD)-1		
+#define DRV_ERROR_SERVICE				 (DWORD)-2		
+#define DRV_ERROR_MEMORY				 (DWORD)-3		
+#define DRV_ERROR_INVALID_PATH_OR_FILE	 (DWORD)-4		
+#define DRV_ERROR_INVALID_HANDLE		 (DWORD)-5		
+#define DRV_ERROR_STARTING				 (DWORD)-6		
+#define DRV_ERROR_STOPPING				 (DWORD)-7		
+#define DRV_ERROR_REMOVING				 (DWORD)-8	
+#define DRV_ERROR_IO					 (DWORD)-9		
+#define DRV_ERROR_NO_INITIALIZED		 (DWORD)-10		
+#define DRV_ERROR_ALREADY_INITIALIZED	 (DWORD)-11	
+#define DRV_ERROR_NULL_POINTER			 (DWORD)-12	
+#define DRV_ERROR_UNKNOWN				 (DWORD)-13	
+
+class CDrvierInstall
+{
+public:
+	CDrvierInstall(void);
+	~CDrvierInstall(void);
+
+	DWORD LoadDriver(const char* drivername);
+	DWORD UnloadDriver(const char* drivername);
+
+	DWORD StartDriver(const char* drivername);
+	DWORD StopDriver(const char* drivername);
+};

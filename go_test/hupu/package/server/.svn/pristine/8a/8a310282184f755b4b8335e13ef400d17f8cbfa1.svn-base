@@ -1,0 +1,503 @@
+/*************************************************
+File Name: SinglePageItem
+Author:  gcy
+Description:  系统安检项中简单安检项的函数执行
+                        包括:Guest用户检查,远程桌面
+Version:  0.0.1
+Data:  2014/10/31
+**************************************************/
+
+#include "StdAfx.h"
+#include "SinglePageItem.h"
+
+//GUEST来宾
+#include <shlwapi.h>  
+#include <strsafe.h>  
+#include <assert.h>
+#pragma comment(lib,"netapi32.lib")
+#include <lm.h>
+
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+
+#include "SingServerPage.h"
+#include "RegExp.h"
+
+
+ /*************************************************
+Function Name:GetGuestState
+Description: 获取GUEST用户的状态
+Input and output:  
+        dFlag: 用户状态标志位
+RetVal:
+      DISABLE表示关闭了GUEST用户
+      ENABLE表示开启了GUEST用户
+	  UNKNOWNSTATE表示函数调用失败
+**************************************************/
+int GetGuestState(IN DWORD &dFlag)
+{
+	try
+	{
+		LPUSER_INFO_1 pBuf = NULL;
+		LPUSER_INFO_1 pTmpBuf;
+		DWORD dwLevel = 1;
+		DWORD dwPrefMaxLen = MAX_PREFERRED_LENGTH;
+		DWORD dwEntriesRead = 0;
+		DWORD dwTotalEntries = 0;
+		DWORD dwResumeHandle = 0;
+		DWORD i;
+		DWORD dwTotalCount = 0;
+		NET_API_STATUS nStatus;
+		LPTSTR pszServerName = NULL;
+		//
+		// Call the NetUserEnum function, specifying level 0; 
+		//   enumerate global user account types only.
+		//
+		do // begin do
+		{
+			nStatus = NetUserEnum((LPCWSTR) pszServerName,
+				dwLevel,
+				FILTER_NORMAL_ACCOUNT, // global users
+				(LPBYTE*)&pBuf,
+				dwPrefMaxLen,
+				&dwEntriesRead,
+				&dwTotalEntries,
+				&dwResumeHandle);
+			//
+			// If the call succeeds,
+			//
+			if ((nStatus == NERR_Success) || (nStatus == ERROR_MORE_DATA))
+			{
+				if ((pTmpBuf = pBuf) != NULL)
+				{
+					//
+					// Loop through the entries.
+					//
+					for (i = 0; (i < dwEntriesRead); i++)
+					{
+						assert(pTmpBuf != NULL);
+
+						if (pTmpBuf == NULL)
+						{
+							break;
+						}
+
+						if (wcscmp(pTmpBuf->usri1_name,L"Guest")==0)
+
+						{
+							if (pTmpBuf->usri1_flags & UF_ACCOUNTDISABLE) 
+							{
+								dFlag = pTmpBuf->usri1_flags;
+								if (pBuf != NULL)
+								{
+									NetApiBufferFree(pBuf);
+									pBuf = NULL;
+								}
+								return DISABLE;
+							}
+							else
+							{
+								dFlag = pTmpBuf->usri1_flags;
+								if (pBuf != NULL)
+								{
+									NetApiBufferFree(pBuf);
+									pBuf = NULL;
+								}
+								return ENABLE;
+							}
+						}	
+
+						pTmpBuf++;
+						dwTotalCount++;
+					}
+				}
+			}	
+
+			//
+			// Free the allocated buffer.
+			//
+			if (pBuf != NULL)
+			{
+				NetApiBufferFree(pBuf);
+				pBuf = NULL;
+			}
+		}
+
+		while (nStatus == ERROR_MORE_DATA); // end do
+
+		if (pBuf != NULL)
+			NetApiBufferFree(pBuf);
+
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetGuestState Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetGuestState Exception");
+	}
+    return UNKNOWNSTATE;
+}
+
+ /*************************************************
+Function Name:SetGuestState
+Description: 设置GUEST用户的装填
+Input and output:  
+        iflag: 0表示关闭GUEST用户
+                1表示开启GUEST用户
+RetVal:
+        TRUE表示设置成功
+        FALSE表示失败
+**************************************************/
+BOOL SetGuestState(IN int iflag)                   
+{  
+	try
+	{
+		DWORD dwLevel = 1008;
+		USER_INFO_1008 ui;
+		NET_API_STATUS nStatus;
+
+		DWORD dflag=0;
+		GetGuestState(dflag);
+
+		switch (iflag)
+		{
+		case 0:
+			{
+				ui.usri1008_flags = dflag | UF_ACCOUNTDISABLE;
+				//ui.usri1008_flags = UF_SCRIPT | UF_ACCOUNTDISABLE;
+			}
+			break;
+		case 1:
+			{
+				ui.usri1008_flags = dflag & ~UF_ACCOUNTDISABLE;
+				//ui.usri1008_flags = UF_SCRIPT ;
+			}
+			break;
+		default:
+			break;
+		}
+		nStatus = NetUserSetInfo(NULL,
+			L"GUEST",
+			dwLevel,
+			(LPBYTE)&ui,
+			NULL);
+
+		if (nStatus == NERR_Success)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_SERVICE,LOGLOCATION,"NetUserSetInfo Success");
+			return TRUE;
+		}		
+		else
+		{
+			WriteDebugInfomation(LEVEL_RELEASE,MODULE_SERVICE,LOGLOCATION,"NetUserSetInfo fail",nStatus);
+			return FALSE;
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SetGuestState Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SetGuestState Exception");
+	}
+	return FALSE;
+}
+
+ /*************************************************
+Function Name:GetRemoteDesk
+Description: 获取远程桌面的状态
+Input and output:  
+RetVal:
+      DISABLE表示远程桌面是关闭的
+      ENABLE表示远程桌面是开启的
+	  UNKNOWNSTATE表示函数调用失败
+**************************************************/
+ int GetRemoteDesk()
+{
+	try
+	{
+		int  resultres = UNKNOWNSTATE;
+		HKEY hKey = NULL;
+		LPCTSTR data_Set = _T("SYSTEM\\CurrentControlSet\\Control\\Terminal Server");
+		DWORD dwValue = 3;
+
+		if(ERROR_SUCCESS == ::RegOpenKeyEx(HKEY_LOCAL_MACHINE,data_Set,0,KEY_READ|KEY_WRITE,&hKey))
+		{
+			DWORD dwSize = sizeof(DWORD);
+			DWORD dwType = REG_DWORD;
+
+			if(ERROR_SUCCESS != RegQueryValueEx(hKey, _T("fDenyTSConnections"), 0, &dwType, (LPBYTE)&dwValue, &dwSize))
+			{
+				RegCloseKey(hKey);
+				hKey=NULL;
+				return resultres;
+			}   /////////dwValue=1表示不允许远程控制，dwValue=0表示允许远程控制
+			RegCloseKey(hKey);
+		}
+		if (dwValue == 1 )
+		{
+			resultres = DISABLE;
+		}
+		else if ( dwValue == 0 )
+		{
+			resultres = ENABLE;
+		}
+		return resultres;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetRemoteDesk Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetRemoteDesk Exception");
+	}
+	return 	UNKNOWNSTATE;
+ }
+
+ /*************************************************
+Function Name:SetRemoteDesk
+Description: 设置远程桌面
+Input and output:  
+        iflag: 0表示允许其他电脑远程该电脑
+                1表示不允许连接到这台电脑
+RetVal:
+      TRUE表示设置成功
+      FALSE表示失败
+**************************************************/
+ BOOL SetRemoteDesk(int iflag) 
+{
+	try
+	{
+		HKEY hKey=NULL;
+		LPCTSTR data_Set = _T("SYSTEM\\CurrentControlSet\\Control\\Terminal Server");
+		if(ERROR_SUCCESS == ::RegOpenKeyEx(HKEY_LOCAL_MACHINE,data_Set,0,KEY_READ|KEY_WRITE,&hKey))
+		{
+			DWORD dwValue = 0;
+			DWORD dwSize = sizeof(DWORD);
+			DWORD dwType = REG_DWORD;
+			if(ERROR_SUCCESS!=RegQueryValueEx(hKey,_T("fDenyTSConnections"),0,&dwType,(LPBYTE)&dwValue,&dwSize))
+			{
+				RegCloseKey(hKey);
+				return FALSE;
+			}
+			if ((dwValue==1&&iflag==1)||(dwValue==0 && iflag==0))
+			{
+				OutputDebugString(L"已经是设置时的状态");
+				RegCloseKey(hKey);
+				return TRUE;
+			}
+
+			DWORD setValue=iflag;
+			if(ERROR_SUCCESS!=::RegSetValueEx(hKey,_T("fDenyTSConnections"), 0, REG_DWORD, (const BYTE*)&setValue,sizeof(DWORD)))
+			{
+				OutputDebugString(L"设置状态失败");
+				RegCloseKey(hKey);
+				return FALSE;
+			}
+			else
+			{
+				OutputDebugString(L"设置状态成功");
+				RegCloseKey(hKey);
+				return TRUE;
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"SetRemoteDesk Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SetRemoteDesk Exception");
+	}
+    return TRUE;
+}
+
+/*************************************************
+Function Name: GetGuestStateForSafeCheck
+Description: 获取Guest用户的状态
+Input and output:  
+RetVal:
+      ENABLE:表示Guest用户处于开启状态
+      DISABLE:表示Guest用户处于关闭状态
+	  UNKNOWNSTATE:表示执行Guest用户函数出错
+**************************************************/
+int SingServerPage::GetGuestStateForSafeCheck()
+{
+	try
+	{
+		DWORD  Flag = 0;
+
+		return GetGuestState(Flag);
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetGuestStateForSafeCheck Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetGuestStateForSafeCheck Exception");
+	}
+	return FALSE;
+}
+
+
+/*************************************************
+Function Name: SetGuestState
+Description: 设置Guest用户的状态
+Input and output:  
+      action:1表示开启，0表示关闭
+RetVal:
+      HP_SUCCESS:表示设置GUEST用户成功
+      HP_SF_REPAIRESAFECHECKFAIL:表示设置GUEST用户失败
+**************************************************/
+int SingServerPage::SetGuestStateForSafeCheck(int action)
+{
+    if ( SetGuestState(action))
+    {
+        return HP_SUCCESS;
+    }
+    else
+    {
+     return HP_SF_REPAIRESAFECHECKFAIL;
+    }
+}
+
+
+ /*************************************************
+Function Name: GetRemoteDeskState
+Description: 获取远程桌面的状态
+Input and output:  
+RetVal:
+      UNKNOWNSTATE:表示执行远程桌面函数出错
+      ENABLE:表示远程桌面处于开启状态
+      DISABLE:表示远程桌面处于关闭状态
+**************************************************/
+ int SingServerPage::GetRemoteDeskStateForSafeCheck()
+ {
+	 return GetRemoteDesk();
+ }
+
+  /*************************************************
+Function Name: SetRemoteDeskState
+Description: 设置远程桌面的状态
+Input and output:  
+          action:0表示要关闭远程桌面
+                      1表示要开启远程桌面
+RetVal:
+          HP_SUCCESS:表示设置远程桌面状态成功
+          HP_SF_REPAIRESAFECHECKFAIL:表示设置远程桌面状态失败
+**************************************************/
+ int SingServerPage::SetRemoteDeskStateForSafeCheck(int action)
+ {
+     if ( SetRemoteDesk(!action) )
+     {
+         return HP_SUCCESS;
+     }
+     else
+     {
+        return HP_SF_REPAIRESAFECHECKFAIL;
+     }
+ }
+
+  /*************************************************
+Function Name: GetComputerNameForSafeCheck
+Description: 获取计算机名称是否符合正则表达式
+Input and output:  
+     computername:获取计算机名称
+      regexcnt:正则表达式
+RetVal:
+      UNKNOWNSTATE:表示执行正则表达式出错
+      ENABLE:表示计算机名称符合正则表达式
+      DISABLE:表示计算机名称不符合正则表达式
+**************************************************/
+ int SingServerPage::GetComputerNameForSafeCheck(char* computername,char *regexcnt)
+ {
+	 try
+	 {
+		 char ComputeName[MAX_PATH]={"0"};
+
+		 if (SOCKET_ERROR != gethostname(ComputeName, sizeof(ComputeName)))
+		 {
+			 struct hostent* hp;
+
+			 hp = gethostbyname(ComputeName);
+
+			 if (hp != NULL) 
+			 {
+				 strncpy_s(ComputeName, hp->h_name, MAX_PATH);
+				 memcpy(computername, ComputeName, strlen(ComputeName));
+				 WriteDebugInfomation(LEVEL_DEBUG, MODULE_COMPUTERNAEM, LOGLOCATION, "ComputeName", ComputeName);
+			 }
+		 }
+		 else
+		 {
+			 WriteDebugInfomation(LEVEL_RELEASE,MODULE_COMPUTERNAEM, LOGLOCATION, "gethostname Fail");
+		 }
+
+		 int cmpnamelen =strlen(ComputeName);
+		 int regexcntlen = strlen(regexcnt);
+		 if ((cmpnamelen == 0)||(regexcntlen == 0))
+		 {
+			 return DISABLE;
+		 }
+
+		 bool regres = false;
+		 if (strcmp(regexcnt,"*"))
+		 {
+			 regres =  regexmatchfun(ComputeName, regexcnt);
+
+			 if (regres)
+			 {
+				 return ENABLE;
+			 }
+			 else
+			 {
+				 return DISABLE;
+			 }
+		 }
+		 else
+		 {
+			 return ENABLE;
+		 }
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 ::MessageBox(NULL, L"GetComputerNameForSafeCheck Exception", L"Msg", 0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetComputerNameForSafeCheck Exception");
+	 }
+	 return FALSE;
+ }
+
+  /*************************************************
+Function Name: SetComputerNameForSafeCheck
+Description: 设置计算机名称
+Input and output:  
+          newcmpname:新的计算机名称
+          regexcnt:正则表达式,用来判断程序新设置的计算机名称是否符合正则表达式的标准
+RetVal:
+          HP_SUCCESS:表示设置计算机名称成功
+          HP_SF_REPAIRESAFECHECKFAIL:表示设置计算机名称失败
+**************************************************/
+ int SingServerPage::SetComputerNameForSafeCheck(char *newcmpname)
+ {
+     UNREFERENCED_PARAMETER(newcmpname);
+     
+     /* wchar_t wnewname[MAX_PATH] = {L"0"};
+     ConvertA2W(newcmpname,wnewname,MAX_PATH);
+     int setbiosRes = SetComputerName(wnewname);
+     if (setbiosRes)
+     {
+     WriteDebugInfomation(LEVEL_DEBUG,MODULE_COMPUTERNAEM, LOGLOCATION, "设置BIOS计算机名称成功");
+     return HP_SUCCESS;
+     }
+     else
+     {
+     WriteDebugInfomation(LEVEL_RELEASE,MODULE_COMPUTERNAEM, LOGLOCATION, "设置BIOS计算机名称失败");
+     return HP_SF_REPAIRESAFECHECKFAIL;
+     }
+     return HP_SF_REPAIRESAFECHECKFAIL;*/
+
+     return HP_SF_REPAIRESAFECHECKFAIL;
+ }

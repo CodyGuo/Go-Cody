@@ -1,0 +1,171 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : 
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#include "stdafx.h"
+#include "DebugInfo.h"
+#include "GlobalFunction.h"
+
+const char* logininames[] = 
+{ 
+    "MODULE_NOMODULE",
+    "MODULE_PROCESS",
+    "MODULE_PORT",
+    "MODULE_FIREWALL",
+    "MODULE_GUEST",
+    "MODULE_REMOTEDESK",
+    "MODULE_SCREENSAVER",
+    "MODULE_SERVICE",
+    "MODULE_SOFTWARE",
+    "MODULE_JUNKFILES",
+    "MODULE_COMPUTERNAEM",
+    "MODULE_SYSTEMTIME",
+    "MODULE_MAINPAGE",
+    "MODULE_DOMAIN",
+    "MODULE_NETSHARE",
+    "MODULE_DISKSPACE",
+    "MODULE_PWDPOLICY",
+    "MODULE_OPDB",
+    "MODULE_SOCKETINFO",
+    "MODULE_SNIFFER",
+    "MODULE_FTP",
+    "MODULE_NETWORK",
+    "MODULE_IEEXTENSIONS",
+	"MODULE_SYSTEMPATCH",
+    "MODULE_ALL"
+};
+
+bool  isShouldWriteLog(LEVEL_TYPE level,LEVEL_MODULE module,char* filepath)
+{
+    char inifile[MAX_PATH]={0};
+    char levelconf[MAX_WRITE_BUF] = {0};
+    char moduleconf[MAX_WRITE_BUF] = {0};
+    int ilevelconf = 0;
+    int imoduleconf = 0;
+
+    sprintf_s(inifile, MAX_PATH, "%s\\data\\VersAndLog_config.ini", filepath);
+    ASSERT(inifile);
+    GetPrivateProfileStringA("Param", "LOG_LEVEL", "LEVEL_NONE", levelconf, MAX_WRITE_BUF, inifile);
+    GetPrivateProfileStringA("Param", "LOG_MODULE", "MODULE_NOMODULE", moduleconf, MAX_WRITE_BUF, inifile);
+
+    if ( _strnicmp(levelconf, "LEVEL_NONE", MAX_WRITE_BUF) == 0 )
+    {
+        ilevelconf = LEVEL_NONE;
+    }
+    else if (_strnicmp(levelconf, "LEVEL_RELEASE", MAX_WRITE_BUF) == 0)
+    {
+        ilevelconf = LEVEL_RELEASE;
+    }
+    else
+    {
+        ilevelconf = LEVEL_DEBUG;
+    }
+
+    for ( int i=0; i<MODULE_ALL+1; i++ )
+    {
+        if ( _strnicmp(moduleconf, logininames[i], MAX_WRITE_BUF) == 0 )
+        {
+            imoduleconf = i;
+            break;
+        }
+    }
+
+    if ( ilevelconf < (int)level)
+    {
+        return false;
+    }
+    if ( imoduleconf == MODULE_ALL)
+    {
+        return true;
+    }
+    else if (imoduleconf == (int)module)
+    {
+        return true;
+    }
+    else 
+        return false;
+}
+
+void WriteDebugInfomation(LEVEL_TYPE level, LEVEL_MODULE module, char * filename, int linenum, char *functname, char *WriteString)
+{
+    char curPath[MAX_PATH] = {0};
+
+    if (!GetCurrentPath(curPath))
+    {
+        return;
+    }
+
+    if (!isShouldWriteLog(level, module, curPath))
+    {
+        return;
+    }
+
+    FILE *pfile =NULL;
+    SYSTEMTIME st;
+    char time[255]={"0"};
+    char logfile[MAX_PATH] = {"0"};
+
+    sprintf_s(logfile, MAX_PATH, "%s\\data\\HelpLog-SystemCheckDll.log", curPath);
+    pfile= _fsopen(logfile, "a+", _SH_DENYNO);
+
+    if (pfile== NULL)
+    {
+        return;
+    }
+
+    GetLocalTime(&st);
+    sprintf_s(  time, 
+                255, 
+                "%d-%02d-%02d %02d:%02d:%02d:%s[%d]:%s\r\n",
+                st.wYear,
+                st.wMonth,
+                st.wDay,
+                st.wHour,
+                st.wMinute,
+                st.wSecond,
+                filename,
+                linenum,
+                functname );
+
+    fwrite(time, 1, strlen(time), pfile);
+    fwrite(WriteString, 1, strlen(WriteString), pfile);
+    fwrite("\r\n", 1, 2, pfile);
+    fflush(pfile);
+    fclose(pfile);
+
+    HANDLE hfile = CreateFileA( logfile,
+        GENERIC_READ|GENERIC_WRITE,
+        FILE_SHARE_READ|FILE_SHARE_WRITE,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+
+    DWORD dwsize = GetFileSize(hfile, NULL);
+
+    if(dwsize==INVALID_FILE_SIZE)
+    {
+        CloseHandle(hfile);
+        hfile=NULL;
+        return;
+    }
+
+    DWORD dwsizeLow = GetFileSize(hfile, NULL);
+
+    CloseHandle(hfile);
+    hfile=NULL;
+}
+
+void WriteDebugInfomation(LEVEL_TYPE level, LEVEL_MODULE module,char * filename,int linenum,char *functname,wchar_t *WriteString)
+{
+    int Len = WideCharToMultiByte(CP_ACP, 0, WriteString, -1, NULL, 0, NULL, 0);
+    char *writeBuff = new char[Len+1];
+
+    WideCharToMultiByte(CP_ACP, 0, WriteString, -1, writeBuff, Len, NULL, 0);
+    writeBuff[Len] = '\0';
+    WriteDebugInfomation(level, module, filename, linenum, functname, writeBuff);
+    delete[] writeBuff;
+}

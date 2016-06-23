@@ -1,0 +1,1105 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#include "stdafx.h"
+#include <Windows.h>
+#include "..\GlobalDate.h"
+#include "..\GetLangValue.h"
+#include "CheckReg.h"
+#include "CommData.h"
+#include <string>
+#include <map>
+#include <stdint.h>
+#include <WtsApi32.h>
+#include "..\GlobalFunction.h"
+#include "SafeCheckFuntion.h"
+#include "..\DebugInfo.h"
+
+using namespace std;
+
+std::map<wstring, HKEY> m_regKeyMap;
+
+void InitRegKeyMap()
+{
+	m_regKeyMap.insert(std::pair<std::wstring, HKEY>(L"HKEY_CLASSES_ROOT", HKEY_CLASSES_ROOT));
+	m_regKeyMap.insert(std::pair<std::wstring, HKEY>(L"HKEY_CURRENT_USER", HKEY_CURRENT_USER));
+	m_regKeyMap.insert(std::pair<std::wstring, HKEY>(L"HKEY_LOCAL_MACHINE", HKEY_LOCAL_MACHINE));
+	m_regKeyMap.insert(std::pair<std::wstring, HKEY>(L"HKEY_USERS", HKEY_USERS));
+	m_regKeyMap.insert(std::pair<std::wstring, HKEY>(L"HKEY_CURRENT_CONFIG", HKEY_CURRENT_CONFIG));
+}
+
+LONG ParseRegKeyPath(IN const wchar_t* pRegKeyPath, OUT PHKEY pMainKey, OUT wstring& wstrSubKey)
+{
+	LONG bRet = FALSE;
+	wstring wstrRegKeyPath = L"";
+	size_t stPos = wstring::npos;
+	wstring wstrMainKey = L"";
+
+	if (pRegKeyPath == NULL)
+	{
+		return bRet;
+	}
+
+	wstrRegKeyPath = pRegKeyPath;
+	stPos = wstrRegKeyPath.find(L"\\");
+	if (stPos != wstring::npos)
+	{
+		wstrMainKey = wstrRegKeyPath.substr(0, stPos);
+		wstrSubKey = wstrRegKeyPath.substr(stPos+1, wstrRegKeyPath.length()-stPos-1);
+	}
+	else
+	{
+		wstrMainKey = wstrRegKeyPath;
+	}
+
+	std::map<wstring, HKEY>::iterator iter = m_regKeyMap.find(wstrMainKey);
+
+	if (iter != m_regKeyMap.end())
+	{
+		*pMainKey = iter->second;
+		bRet = TRUE;
+	}
+
+	return bRet;
+}
+
+wstring GetActivedUserSid()
+{
+	wstring wstrUserSid = L"";
+
+	DWORD dwConsoleSessionId = 0;
+	HANDLE hTokenUser = NULL;
+	BOOL bRet = FALSE;
+	wchar_t wUserSid[MIDDLE_BUF_LEN] = {0};
+
+	dwConsoleSessionId = WTSGetActiveConsoleSessionId();
+
+	if(WTSQueryUserToken(dwConsoleSessionId, &hTokenUser))
+	{
+		bRet = GetCurrentUserStringSid(hTokenUser, wUserSid, MIDDLE_BUF_LEN);
+		wstrUserSid = wUserSid;
+	}
+
+	return wstrUserSid;
+}
+
+string HexToBin(const string &strHex)
+{
+	string strBin;
+
+	strBin.resize(strHex.size() / 3);
+
+	for (size_t i = 0; i < strBin.size(); i++)
+	{
+		uint8_t cTemp = 0;
+
+		for (size_t j = 0; j < 2; j++)
+		{
+			char cCur = strHex[3 * i + j];
+
+			if (cCur >= '0' && cCur <= '9')
+			{
+				cTemp = (cTemp << 4) + (cCur - '0');
+			}
+			else if (cCur >= 'a' && cCur <= 'f')
+			{
+				cTemp = (cTemp << 4) + (cCur - 'a' + 10);
+			}
+			else if (cCur >= 'A' && cCur <= 'F')
+			{
+				cTemp = (cTemp << 4) + (cCur - 'A' + 10);
+			}
+			else
+			{
+				return "";
+			}
+		}
+		strBin[i] = cTemp;
+	}
+
+	return strBin;
+}
+
+string CheckRegKeyIsExist(IN const char* pRegKeyPath, IN int iCheckCondition, IN LANGUAGETYPE language, IN int iTrigger, OUT string& strTrigrSucc)
+{
+	string strRet = "";
+	LONG lRet = FALSE;
+	HKEY hMainKey = NULL;
+	wstring wstrRegKeyPath = L"";
+	wstring wstrSubKey = L"";
+	vector<string> vectStr;
+
+	vectStr.push_back((string)pRegKeyPath);
+	InitRegKeyMap();
+	wstrRegKeyPath = AnsiToWChar(pRegKeyPath);
+	lRet = ParseRegKeyPath(wstrRegKeyPath.c_str(), &hMainKey, wstrSubKey);
+	if (lRet == TRUE)
+	{
+		HKEY hRetKey = NULL;
+
+		if (hMainKey == HKEY_CURRENT_USER)
+		{
+			wstring wstrUserSid = GetActivedUserSid();
+
+			wstrUserSid += L"\\";
+			wstrUserSid += wstrSubKey;
+			wstrSubKey = wstrUserSid;
+			hMainKey = HKEY_USERS;
+		}
+
+		lRet = RegOpenKeyEx(hMainKey, wstrSubKey.c_str(), 0, KEY_READ|KEY_WOW64_64KEY, &hRetKey);
+		if (lRet == ERROR_SUCCESS)
+		{
+			if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+			{
+				strRet = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_REG_EXIST],
+					pSfCustomKeyStr[SF_REG_EXIST],
+					MAX_BUF_LEN,
+					2,
+					vectStr);
+			}
+			else if (iTrigger == CHECK_TRIGGER_VOILATION)
+			{
+				strTrigrSucc = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_REG_EXIST],
+					pSfCustomKeyStr[SF_REG_EXIST],
+					MAX_BUF_LEN,
+					2,
+					vectStr);
+			}
+		}
+		else
+		{
+			if (iCheckCondition == CHECK_EXIST_FLAG)
+			{
+				strRet = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_REG_NOT_EXIST],
+					pSfCustomKeyStr[SF_REG_NOT_EXIST],
+					MAX_BUF_LEN,
+					2,
+					vectStr);
+			}
+			else if (iTrigger == CHECK_TRIGGER_VOILATION)
+			{
+				strTrigrSucc = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_REG_NOT_EXIST],
+					pSfCustomKeyStr[SF_REG_NOT_EXIST],
+					MAX_BUF_LEN,
+					2,
+					vectStr);
+			}
+		}
+		RegCloseKey(hRetKey);
+	}
+	else
+	{
+		if (iCheckCondition == CHECK_EXIST_FLAG)
+		{
+			strRet = PackageLangInfo(language, 
+				CUSTOM_CHECK_APPNAME, 
+				pSfCustomKeyStr[SF_REG_NOT_EXIST],
+				pSfCustomKeyStr[SF_REG_NOT_EXIST],
+				MAX_BUF_LEN,
+				2,
+				vectStr);
+		}
+		else if (iTrigger == CHECK_TRIGGER_VOILATION)
+		{
+			strTrigrSucc = PackageLangInfo(language, 
+							CUSTOM_CHECK_APPNAME, 
+							pSfCustomKeyStr[SF_REG_NOT_EXIST],
+							pSfCustomKeyStr[SF_REG_NOT_EXIST],
+							MAX_BUF_LEN,
+							2,
+							vectStr);
+		}
+	}
+
+	return strRet;
+}
+
+string CheckRegValueIsExist(IN const char* pRegKeyPath, 
+							IN const char* pValueName,
+							IN int iCheckCondition, 
+							IN LANGUAGETYPE language, 
+							IN int iTrigger, 
+							OUT string& strTrigrSucc)
+{
+	string strRet = "";
+	LONG lRet = FALSE;
+	HKEY hMainKey = NULL;
+	wstring wstrRegKeyPath = L"";
+	wstring wstrSubKey = L"";
+	DWORD dwDataLen = 0;
+	vector<string> vectStr;
+
+	vectStr.push_back((string)pRegKeyPath);
+	vectStr.push_back((string)pValueName);
+
+	InitRegKeyMap();
+	wstrRegKeyPath = AnsiToWChar(pRegKeyPath);
+	lRet = ParseRegKeyPath(wstrRegKeyPath.c_str(), &hMainKey, wstrSubKey);
+
+	if (lRet == TRUE)
+	{
+		HKEY hRetKey = NULL;
+		wstring wstrValueName = AnsiToWChar(pValueName);
+		DWORD dwType = REG_SZ;
+
+		if (hMainKey == HKEY_CURRENT_USER)
+		{
+			wstring wstrUserSid = GetActivedUserSid();
+
+			wstrUserSid += L"\\";
+			wstrUserSid += wstrSubKey;
+			wstrSubKey = wstrUserSid;
+			hMainKey = HKEY_USERS;
+		}
+
+		lRet = RegOpenKeyEx(hMainKey, wstrSubKey.c_str(), 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hRetKey);
+
+		if (lRet == ERROR_SUCCESS)
+		{
+			if ( _wcsnicmp(wstrValueName.c_str(), L"(默认)", max(wstrValueName.length(), wcslen(L"(默认)"))) == 0)
+			{
+				wstrValueName = L"";
+				if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+				{
+					strRet = PackageLangInfo(language, 
+						CUSTOM_CHECK_APPNAME, 
+						pSfCustomKeyStr[SF_REGVALUE_EXIST],
+						pSfCustomKeyStr[SF_REGVALUE_EXIST],
+						MAX_BUF_LEN,
+						3,
+						vectStr);	
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(language, 
+						CUSTOM_CHECK_APPNAME, 
+						pSfCustomKeyStr[SF_REGVALUE_EXIST],
+						pSfCustomKeyStr[SF_REGVALUE_EXIST],
+						MAX_BUF_LEN,
+						3,
+						vectStr);	
+				}
+
+				RegCloseKey(hRetKey);
+				return strRet;
+			}
+
+			lRet = RegQueryValueEx(hRetKey, wstrValueName.c_str(), NULL, &dwType, NULL, &dwDataLen);
+
+			if ( lRet == ERROR_SUCCESS )
+			{
+				if (iCheckCondition == CHECK_NOT_EXIST_FLAG)
+				{
+					strRet = PackageLangInfo(language, 
+						CUSTOM_CHECK_APPNAME, 
+						pSfCustomKeyStr[SF_REGVALUE_EXIST],
+						pSfCustomKeyStr[SF_REGVALUE_EXIST],
+						MAX_BUF_LEN,
+						3,
+						vectStr);	
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(language, 
+						CUSTOM_CHECK_APPNAME, 
+						pSfCustomKeyStr[SF_REGVALUE_EXIST],
+						pSfCustomKeyStr[SF_REGVALUE_EXIST],
+						MAX_BUF_LEN,
+						3,
+						vectStr);	
+				}
+				RegCloseKey(hRetKey);
+				return strRet;
+			}
+		}	
+		RegCloseKey(hRetKey);
+	}
+
+	if (iCheckCondition == CHECK_EXIST_FLAG)
+	{
+		strRet = PackageLangInfo(language, 
+			CUSTOM_CHECK_APPNAME, 
+			pSfCustomKeyStr[SF_REGVALUE_NOT_EXIST],
+			pSfCustomKeyStr[SF_REGVALUE_NOT_EXIST],
+			MAX_BUF_LEN,
+			3,
+			vectStr);
+	}
+	else if (iTrigger == CHECK_TRIGGER_VOILATION)
+	{
+		strTrigrSucc = PackageLangInfo(language, 
+			CUSTOM_CHECK_APPNAME, 
+			pSfCustomKeyStr[SF_REGVALUE_NOT_EXIST],
+			pSfCustomKeyStr[SF_REGVALUE_NOT_EXIST],
+			MAX_BUF_LEN,
+			3,
+			vectStr);	
+	}
+
+	return strRet;
+}
+
+/************************************************************
+ Description: 获取键值类型
+ input: 
+ output:
+ Return: TRUE[成功]；FALSE[失败]
+*************************************************************/
+LONG GetValueDataType(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName, OUT PDWORD pdwType)
+{
+    LONG ret = 1;
+    HKEY hRetKey = NULL;
+    DWORD dwDataLen = 0;
+
+    ret = RegOpenKeyEx(hKey, lpSubKey, 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hRetKey);
+
+    if(  ret == ERROR_SUCCESS )
+    {
+        ret = RegQueryValueEx(hRetKey, lpValueName, NULL, pdwType, NULL, &dwDataLen);
+		RegCloseKey(hRetKey);
+	}
+	return ret;
+}
+
+/************************************************************
+ Description: 获取REG_SZ键值数据
+ input: 
+ output:
+ Return: TRUE[成功]；FALSE[失败]
+*************************************************************/
+LONG GetValueDataFromReg(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName, OUT wstring& wstrValueData)
+{
+    LONG ret = 1;
+    HKEY hRetKey = NULL;
+	DWORD dwType = REG_SZ;
+    DWORD dwDataLen = 0;
+    WCHAR* pDatabuf = NULL;
+
+    ret = RegOpenKeyEx(hKey, lpSubKey, 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hRetKey);
+
+    if(  ret == ERROR_SUCCESS )
+    {
+        ret = RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, NULL, &dwDataLen);
+
+        if ( ret == ERROR_SUCCESS )
+        {
+            pDatabuf = (WCHAR*)malloc(dwDataLen);
+
+            if ((ret = RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, (LPBYTE)pDatabuf, &dwDataLen)) == ERROR_SUCCESS )
+            {
+				wstrValueData = (wstring)pDatabuf;
+            }
+            free(pDatabuf);
+        }
+        RegCloseKey(hRetKey);
+    }
+    return ret;
+}
+
+/************************************************************
+ Description: 获取REG_SZ键值数据
+ input: 
+ output:
+ Return: TRUE[成功]；FALSE[失败]
+*************************************************************/
+LONG GetValueDataFromReg(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName, OUT string& strValueData)
+{
+	LONG ret = 1;
+
+	try
+	{
+		HKEY hRetKey = NULL;
+		DWORD dwType = REG_SZ;
+		char* pDatabuf = NULL;
+		DWORD dwDataLen = 0;
+
+		ret = RegOpenKeyEx(hKey, lpSubKey, 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hRetKey);
+
+		if(  ret == ERROR_SUCCESS )
+		{
+			ret = RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, NULL, &dwDataLen);
+
+			if ( ret == ERROR_SUCCESS )
+			{
+				strValueData.resize(dwDataLen+1);
+				pDatabuf = (char*)malloc(dwDataLen);
+
+				if ((ret = RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, (LPBYTE)pDatabuf, &dwDataLen)) == ERROR_SUCCESS )
+				{
+					strValueData = (string)pDatabuf;
+					strValueData[dwDataLen] = '\0';
+				}
+				free(pDatabuf);
+			}
+			RegCloseKey(hRetKey);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"GetValueDataFromReg Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "GetValueDataFromReg Exception");
+	}
+
+	return ret;
+}
+/************************************************************
+ Description: 获取REG_DWORD键值数据
+ input: 
+ output:
+ Return: TRUE[成功]；FALSE[失败]
+*************************************************************/
+LONG GetValueDataFromReg(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName, OUT PDWORD pdwValueData)
+{
+    LONG ret = 1;
+    HKEY hRetKey = NULL;
+	DWORD dwType = REG_SZ;
+    DWORD dwDataLen = 0;
+    WCHAR* pDatabuf = NULL;
+
+    ret = RegOpenKeyEx(hKey, lpSubKey, 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hRetKey);
+
+    if(  ret == ERROR_SUCCESS )
+    {
+        ret = RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, NULL, &dwDataLen);
+
+        if ( ret == ERROR_SUCCESS )
+        {
+            pDatabuf = (WCHAR*)malloc(dwDataLen);
+			ret = RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, (LPBYTE)pdwValueData, &dwDataLen);
+            free(pDatabuf);
+        }
+        RegCloseKey(hRetKey);
+    }
+    return ret;
+}
+
+int CmpBinValueDate(IN const char* pValueData, IN const char* pCmpValue, OUT int* ipRet)
+{
+	int iCmpValueLen = strlen(pCmpValue);
+	int iValueDataLen = strlen(pValueData);
+	int i = 0;
+
+	if (!pValueData || !pCmpValue)
+	{
+		return FALSE;
+	}
+
+	*ipRet = 0;
+	if (iValueDataLen == iCmpValueLen)
+	{
+		for (i = 0; i < min(iValueDataLen, iCmpValueLen); i++)
+		{
+			if ((unsigned char)pValueData[i] > (unsigned char)pCmpValue[i])
+			{
+				*ipRet = 1;
+				break;
+			}
+			else if (pValueData[i] < pCmpValue[i])
+			{
+				*ipRet = -1;
+				break;
+			}
+			continue;
+		}
+	}
+	else if (iValueDataLen > iCmpValueLen)
+	{
+		*ipRet = 1;
+	}
+	else
+	{
+		*ipRet = -1;
+	}
+
+	return TRUE;
+}
+
+int CmpValueData(IN const wchar_t* pValueData, IN const wchar_t* pCmpValue, IN int iCheckAction, IN unsigned int iValueType, OUT int* ipRet)
+{
+	if (!pValueData || !pCmpValue)
+	{
+		return FALSE;
+	}
+
+	if (iValueType == REG_SZ)
+	{
+		if (iCheckAction == INCLUDED || iCheckAction == NOT_INCLUDED)
+		{
+			wstring wstrValueData	= (wstring)pValueData;
+			wstring wstrCmpValue	= (wstring)pCmpValue;
+
+			if (wStrIStr(wstrValueData, wstrCmpValue) != wstring::npos)
+			{
+				*ipRet = 0;
+			}
+			else
+			{
+				*ipRet = 1;
+			}
+		}
+		else
+		{
+			if (wcslen(pValueData) != wcslen(pCmpValue))
+			{
+				*ipRet = !0;
+			}
+			else
+			{
+				*ipRet = memcmp(pValueData, pCmpValue, wcslen(pValueData));
+			}			
+		}
+	}
+	return TRUE;
+}
+
+string CheckRegValueEqual( IN const char* pRegKeyPath,
+							IN const char* pValueName, 
+							IN const char* pCmpValue, 
+							IN int iCheckCondition, 
+							IN unsigned int iValueType, 
+							IN LANGUAGETYPE language, 
+							IN int iTrigger, 
+							OUT string& strTrigrSucc)
+{
+	string strRet = "";
+
+	try
+	{
+		LONG lOperRegRet = FALSE;
+		HKEY hMainKey = NULL;
+		wstring wstrRegKeyPath = L"";
+		wstring wstrSubKey = L"";
+		vector<string> vectStr;
+
+		vectStr.push_back((string)pRegKeyPath);
+		vectStr.push_back((string)pValueName);
+		InitRegKeyMap();
+		wstrRegKeyPath = AnsiToWChar(pRegKeyPath);
+		lOperRegRet = ParseRegKeyPath(wstrRegKeyPath.c_str(), &hMainKey, wstrSubKey);
+
+		if (lOperRegRet == TRUE)
+		{
+			DWORD dwType = 0;
+			DWORD dwValueData = 0;
+			wstring wstrValueData = L"";
+			string strValueData = "";
+			wstring wstrValueName = AnsiToWChar(pValueName);
+			wstring wstrCmpValue = AnsiToWChar(pCmpValue);
+			string strCmpValue = "";
+
+			if (iValueType == REG_BINARY)
+			{
+				strCmpValue = HexToBin((const string)pCmpValue);
+			}
+
+			if (hMainKey == HKEY_CURRENT_USER)
+			{
+				wstring wstrUserSid = GetActivedUserSid();
+
+				wstrUserSid += L"\\";
+				wstrUserSid += wstrSubKey;
+				wstrSubKey = wstrUserSid;
+
+				hMainKey = HKEY_USERS;
+			}
+
+			if ( _wcsnicmp(wstrValueName.c_str(), L"(默认)", max(wstrValueName.length(), wcslen(L"(默认)"))) == 0)
+			{
+				wstrValueName = L"";
+			}
+			lOperRegRet = GetValueDataType(hMainKey, wstrSubKey.c_str(), wstrValueName.c_str(), &dwType);
+
+			if ( lOperRegRet != ERROR_SUCCESS || dwType != iValueType)
+			{
+				if ((iCheckCondition != NOT_INCLUDED) || (iCheckCondition != NO_EQUAL))
+				{
+					strRet = PackageLangInfo(language, 
+						CUSTOM_CHECK_APPNAME, 
+						pSfCustomKeyStr[SF_REGVALUEEQUAL_NOT_EXIST],
+						pSfCustomKeyStr[SF_REGVALUEEQUAL_NOT_EXIST],
+						MAX_BUF_LEN,
+						3,
+						vectStr);
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(language, 
+						CUSTOM_CHECK_APPNAME, 
+						pSfCustomKeyStr[SF_REGVALUEEQUAL_NOT_EXIST],
+						pSfCustomKeyStr[SF_REGVALUEEQUAL_NOT_EXIST],
+						MAX_BUF_LEN,
+						3,
+						vectStr);
+				}
+				return strRet;
+			}
+
+			if (dwType == REG_DWORD)
+			{
+				lOperRegRet = GetValueDataFromReg(hMainKey, wstrSubKey.c_str(), wstrValueName.c_str(), &dwValueData);
+			}
+			else if (dwType == REG_BINARY)
+			{
+				lOperRegRet = GetValueDataFromReg(hMainKey, wstrSubKey.c_str(), wstrValueName.c_str(), strValueData);
+				wstrValueData = AnsiToWChar(strValueData.c_str());
+			}
+			else 
+			{
+				lOperRegRet = GetValueDataFromReg(hMainKey, wstrSubKey.c_str(), wstrValueName.c_str(), wstrValueData);
+			}
+
+			if ( lOperRegRet == ERROR_SUCCESS )
+			{
+				switch(iCheckCondition)
+				{
+				case LESS_OR_EQUAL:
+					{
+						int iCmpRet = 1;
+						BOOL bRet = FALSE;
+
+						if(dwType == REG_DWORD)
+						{
+							DWORD dwCmpValue = atoi(pCmpValue);
+
+							if (IsDigit(pCmpValue))
+							{
+								bRet = TRUE;
+								if (dwValueData <= dwCmpValue)
+								{
+									iCmpRet = 0;
+								}
+							}
+						}
+						else
+						{
+							if (dwType == REG_BINARY)
+							{
+								bRet = CmpBinValueDate(strValueData.c_str(), strCmpValue.c_str(), &iCmpRet);
+							}
+							else
+							{
+								bRet = CmpValueData(wstrValueData.c_str(), wstrCmpValue.c_str(), iCheckCondition, iValueType, &iCmpRet);
+							}
+						}
+
+						if (!bRet || iCmpRet > 0)
+						{
+							strRet = PackageLangInfo(language, 
+										CUSTOM_CHECK_APPNAME, 
+										pSfCustomKeyStr[SF_REGVALUEEQUAL_MORE],
+										pSfCustomKeyStr[SF_REGVALUEEQUAL_MORE],
+										MAX_BUF_LEN,
+										3,
+										vectStr);
+						}
+						else if (iTrigger == CHECK_TRIGGER_VOILATION)
+						{
+							strTrigrSucc = PackageLangInfo(language, 
+											CUSTOM_CHECK_APPNAME, 
+											pSfCustomKeyStr[SF_REGVALUEEQUAL_LESS],
+											pSfCustomKeyStr[SF_REGVALUEEQUAL_LESS],
+											MAX_BUF_LEN,
+											3,
+											vectStr);
+						}
+					}
+					break;
+
+				case MORE_OR_EQUAL:
+					{
+						int iCmpRet = -1;
+						BOOL bRet = FALSE;
+
+						if(dwType == REG_DWORD)
+						{
+							DWORD dwCmpValue = atoi(pCmpValue);
+
+							if (IsDigit(pCmpValue))
+							{
+								bRet = TRUE;
+								if (dwValueData >= dwCmpValue)
+								{
+									iCmpRet = 0;
+								}
+							}	
+						}
+						else
+						{
+							if (dwType == REG_BINARY)
+							{
+								bRet = CmpBinValueDate(strValueData.c_str(), strCmpValue.c_str(), &iCmpRet);
+							}
+							else
+							{
+								bRet = CmpValueData(wstrValueData.c_str(), wstrCmpValue.c_str(), iCheckCondition, iValueType, &iCmpRet);
+							}
+						}
+
+						if (!bRet || iCmpRet < 0)
+						{
+							strRet = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_LESS],
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_LESS],
+								MAX_BUF_LEN,
+								3,
+								vectStr);
+						}
+						else if (iTrigger == CHECK_TRIGGER_VOILATION)
+						{
+							strTrigrSucc = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_MORE],
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_MORE],
+								MAX_BUF_LEN,
+								3,
+								vectStr);
+						}
+					}	
+					break;
+
+				case EQUAL:
+					{
+						int iCmpRet = 1;
+						BOOL bRet = FALSE;
+
+						if(dwType == REG_DWORD)
+						{
+							DWORD dwCmpValue = atoi(pCmpValue);
+
+							if (IsDigit(pCmpValue))
+							{
+								bRet = TRUE;
+								if (dwValueData == dwCmpValue)
+								{
+									iCmpRet = 0;
+								}
+							}	
+						}
+						else
+						{
+							if (dwType == REG_BINARY)
+							{
+								bRet = CmpBinValueDate(strValueData.c_str(), strCmpValue.c_str(), &iCmpRet);
+							}
+							else
+							{
+								bRet = CmpValueData(wstrValueData.c_str(), wstrCmpValue.c_str(), iCheckCondition, iValueType, &iCmpRet);
+							}
+						}
+
+						if (!bRet || iCmpRet != 0)
+						{
+							strRet = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_NO_EQUAL],
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_NO_EQUAL],
+								MAX_BUF_LEN,
+								3,
+								vectStr);
+						}
+						else if (iTrigger == CHECK_TRIGGER_VOILATION)
+						{
+							strTrigrSucc = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_EQUAL],
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_EQUAL],
+								MAX_BUF_LEN,
+								3,
+								vectStr);
+						}
+					}	
+					break;
+
+				case NO_EQUAL:
+					{
+						int iCmpRet = 1;
+						BOOL bRet = FALSE;
+
+						if(dwType == REG_DWORD)
+						{
+							DWORD dwCmpValue = atoi(pCmpValue);
+
+							if (IsDigit(pCmpValue))
+							{
+								bRet = TRUE;
+								if (dwValueData == dwCmpValue)
+								{
+									iCmpRet = 0;
+								}
+							}	
+						}
+						else
+						{
+							if (dwType == REG_BINARY)
+							{
+								bRet = CmpBinValueDate(strValueData.c_str(), strCmpValue.c_str(), &iCmpRet);
+							}
+							else
+							{
+								bRet = CmpValueData(wstrValueData.c_str(), wstrCmpValue.c_str(), iCheckCondition, iValueType, &iCmpRet);
+							}
+						}
+
+						if (bRet && iCmpRet == 0)
+						{
+							strRet = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_EQUAL],
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_EQUAL],
+								MAX_BUF_LEN,
+								3,
+								vectStr);
+						}
+						else if (iTrigger == CHECK_TRIGGER_VOILATION)
+						{
+							strTrigrSucc = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_NO_EQUAL],
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_NO_EQUAL],
+								MAX_BUF_LEN,
+								3,
+								vectStr);
+						}
+					}
+					break;
+
+				case INCLUDED:
+					{
+						int iCmpRet = 1;
+						BOOL bRet = FALSE;
+
+						if(dwType == REG_DWORD)
+						{
+							DWORD dwCmpValue = atoi(pCmpValue);
+
+							if (IsDigit(pCmpValue))
+							{
+								bRet = TRUE;
+								if (dwValueData == dwCmpValue)
+								{
+									iCmpRet = 0;
+								}
+							}	
+						}
+						else
+						{
+							bRet = CmpValueData(wstrValueData.c_str(), wstrCmpValue.c_str(), iCheckCondition, iValueType, &iCmpRet);
+						}
+
+						if (!bRet || iCmpRet)
+						{
+							strRet = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_NO_INCLUDE],
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_NO_INCLUDE],
+								MAX_BUF_LEN,
+								3,
+								vectStr);
+						}
+						else if (iTrigger == CHECK_TRIGGER_VOILATION)
+						{
+							strTrigrSucc = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_INCLUDE],
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_INCLUDE],
+								MAX_BUF_LEN,
+								3,
+								vectStr);
+						}
+					}
+					break;
+
+				case NOT_INCLUDED:
+					{
+						int iCmpRet = 1;
+						BOOL bRet = FALSE;
+
+						if(dwType == REG_DWORD)
+						{
+							DWORD dwCmpValue = atoi(pCmpValue);
+
+							if (IsDigit(pCmpValue))
+							{
+								bRet = TRUE;
+								if (dwValueData == dwCmpValue)
+								{
+									iCmpRet = 0;
+								}
+							}	
+						}
+						else
+						{
+							bRet = CmpValueData(wstrValueData.c_str(), wstrCmpValue.c_str(), iCheckCondition, iValueType, &iCmpRet);
+						}
+
+						if (bRet && !iCmpRet)
+						{
+							strRet = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_INCLUDE],
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_INCLUDE],
+								MAX_BUF_LEN,
+								3,
+								vectStr);
+						}
+						else if (iTrigger == CHECK_TRIGGER_VOILATION)
+						{
+							strTrigrSucc = PackageLangInfo(language, 
+								CUSTOM_CHECK_APPNAME, 
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_NO_INCLUDE],
+								pSfCustomKeyStr[SF_REGVALUEEQUAL_NO_INCLUDE],
+								MAX_BUF_LEN,
+								3,
+								vectStr);
+						}
+					}
+					break;
+				}
+			}
+			else
+			{
+				if ((iCheckCondition != NOT_INCLUDED) || (iCheckCondition != NO_EQUAL))
+				{
+					strRet = PackageLangInfo(language, 
+						CUSTOM_CHECK_APPNAME, 
+						pSfCustomKeyStr[SF_REGVALUEEQUAL_NOT_EXIST],
+						pSfCustomKeyStr[SF_REGVALUEEQUAL_NOT_EXIST],
+						MAX_BUF_LEN,
+						3,
+						vectStr);
+				}
+				else if (iTrigger == CHECK_TRIGGER_VOILATION)
+				{
+					strTrigrSucc = PackageLangInfo(language, 
+						CUSTOM_CHECK_APPNAME, 
+						pSfCustomKeyStr[SF_REGVALUEEQUAL_NOT_EXIST],
+						pSfCustomKeyStr[SF_REGVALUEEQUAL_NOT_EXIST],
+						MAX_BUF_LEN,
+						3,
+						vectStr);
+				}
+			}
+		}
+		else
+		{
+			if ((iCheckCondition != NOT_INCLUDED) || (iCheckCondition != NO_EQUAL))
+			{
+				strRet = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_REG_NOT_EXIST],
+					pSfCustomKeyStr[SF_REG_NOT_EXIST],
+					MAX_BUF_LEN,
+					3,
+					vectStr);
+			}
+			else if (iTrigger == CHECK_TRIGGER_VOILATION)
+			{
+				strTrigrSucc = PackageLangInfo(language, 
+					CUSTOM_CHECK_APPNAME, 
+					pSfCustomKeyStr[SF_REG_NOT_EXIST],
+					pSfCustomKeyStr[SF_REG_NOT_EXIST],
+					MAX_BUF_LEN,
+					3,
+					vectStr);
+			}
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"CheckRegValueEqual Exception", L"Msg", 0);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_CHECKCUSTOM, LOGLOCATION, "CheckRegValueEqual Exception");
+	}
+	return strRet;
+}
+
+/************************************************************
+ Description: 修改键值数据
+ Input: 
+ Output:
+ Return:  TRUE[成功]；FALSE[失败];
+*************************************************************/
+LONG SetValueData(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName, IN DWORD dwType, IN const BYTE* lpData, IN DWORD cbData)
+{
+    LONG ret = FALSE;
+    HKEY hRetKey = NULL;
+
+    ret = RegOpenKeyEx(hKey, lpSubKey, 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hRetKey);
+
+    if(  ret == ERROR_SUCCESS )
+    {
+        ret = RegSetValueEx(hRetKey, lpValueName, 0, dwType, lpData, cbData);
+        if ( ret == ERROR_SUCCESS )
+        {
+            ret = TRUE;
+        }
+        RegCloseKey(hRetKey);
+    }
+    return ret;
+}
+
+LONG SetRegValueRepair(IN const char* pRegKeyPath, IN const char* pValueName, IN const char* pValueData, IN DWORD dwValueType)
+{
+	LONG lRet = FALSE;
+	HKEY hMainKey = NULL;
+	wstring wstrSubKey = L"";
+	wstring wstrRegkeyPath = AnsiToWChar(pRegKeyPath);
+	wstring wstrValueName = AnsiToWChar(pValueName);
+	wstring wstrValueData = AnsiToWChar(pValueData);
+
+	InitRegKeyMap();
+	lRet = ParseRegKeyPath(wstrRegkeyPath.c_str(), &hMainKey, wstrSubKey);
+	if (lRet == TRUE)
+	{
+		if (hMainKey == HKEY_CURRENT_USER)
+		{
+			wstring wstrUserSid = GetActivedUserSid();
+
+			wstrUserSid += L"\\";
+			wstrUserSid += wstrSubKey;
+			wstrSubKey = wstrUserSid;
+			hMainKey = HKEY_USERS;
+		}
+
+		if ( _wcsnicmp(wstrValueName.c_str(), L"(默认)", max(wstrValueName.length(), wcslen(L"(默认)"))) == 0)
+		{
+			wstrValueName = L"";
+		}
+
+		if(dwValueType == REG_DWORD)
+		{
+			DWORD dwValueData = atoi(pValueData);
+
+			lRet = SetValueData(hMainKey, wstrSubKey.c_str(), wstrValueName.c_str(), dwValueType, (const BYTE*)&dwValueData, sizeof(DWORD));
+		}
+		else if(dwValueType == REG_BINARY)
+		{
+			string strBinValue = HexToBin((const string)pValueData);
+
+			lRet = SetValueData(hMainKey, wstrSubKey.c_str(), wstrValueName.c_str(), dwValueType, (const BYTE*)strBinValue.c_str(), strBinValue.length());
+		}
+		else
+		{
+			lRet = SetValueData(hMainKey, wstrSubKey.c_str(), wstrValueName.c_str(), dwValueType, (const BYTE*)wstrValueData.c_str(), wstrValueData.length()*sizeof(WCHAR));
+		}
+	}
+
+	return lRet;
+}

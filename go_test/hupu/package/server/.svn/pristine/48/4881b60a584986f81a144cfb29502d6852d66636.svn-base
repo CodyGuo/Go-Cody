@@ -1,0 +1,47 @@
+#pragma once
+#include "afxwin.h"
+
+
+// CRepairByHand dialog
+
+class CRepairByHand : public CDialogEx
+{
+	DECLARE_DYNAMIC(CRepairByHand)
+
+public:
+	CRepairByHand(CWnd* pParent = NULL);   // standard constructor
+	virtual ~CRepairByHand();
+
+// Dialog Data
+	enum { IDD = IDD_REPAIRBYHANDLE };
+
+private:
+    virtual BOOL OnInitDialog();
+
+protected:
+	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
+
+	DECLARE_MESSAGE_MAP()
+public:
+    CEdit m_newcmpname;
+    CEdit m_account;
+    CEdit m_newpwd;
+    afx_msg void OnSetCmpName();
+    afx_msg void OnSetAccountPwd();
+    CEdit m_repairpath;
+    afx_msg void OnEnableOrDisableSafeCheck();
+    int m_bdomain;
+    int m_bnetwork;
+    int m_bos;
+    int m_bweakpwd;
+    int m_bwsus;
+    int m_bdisable;
+    wchar_t  m_inputrepairpath[MAX_PATH];
+    afx_msg void OnBnClickedRadio1();
+    afx_msg void OnBnClickedRadio2();
+    afx_msg void OnBnClickedRadio3();
+    afx_msg void OnBnClickedRadio4();
+    afx_msg void OnBnClickedRadio5();
+
+    virtual BOOL PreTranslateMessage(MSG* pMsg);
+};

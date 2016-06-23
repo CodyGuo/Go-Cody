@@ -1,0 +1,317 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include<ntddk.h>
+#include "MntCommFunc.h"
+#include "HpProcProtect.h"
+
+wchar_t g_DeviceName[] = L"\\Device\\HpNacMntor";
+wchar_t g_DeviceLinkName[] = L"\\DosDevices\\HpNacMntor";
+
+NTSTATUS MntDispatchCreate(__in PDEVICE_OBJECT DeviceObject, __in PIRP Irp);
+NTSTATUS MntDispatchClose(__in PDEVICE_OBJECT DeviceObject,__in PIRP Irp);
+NTSTATUS MntDeviceControl(__inout PDEVICE_OBJECT DeviceObject, __inout PIRP Irp);
+
+#ifdef  ALLOC_PRAGMA
+#pragma alloc_text( PAGE,     MntDispatchCreate)
+#pragma alloc_text( PAGE,     MntDispatchClose)
+#pragma alloc_text( PAGE,     MntDeviceControl)
+#pragma alloc_text( PAGE,     MntCreateControlDeviceObject)
+#pragma alloc_text( PAGE,     MntDeleteControlDeviceObject)
+#endif
+
+NTSTATUS MntDispatchCreate(__in PDEVICE_OBJECT DeviceObject, __in PIRP Irp)
+{
+	Irp->IoStatus.Status = STATUS_SUCCESS;
+	Irp->IoStatus.Information = 0;
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS MntDispatchClose(__in PDEVICE_OBJECT DeviceObject, __in PIRP Irp)
+{
+	Irp->IoStatus.Status = STATUS_SUCCESS;
+	Irp->IoStatus.Information = 0;
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS MntDeviceControl(__inout PDEVICE_OBJECT DeviceObject, __inout PIRP Irp)
+{
+	PIO_STACK_LOCATION	irpSp;
+	PVOID				pInputBuf = NULL;
+	ULONG				inputBufferLength = 0;
+	PVOID				pOutputBuf = NULL;
+	ULONG				outputBufferLength = 0;
+	ULONG				ioControlCode = 0;
+	NTSTATUS			status = STATUS_SUCCESS;
+
+	UNREFERENCED_PARAMETER(DeviceObject);
+
+	PAGED_CODE();
+
+	//ASSERT(IS_MY_CONTROL_DEVICE_OBJECT( DeviceObject ));
+
+	irpSp = IoGetCurrentIrpStackLocation (Irp);
+
+	inputBufferLength	= irpSp->Parameters.DeviceIoControl.InputBufferLength;
+	outputBufferLength	= irpSp->Parameters.DeviceIoControl.OutputBufferLength;
+	ioControlCode		= irpSp->Parameters.DeviceIoControl.IoControlCode;
+	//pInputBuf			= irpSp->Parameters.DeviceIoControl.Type3InputBuffer;
+	pInputBuf			= Irp->AssociatedIrp.SystemBuffer;
+	pOutputBuf			= Irp->AssociatedIrp.SystemBuffer;
+
+	Irp->IoStatus.Information = 0;
+
+	switch (ioControlCode)
+	{
+		case HNM_SET_PROTECT_PROC:
+			{  
+				if (pInputBuf)
+				{
+					char szInputBuf[16] = {0};
+
+					RtlCopyMemory(szInputBuf, pInputBuf, inputBufferLength);
+					RtlCharToInteger(szInputBuf, 0, &g_protectProcFlag);
+					KdPrint(("HpNacMntor.sys-->pInputBuf[%s], Protect Proc Flag[%d]\n", pInputBuf, g_protectProcFlag));
+				}
+			}
+			break;
+
+		case HNM_ADD_PROTECT_PROC:
+			{
+				if (pInputBuf)
+				{
+					char szInputBuf[16] = {0};
+					LIST_ENTRY *pCmpList = NULL;
+					BOOL bExistFlag = FALSE;
+					ULONG ulProId = 0;
+
+					RtlCopyMemory(szInputBuf, pInputBuf, inputBufferLength);
+					RtlCharToInteger(szInputBuf, 0, &ulProId);
+
+					ExAcquireFastMutex(&g_protectProcIoFastMutex);
+
+					if (!IsListEmpty(&s_protectProcListHead))
+					{
+						for (pCmpList = s_protectProcListHead.Flink; pCmpList != &s_protectProcListHead; pCmpList = pCmpList->Flink)
+						{
+							MntProtectProcList* pProtectProc = NULL;
+
+							pProtectProc = (MntProtectProcList*)pCmpList;
+
+							if (ulProId == pProtectProc->ulProcId)
+							{
+								bExistFlag = TRUE;
+								break;
+							}
+						}
+					}
+					if (!bExistFlag)
+					{
+						MntProtectProcList* pAddProtectProc = (MntProtectProcList*)MntAlloc(sizeof(MntProtectProcList));
+
+						pAddProtectProc->ulProcId = ulProId;
+						InsertHeadList(&s_protectProcListHead, &pAddProtectProc->m_protectProcListEntry); 
+					}
+
+					ExReleaseFastMutex(&g_protectProcIoFastMutex);
+					KdPrint(("HpNacMntor.sys-->Add protect proc id[%d]\n", ulProId));
+				}
+			}
+			break;
+
+		case HNM_DELETE_PROTECT_PROC:
+			{
+				if (pInputBuf)
+				{
+					LIST_ENTRY *pCmpList  = NULL;
+					char szInputBuf[16] = {0};
+					ULONG ulProId = 0;
+
+					RtlCopyMemory(szInputBuf, pInputBuf, inputBufferLength);
+					RtlCharToInteger(szInputBuf, 0, &ulProId);
+
+					ExAcquireFastMutex(&g_protectProcIoFastMutex);
+
+					if (!IsListEmpty(&s_protectProcListHead))
+					{
+						for (pCmpList = s_protectProcListHead.Flink; pCmpList != &s_protectProcListHead; pCmpList = pCmpList->Flink)
+						{
+							MntProtectProcList* pProtectProc = NULL;
+
+							pProtectProc = (MntProtectProcList*)pCmpList;
+
+							if (ulProId == pProtectProc->ulProcId)
+							{
+								RemoveEntryList(&pProtectProc->m_protectProcListEntry);
+								MntFree(&pProtectProc);
+								break;
+							}
+						}
+					}
+
+					ExReleaseFastMutex(&g_protectProcIoFastMutex);
+
+					KdPrint(("HpNacMntor.sys-->delete protect proc id[%d]\n", ulProId));
+				}
+			}
+			break;
+
+		case HNM_CLEAR_PROTECT_PROC:
+			{
+				ProtectProcClean();
+				KdPrint(("HpNacMntor.sys-->clear all protect proc\n"));
+			}
+			break;
+
+		case HNM_SET_MONITOR_PROC:
+			{
+				if (pInputBuf)
+				{
+					char szInputBuf[16] = {0};
+
+					RtlCopyMemory(szInputBuf, pInputBuf, inputBufferLength);
+
+					if (RtlCompareMemory(szInputBuf, "0", 1) != 1)
+					{
+						PPROC_MONITOR_EVENT hProcMontorEvent = NULL;
+						NTSTATUS ntstatus = STATUS_SUCCESS;
+
+						hProcMontorEvent = (PPROC_MONITOR_EVENT)pInputBuf;
+						ntstatus = ObReferenceObjectByHandle(hProcMontorEvent->hEvent, GENERIC_ALL, NULL, KernelMode, &g_MntEvntObject, NULL);
+
+						if (NT_SUCCESS(ntstatus))
+						{
+							KdPrint(("HpNacMntor.sys-->g_MntEvntObject:%x\n", g_MntEvntObject));
+						}
+						KdPrint(("HpNacMntor.sys-->status:%x, g_MntEvntObject:%x\n", ntstatus, g_MntEvntObject));
+					}
+					else
+					{
+						if (g_MntEvntObject != NULL)
+						{
+							ObDereferenceObject(g_MntEvntObject);
+							g_MntEvntObject = NULL;
+						}
+					}
+				}
+			}
+			break;
+
+		case HNM_GET_CREATE_PROC_ID:
+			{
+				RtlCopyMemory(pOutputBuf, g_szCreateProcBuf, sizeof(g_szCreateProcBuf));
+				Irp->IoStatus.Information = sizeof(g_szCreateProcBuf);
+				KdPrint(("HpNacMntor.sys-->pOutputBuf[%s]\n", pOutputBuf));
+			}
+			break;
+
+		case HNM_GET_TERMINATED_PROC_ID:
+			{
+				RtlCopyMemory(pOutputBuf, g_szTerminatedProcBuf, sizeof(g_szTerminatedProcBuf));
+				Irp->IoStatus.Information = sizeof(g_szTerminatedProcBuf);
+				KdPrint(("HpNacMntor.sys-->pOutputBuf[%s]\n", pOutputBuf));
+			}
+			break;
+
+		default: 
+			break;
+	}
+
+	Irp->IoStatus.Status = status;
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	return status;
+}
+
+NTSTATUS MntCreateControlDeviceObject( __inout PDRIVER_OBJECT DriverObject )
+{
+	NTSTATUS ntStatus = STATUS_SUCCESS;
+	UNICODE_STRING usDeviceName, usDeviceLinkName;
+
+	PAGED_CODE();
+
+	_try
+	{
+		RtlInitUnicodeString(&usDeviceName, g_DeviceName );
+		RtlInitUnicodeString(&usDeviceLinkName, g_DeviceLinkName);
+
+		ntStatus = IoCreateDevice( DriverObject,
+									0,
+									&usDeviceName,
+									FILE_DEVICE_UNKNOWN,
+									FILE_DEVICE_SECURE_OPEN,
+									FALSE,
+									&mntDeviceObject);
+
+		if ( !NT_SUCCESS( ntStatus ) ) 
+		{
+			KdPrint(("HpNacMntor.sys-->Unable To Create Device ntStatus[%x ]\n", ntStatus));
+			return ntStatus;
+		}
+
+		ntStatus = IoCreateSymbolicLink (&usDeviceLinkName, &usDeviceName);
+
+		if (!NT_SUCCESS(ntStatus))
+		{
+			KdPrint(("HpNacMntor.sys-->Unable To Create Symbol Name\n"));
+			IoDeleteDevice (mntDeviceObject);
+			return ntStatus;
+		}
+
+		DriverObject->MajorFunction[IRP_MJ_CREATE]				=	MntDispatchCreate;
+		DriverObject->MajorFunction[IRP_MJ_CLOSE]				=	MntDispatchClose;
+		DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL]		=	MntDeviceControl;
+
+		ExInitializeFastMutex(&g_protectProcIoFastMutex);
+		InitializeListHead(&s_protectProcListHead);
+
+		PsSetCreateProcessNotifyRoutine(CreateProcCallBack, FALSE);
+
+	}
+	__except(EXCEPTION_EXECUTE_HANDLER) 
+	{
+		KdPrint(("HpNacMntor.sys-->Exception occured in DriverEntry\n"));
+
+		IoDeleteSymbolicLink(&usDeviceLinkName);
+		IoDeleteDevice (mntDeviceObject);
+		return STATUS_SUCCESS;
+	}
+
+	KdPrint(("HpNacMntor.sys-->Load end\n"));
+
+	return STATUS_SUCCESS;
+}
+
+VOID MntDeleteControlDeviceObject()
+{
+	UNICODE_STRING DeviceLinkName;
+
+    PAGED_CODE();
+
+	ProtectProcClean();
+	if (NULL!= g_MntEvntObject)
+	{
+		ObDereferenceObject(g_MntEvntObject);
+		g_MntEvntObject = NULL;
+	}
+
+	PsSetCreateProcessNotifyRoutine(CreateProcCallBack, TRUE);
+	RtlInitUnicodeString(&DeviceLinkName, g_DeviceLinkName);
+	IoDeleteSymbolicLink (&DeviceLinkName);
+
+	if (mntDeviceObject != NULL)
+	{
+		KdPrint(("HpNacMntor.sys-->Delete mntDeviceObject\n"));
+
+		IoDeleteDevice(mntDeviceObject);
+	}
+}

@@ -1,0 +1,1606 @@
+#include "stdafx.h"
+#include "hpidmnac.h"
+#include "hpidmnacDlg.h"
+#include "SystemLog.h"
+#include "SafeCheckFuntion.h"
+
+#include "..\..\hpDriverIoctl\hpDriverIoctl\hpioctl.h"
+#include "8021x\Hp8021x.h"
+
+#include "..\..\GetDeviceUniqueInfo\GetDeviceUniqueInfo\GetDeviceUniqueInfo.h"
+#include "JobThread/HandleJob1.h"
+
+#include "networkchange/NetworkChangeInfo.h"
+#include "ControlName.h"
+#include "TipInfodlg.h"
+#include "DomainUser.h"
+#include "DomainIdentydlg.h"
+#include "FileinfoCheckSum.h"
+#include "GetLangValue.h"
+#include "HandleTTLValue.h"
+#include "GlobalDate.h"
+
+//查询数据库显示日志信息
+void ChpidmnacDlg::ShowSystemLogInfo()
+{
+    HWND hWnd = ::FindWindow(NULL, MenuSystemlogDlg);
+    if(hWnd)
+    {
+       return;
+    }
+    CSystemLog syslogdlg;
+    syslogdlg.DoModal();
+}
+
+void ChpidmnacDlg::dlgHandleCallBackFun(int iflag, char *Msg, int Len)
+{
+    ASSERT(Msg);
+    try
+    {
+        switch(iflag)
+        {
+        case CONNECTED_SERVER_FLAG:
+            {
+				if (!g_bEnable8021x)
+				{
+					Connecttoserver();
+				}
+            }
+            break;
+        case CLIENT_VERSION_FLAG:
+            {
+                UpdateCurrVersion(Msg);
+            }
+            break;
+            //设备注册成功
+        case CLINET_DEVICE_REG_FLAG:
+            {
+                g_deviceid = Msg;
+                WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "上传设备信息");
+				wchar_t tiptitle[HP_C_USERCONTENTLEN] = {L"0"};
+				GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_TITLE],
+					SOCKTIPKEYSTR[SOCK_TIP_TITLE],tiptitle,sizeof(tiptitle));
+				wchar_t tipdevice[HP_C_USERCONTENTLEN] = {L"0"};
+				GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_DEVICETOSERV],
+					SOCKTIPKEYSTR[SOCK_TIP_DEVICETOSERV],tipdevice,sizeof(tipdevice));
+                //ChangeTrayInfo(tipdevice, tipdevice, tiptitle,pestablishJob.m_iTipMsgSilence);
+				ChangeTrayInfo(tipdevice, tiptitle,pestablishJob.m_iTipMsgSilence);
+				UpdateNetworkInfoToservice(FALSE);
+            }
+            break;
+        case SERVER_NOTICE_CLIENT_CHANGESTATE_FLAG:
+            {
+				if (g_bEnable8021x)
+				{
+					HandleNotifyLogoffMsg(Msg, this);
+				}
+				else
+				{
+					ChangeIconStateAndShowTip(Msg, Len,FALSE);
+				}
+            }
+            break;
+            //用户登录
+        case CLIENT_LOGNO_USRE_FLAG:  
+			{
+				if (!g_bEnable8021x)
+				{
+					wstring TipStr = L"";
+					wstring InfoStr = L"";
+					wstring TitleStr = L"";
+
+					splitTipMsg(Msg,Len,TipStr,InfoStr,TitleStr);
+					ChangeTrayInfo(TipStr.c_str(), InfoStr.c_str(),TitleStr.c_str(),pestablishJob.m_iTipMsgSilence);
+				}
+			}
+			break;
+		case  SERVER_NOTICE_CLIENT_USER_LOGNO_FLAG:
+			{
+				if (!g_bEnable8021x)
+				{
+					wstring TipStr = L"";
+					wstring InfoStr = L"";
+					wstring TitleStr = L"";
+
+					splitTipMsg(Msg,Len,TipStr,InfoStr,TitleStr);
+					if ( pestablishJob.m_userinfo.userid == 0 )
+					{
+						InfoStr = L"";
+					}
+					ChangeTrayInfo(TipStr.c_str(), InfoStr.c_str(),TitleStr.c_str(),pestablishJob.m_iTipMsgSilence);
+                    RecordWebRegisterUser();
+				}
+			}
+			break;
+		case  CLIENT_ONLINE_UNINSTALL_FLAG:
+			{
+				if (_strnicmp(Msg, SERVER_SUCCESS_STR, strlen(SERVER_SUCCESS_STR)) == 0)
+				{
+					UninstallProg();
+				}
+				else
+				{
+					wstring langinipath = m_DirPath;
+					langinipath +=L"\\lang\\";
+					langinipath += LANGUAGECONFIG[m_langtype];
+					langinipath += L".ini";
+					wchar_t errtitle[HP_C_USERCONTENTLEN] = {L"0"};
+					GetPrivateProfileString(MenuUninstallDlg,UNINSTALLCONTROLSTR[MENU_UNINSTALL_TITLE],
+						UNINSTALLCONTROLSTR[MENU_UNINSTALL_TITLE],
+						errtitle,sizeof(errtitle),langinipath.c_str());
+					wchar_t errmsg[HP_C_USERCONTENTLEN] = {L"0"};
+					GetPrivateProfileString(MenuUninstallDlg,UNINSTALLCONTROLSTR[MENU_UNINSTALL_CODEERROR],
+						UNINSTALLCONTROLSTR[MENU_UNINSTALL_CODEERROR],
+						errmsg,sizeof(errmsg),langinipath.c_str());
+					MessageBox(errmsg,errtitle,0);
+				}
+			}
+			break;
+        case GETASCMAC:
+            {
+                SendServiceDeviceAndGetRegisterPolicy(Msg);
+            }
+            break;
+        case GETNATSETTING:
+            pestablishJob.m_natsetting = atoi(Msg);
+            break;
+        case FINDSERVERTHREADFAIL:
+            {
+				if (!g_bEnable8021x)
+				{
+					ReSniffer();
+				}
+            }
+            break;
+        case SHOWWEBPAGE:
+            {
+				if (!g_bEnable8021x)
+				{
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "显示认证流程页面");
+					OnCheckAndLogin();
+				}
+            }
+            break;
+        case SERVER_SEND_NAT_INDEX:
+            {
+				if (!g_bEnable8021x)
+				{
+					int originalnatsetting = pestablishJob.m_natsetting;
+					int servnumber = atoi(Msg);
+
+					pestablishJob.m_natsetting = servnumber;
+					HandleSeverNatNotiy(originalnatsetting);
+				}
+            }
+            break;
+
+		case SERVER_SEND_NAC_TECHNOLOGY:
+			{
+				WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "准入技术切换");
+
+				wchar_t tiptitle[HP_C_USERCONTENTLEN] = {L"0"};
+				GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_TITLE],
+					SOCKTIPKEYSTR[SOCK_TIP_TITLE],tiptitle,sizeof(tiptitle));
+				wchar_t tipinfo[HP_C_USERCONTENTLEN] = {L"0"};
+				GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_DEFAULTTIP],
+					SOCKTIPKEYSTR[SOCK_TIP_DEFAULTTIP],tipinfo,sizeof(tipinfo));
+
+				ChangeTrayInfo(m_hIconState[LOGOFF], tipinfo, tipinfo, tiptitle, pestablishJob.m_iTipMsgSilence);
+				RestartMainProgram();
+			}
+			break;
+
+        case SERVER_IP_CHANGED_FLAG:
+            {
+                UnSetIllegalnternet();
+
+				if(m_oplsp.bIsInstallDll())
+					m_oplsp.PassAllPacket();
+
+				if (!g_bEnable8021x)
+				{
+					wchar_t tiptitle[HP_C_USERCONTENTLEN] = {L"0"};
+					GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_TITLE],
+						SOCKTIPKEYSTR[SOCK_TIP_TITLE],tiptitle,sizeof(tiptitle));
+
+					ChangeTrayInfo(m_hIconState[OFFLINE], NULL, NULL, tiptitle, pestablishJob.m_iTipMsgSilence);
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "无法连上服务器");
+
+					CHandleTTLValue getinitttl;
+					getinitttl.SetTTLValue(dlgPthis->m_InitialTTL);
+					getinitttl.SetOrGetTTLValueInReg(TRUE,&(dlgPthis->m_InitialTTLReg));
+
+					for (m_autofindser.lstokeniter = m_autofindser.lstoken.begin(); 
+						m_autofindser.lstokeniter != m_autofindser.lstoken.end( ); )
+					{
+						m_autofindser.lstoken.erase(m_autofindser.lstokeniter++);
+					}
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "无法连上服务器,设置TTL值为初始值", dlgPthis->m_InitialTTL);
+					StartOrEndSafeCheckTimer(FALSE,FALSE);
+				}
+            }
+            break;
+        case ROOTCERTIFICATION:
+            {
+				string paramStr = Msg;
+				vector<string> paramVec;
+				paramVec = split(paramStr,";");
+				if (paramVec.size()<5 )
+				{
+					WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "root user register param error");
+				}
+				else
+				{
+					m_openUserRegister = atoi(paramVec[0].c_str());
+					m_openGuestRegister = atoi(paramVec[1].c_str());
+					m_openDomainRegister = atoi(paramVec[2].c_str());
+					m_showDefaultUser = atoi(paramVec[3].c_str());
+					m_showDomainServ = atoi(paramVec[4].c_str());
+				}
+            }
+            break;
+            //修改长连接
+        case GETUUIDSETTING:
+            {
+                m_webToken = Msg;
+               ModifyConnectMark(Msg,Len);
+            }
+            break;
+        case UPLOADWEBTOKENSUCCESS:
+            {
+                if ( m_webToken != "")
+                {
+                    m_autofindser.lstoken.push_back(m_webToken);
+                    m_webToken = "";
+                }
+            }
+            break;
+        case GETSILENCECONFIG:
+            {
+                m_nid.uFlags = NIF_ICON|NIF_TIP|NIF_INFO|NIF_MESSAGE;
+            }
+            break;
+		case CLIENT_GET_DEVICE_AUTH_INFO_FLAG:
+			{
+				ChangeIconStateAndShowTip(Msg, Len,TRUE);
+			}
+			break;
+		case ONLINEUSERSTARTSFOMTIMER:
+			{
+				if (!m_bstartSFOntimer)//如果未开启
+				{
+					StartOrEndSafeCheckTimer(TRUE,TRUE);
+				}
+			}
+			break;
+		case CLIENT_GET_ADDOMAININFO:
+			m_bGetadDamaindate = TRUE;
+			break;
+        default:
+            break;
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        ::MessageBox(NULL, L"dlgHandleCallBackFun exception", L"Msg", 0);
+#endif 
+        ::MessageBox(NULL, L"dlgHandleCallBackFun exception", L"Msg", 0);
+        WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "dlgHandleCallBackFun exception");
+    }
+}
+
+void ChpidmnacDlg::CBFunction(int iflag, char *Msg, int Len)
+{
+    try
+    {
+        RECVMSG  *recvdata = NULL;
+        char *datainfo = new char[Len+HP_C_SENDSTRHEADER+1];
+        memset(datainfo,0,Len+HP_C_SENDSTRHEADER+1);
+        recvdata=(RECVMSG*)datainfo;
+        recvdata->Flag=(short int)iflag;
+        recvdata->ReServe = (short int)0;
+        recvdata->TotalLen = Len;
+        memcpy(recvdata->Msg, Msg, Len);
+        recvdata->Msg[Len]='\0';
+
+		dlgPthis->dlgHandleCallBackFun(recvdata->Flag,recvdata->Msg,Len);
+
+		delete[] datainfo;
+		datainfo = NULL;
+
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        ::MessageBox(NULL,L"CBFunction except",L"err",0);
+#endif
+        WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CBFunction except");
+    }
+}
+
+ //注册侦测网卡信息变更的消息
+ BOOL ChpidmnacDlg::GetNetworkChangeInfo()
+ {
+	 ///获取网卡禁用启用事件
+	 DEV_BROADCAST_DEVICEINTERFACE NotificationFilter;
+	 ZeroMemory( &NotificationFilter, sizeof(NotificationFilter) );
+	 NotificationFilter.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
+	 NotificationFilter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+	 NotificationFilter.dbcc_classguid = GUID_DEVINTERFACE_LIST;
+	 m_hDevNotify = RegisterDeviceNotification(this->GetSafeHwnd(), &NotificationFilter, DEVICE_NOTIFY_WINDOW_HANDLE);
+	 if( !m_hDevNotify ) 
+	 {
+		 DWORD dw = GetLastError();
+		 char msgerr[MAX_PATH] = {"0"};
+		 sprintf_s(msgerr,sizeof(msgerr),"Can't register device notification,getlasterr=%d",dw);
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,msgerr);
+		 return FALSE;
+	 }
+	 else
+	 {
+		 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"注册消息成功");
+	 }
+	 return TRUE;
+ }
+
+ LRESULT ChpidmnacDlg::OnMyDeviceChange(WPARAM wParam, LPARAM lParam)
+ {
+	 DefWindowProc(WM_DEVICECHANGE, wParam, lParam);
+
+	 if ( DBT_DEVICEARRIVAL == wParam || DBT_DEVICEREMOVECOMPLETE == wParam ) {
+		 PDEV_BROADCAST_HDR pHdr = (PDEV_BROADCAST_HDR)lParam;
+		 PDEV_BROADCAST_DEVICEINTERFACE pDevInf;
+		 switch( pHdr->dbch_devicetype ) {
+		 case DBT_DEVTYP_DEVICEINTERFACE:
+			 pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE)pHdr;
+			 if ( DBT_DEVICEARRIVAL == wParam )
+			 {
+				 if (!g_bEnable8021x)
+				 {
+					 DWORD eventtime = GetTickCount();
+					 HandleNetworkEvent(eventtime);
+				 }
+				 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"网卡被启用");
+			 }
+			 else
+			 {
+				 if (!g_bEnable8021x)
+				 {
+					 DWORD eventtime = GetTickCount();
+					 HandleNetworkEvent(eventtime);
+				 }
+				 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"网卡被禁用");
+			 }
+			 break;
+		 default:
+			 break;
+		 }
+	 }
+	 return 0;
+ }
+
+ LRESULT ChpidmnacDlg::OnNetWorkStateChange(WPARAM wParam, LPARAM lParam)
+ {
+	 UNREFERENCED_PARAMETER(wParam);
+	 UNREFERENCED_PARAMETER(lParam);
+	 if (!g_bEnable8021x)
+	 {
+		 DWORD eventtime = GetTickCount();
+	     HandleNetworkEvent(eventtime);
+	 }
+	 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "ip地址发生变化");
+	 return TRUE;
+ }
+
+int ChpidmnacDlg::CBNetworkChange(int Param1, int Param2)
+ {
+	 UNREFERENCED_PARAMETER(Param1);
+	 UNREFERENCED_PARAMETER(Param2);
+
+	 if (!g_bEnable8021x)
+	 {
+		 DWORD eventtime = GetTickCount();
+		 dlgPthis->HandleNetworkEvent(eventtime);
+	 }
+	 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "ip地址发生变化");
+	 return FALSE;
+ }
+
+LRESULT ChpidmnacDlg::OnRightMenuClick(WPARAM wParam,LPARAM lParam)
+{
+	UNREFERENCED_PARAMETER(lParam);
+	CDuiString *strMenuName = (CDuiString*)wParam;
+
+	SetForegroundWindow();
+
+	if ( *strMenuName == CONTROLNAMESTR[MENU_RIGHT_REGISTER]) 
+	{
+		OnCheckAndLogin();
+	}	
+	else if( *strMenuName == CONTROLNAMESTR[MENU_RIGHT_REGISRES] )
+	{
+		OnBrowserResult();
+	}
+	else if ( *strMenuName == CONTROLNAMESTR[MENU_RIGHT_NETWORKINFO]) 
+	{
+		OnShowAllowNetWork();
+	}
+	else if ( *strMenuName == CONTROLNAMESTR[MENU_RIGHT_RESTART]) 
+	{
+		//OnRestart();
+		unsigned int  restartid = 0;
+		_beginthreadex(NULL, 0, RestartClientThread, this, 0,&restartid);
+	}
+	else if ( *strMenuName == CONTROLNAMESTR[MENU_RIGHT_LOGON]) 
+	{
+		OnAutologon();
+	}
+	else if ( *strMenuName == CONTROLNAMESTR[MENU_RIGHT_UNINSTALL]) 
+	{
+	 OnUnInstallProgram();
+	}
+	else if ( *strMenuName == CONTROLNAMESTR[MENU_RIGHT_ABOUT]) 
+	{
+		ShowAboutDlg();
+	}
+	else if (*strMenuName == CONTROLNAMESTR[MENU_RIGHT_SYSTEMLOG])
+	{
+		OnShowSocketMsgInfo();
+	}
+	else if (*strMenuName == CONTROLNAMESTR[MENU_RIGHT_LANGINFO])
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"语言被点击");
+	}
+	else if (*strMenuName == CONTROLNAMESTR[MENU_RIGHT_JIANTI])
+	{
+		if (m_langtype != JIANTICHINESE)
+		{
+			FindAlreadyOpenDlgAndClose();
+			m_langtype = JIANTICHINESE;
+			ModifySocketClassLang();
+			SendServerLocalLanguageInfo();
+		}
+		
+	}
+	else if (*strMenuName == CONTROLNAMESTR[MENU_RIGHT_FANTI])
+	{
+		if (m_langtype != FANTICHINESE)
+		{
+			FindAlreadyOpenDlgAndClose();
+			m_langtype = FANTICHINESE;
+			ModifySocketClassLang();
+			SendServerLocalLanguageInfo();
+		}
+	}
+	else if (*strMenuName == CONTROLNAMESTR[MENU_RIGHT_ENGLISH])
+	{
+		if (m_langtype != ENGLISH)
+		{
+			FindAlreadyOpenDlgAndClose();
+			m_langtype = ENGLISH;
+			ModifySocketClassLang();
+			SendServerLocalLanguageInfo();
+		}
+	}
+	else if (*strMenuName == CONTROLNAMESTR[MENU_RIGHT_JAPAN])
+	{
+		if (m_langtype != JAPAN)
+		{
+			FindAlreadyOpenDlgAndClose();
+			m_langtype = JAPAN;
+			ModifySocketClassLang();
+			SendServerLocalLanguageInfo();
+		}
+	}
+	else if (*strMenuName == CONTROLNAMESTR[MENU_RIGHT_8021X])
+	{
+		Show8021xWindow(this->m_hWnd);
+	}
+	else if (*strMenuName == CONTROLNAMESTR[MENU_RIGHT_DISCONNECT])
+	{
+		if (g_bEnable8021x)
+		{
+			MenuDisableNetwork();
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"非802.1x环境下进行断开网络");
+
+			char discononline[MAX_PATH*2] = {"0"};
+			GetLangValueByKeyA((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_DISCONONLINE],
+				SOCKTIPKEYSTR[SOCK_TIP_DISCONONLINE],discononline,sizeof(discononline));
+
+			string inputparam ="0#";
+			inputparam += discononline;
+			pestablishJob.InitSendMsgParam(CLIENT_REQUST_ONLINE_FLAG,inputparam);
+			pestablishJob.execute();
+		}
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"没有该右键菜单选项");
+	}
+	delete strMenuName;
+	return TRUE;
+}
+
+void ChpidmnacDlg::InitControlText(CMenuWnd* pMenu,RIGHTMENUSTAT menustat)
+{
+	wchar_t langinipath[MAX_PATH] = {L"0"};
+	wchar_t  dirptahW[MAX_PATH] = {L"0"};
+	ConvertA2W(g_nacdirpath,dirptahW,sizeof(dirptahW));
+	wsprintf(langinipath,L"%s\\lang\\%s.ini",dirptahW,LANGUAGECONFIG[m_langtype]);
+
+	CMenuElementUI* langtypeelemui = NULL;
+	CMenuUI  *menuui = pMenu->GetMenuUI();
+	if (menuui)
+	{
+		//显示文字
+		int menucount = menuui->GetCount();
+		for (int i=0; i<menucount; i++)
+		{
+			CMenuElementUI* elementui =  static_cast<CMenuElementUI*>(menuui->GetItemAt(i));
+			if (elementui)
+			{
+				CStdString menuname = elementui->GetName();
+				wchar_t menuText[MAX_PATH] = {L"0"};
+				GetPrivateProfileString(MenuRight,menuname.GetData(),menuname.GetData(),menuText,sizeof(menuText),langinipath);
+				elementui->SetText(menuText);
+				if (menuname == CONTROLNAMESTR[MENU_RIGHT_LANGINFO])
+				{
+					langtypeelemui = static_cast<CMenuElementUI*>(menuui->GetItemAt(i));
+				}
+				if (menuname == CONTROLNAMESTR[MENU_RIGHT_8021X])
+				{
+					if ((menustat ==CONNECTWHITOUTUSER)||(menustat == CONNECTWHITHUSER)||(menustat ==DISCONNECTORFORBIT))
+						elementui->SetVisible(false);
+				}
+				else if ((menuname == CONTROLNAMESTR[MENU_RIGHT_REGISTER]) ||
+					(menuname == CONTROLNAMESTR[MENU_RIGHT_REGISRES]) ||
+					(menuname == CONTROLNAMESTR[MENU_RIGHT_NETWORKINFO]))
+				{
+					if ((menustat ==CONNECT8021X)||(menustat == DISCONNECT8021X)||(menustat == DISCONNECTORFORBIT))
+						elementui->SetVisible(false);
+				}
+				else if (menuname == CONTROLNAMESTR[MENU_RIGHT_LOGON])
+				{
+					if (menustat == CONNECTWHITHUSER )
+						elementui->SetVisible(true);
+					else 
+						elementui->SetVisible(false);
+				}
+				else if (menuname == CONTROLNAMESTR[MENU_RIGHT_SYSTEMLOG])
+				{
+					if ((menustat ==CONNECT8021X)||(menustat == DISCONNECT8021X))
+						elementui->SetVisible(false);
+				}
+				else if (menuname == CONTROLNAMESTR[MENU_RIGHT_DISCONNECT])
+				{
+					if (menustat ==CONNECT8021X)
+					{
+						elementui->SetEnabled(true);
+					}
+					else if(menustat ==DISCONNECT8021X)
+					{
+						elementui->SetEnabled(false);
+					}
+					else
+					{
+						char inifilepath[MAX_PATH] = {"0"};
+						sprintf_s(inifilepath,sizeof(inifilepath),"%s\\data\\VersAndLog_config.ini",g_nacdirpath);
+						int currstat = GetPrivateProfileIntA("Param", "state", LOGOFF, inifilepath);
+						if ( ((currstat == LOGON) || (currstat == LOGONISOLATION) ||(currstat == KEYISOLATION))&&
+							(g_EstliSocket.IsOpen()))
+						{
+							elementui->SetEnabled(true);
+						}
+						else
+						{
+							elementui->SetEnabled(false);
+						}
+					}
+				}
+			}
+		}
+
+		if (langtypeelemui)
+		{
+			int langnum = langtypeelemui->GetCount();
+			for (int j=0;j<langnum;j++)
+			{
+				CMenuElementUI* langui =  static_cast<CMenuElementUI*>(langtypeelemui->GetItemAt(j));
+				if (langui)
+				{
+					CStdString lanyname = langui->GetName();
+					wchar_t menuText[MAX_PATH] = {L"0"};
+					GetPrivateProfileString(MenuRight,lanyname.GetData(),lanyname.GetData(),menuText,sizeof(menuText),langinipath);
+					langui->SetText(menuText);
+					if (j == (m_langtype-1))
+					{
+						langui->SetAttribute(L"icon",L"res\\radio_sel.png");
+					}
+				}
+			}
+		}
+	}
+}
+
+void ChpidmnacDlg::popUpRightMenu(RIGHTMENUSTAT menustat)
+{
+	::SetForegroundWindow(m_hWnd);
+	HWND hWnd = ::FindWindow(NULL, RIGHTMENUCLASSNAME);
+	if ( hWnd == NULL )
+	{
+		CMenuWnd* pMenu = new CMenuWnd(m_hWnd);
+		DuiLib::CPoint point;
+		GetCursorPos(&point);
+
+		wchar_t xmlPath[MAX_PATH] = {L"xml\\menu.xml"};
+		pMenu->GetLangtypeAndMenuState((LANGUAGETYPE)m_langtype,menustat,LOGOFF);
+		pMenu->Init(NULL, RIGHTMENUCLASSNAME,xmlPath, point, &m_PaintManager,0, true );
+		InitControlText(pMenu,menustat);
+		pMenu->ResizeMenu(); 
+		::PostMessage(m_hWnd,WM_NULL,0,0);
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"右键菜单已经打开");
+	}
+}
+
+//获取语言问题
+int ChpidmnacDlg::GetLocalLanguage()
+{
+	int langtype = ENGLISH;
+	LANGID lid = GetSystemDefaultLangID();
+	switch (lid)
+	{
+	case 0X0804:
+		langtype = JIANTICHINESE;
+		break;
+	case 0X0409:
+		langtype = ENGLISH;
+		break;
+	case 0X0404:
+		langtype = FANTICHINESE;
+		break;
+	case 0x0411:
+		langtype = JAPAN;
+		break;
+	default:
+		break;
+	}
+	return langtype;
+}
+
+void ChpidmnacDlg::ModifySocketClassLang()
+{
+	pestablishJob.m_sflangtype = m_langtype;
+	//气泡提示语言发生了变化
+	wchar_t tiptitle[HP_C_USERCONTENTLEN] = {L"0"};
+	GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_TITLE],
+		SOCKTIPKEYSTR[SOCK_TIP_TITLE],tiptitle,sizeof(tiptitle));
+	wchar_t tipinfo[HP_C_USERCONTENTLEN] = {L"0"};
+	GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_SWITCHLANG],
+		SOCKTIPKEYSTR[SOCK_TIP_SWITCHLANG],tipinfo,sizeof(tipinfo));
+	if( pestablishJob.m_userinfo.username.length() )
+	{
+		wchar_t usertip[MAX_PATH] = {L"0"};
+		ConvertA2W(pestablishJob.m_userinfo.username.c_str(), usertip, MAX_PATH);
+		ChangeTrayInfo(usertip, tipinfo,tiptitle,pestablishJob.m_iTipMsgSilence);
+	}
+	else
+		ChangeTrayInfo(tipinfo, tipinfo,tiptitle,pestablishJob.m_iTipMsgSilence);
+}
+//************************************
+// 函数名称:  HandleNetworkEvent
+// 函数说明:  判断是否是在事件间隔之外接收到的网卡变更信息，若是则重新获取ip和
+//                 mac值，并与原始的列表进行比较，若不一样的话则上传ipmac信息，否则不
+//                
+// 返回值:   BOOL:若上传了ipmac的值，则为TRUE,若没有上传ipmac的值则为FALSE
+// 参数: DWORD eventtime:事件触发的时间
+// 作者: gaochunyan
+// 日期：2015/12/02
+//************************************
+BOOL  ChpidmnacDlg::HandleNetworkEvent(DWORD eventtime)
+{
+	//如果是初次接收到事件,则获取网卡的ip和mac信息
+	//如果在超过时间以后又接收到该网卡事件，重新获取网卡的ip和mac信息
+	if (eventtime-m_nkexecstarttime>HP_NETWORKEVENT_TIMEVAL)
+	{
+		  m_nkexecstarttime = GetTickCount();
+		  //重新获取ip和mac值
+		  //与原来上传的ip和mac的值进行比较
+		  //不一致的话上传ip和mac列表
+		  wchar_t tiptitle[HP_C_USERCONTENTLEN] = {L"0"};
+		  GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_TITLE],
+			  SOCKTIPKEYSTR[SOCK_TIP_TITLE],tiptitle,sizeof(tiptitle));
+		  wchar_t  networkchange[MAX_PATH*2] = {L"0"};
+		  GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_NETWORKCHANGE],
+			  SOCKTIPKEYSTR[SOCK_TIP_NETWORKCHANGE],networkchange,sizeof(networkchange));
+
+		  dlgPthis->ChangeTrayInfo(networkchange, tiptitle,dlgPthis->pestablishJob.m_iTipMsgSilence);
+		UpdateNetworkInfoToservice(TRUE);
+	}
+	return FALSE;
+}
+
+void ChpidmnacDlg::UpdateNetworkInfoToservice(BOOL bChange)
+{
+	try
+	{
+		if (strcmp(g_deviceid.c_str(),"0")==0 || strcmp(g_deviceid.c_str(),"-1")==0 )
+		{
+			WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"网卡信息变更时没有设备id号不进行上传");
+			return;
+		}
+		list<AdapterInfo>  adaptlist;
+		m_adapterinfo.GetNetworkIpAndMac(adaptlist);
+		BOOL bUploadList = TRUE;
+		if (bChange)
+		{
+			bUploadList = m_adapterinfo.NeedUpdateNetworkInfoToService(adaptlist);
+		}
+		if (bUploadList)
+		{
+			m_adapterinfo.WriteAdaptInfoToMap(adaptlist);
+
+			string xmlstring;
+			string networklist("");
+			char localIp[IPADDRESSLENGTH] = {0};
+			sprintf_s(localIp, IPADDRESSLENGTH, "%s", inet_ntoa(g_EstliSocket.m_connsip.sin_addr));
+
+			networklist += "<networkCard ideviceid=\""+g_deviceid+"\">";
+
+			if (adaptlist.size() > 1)//只有一块网卡,是建立连接的网卡,只发送设备id号
+			{
+				list<AdapterInfo>::iterator   adaptiter;
+				for (adaptiter =adaptlist.begin();adaptiter!=adaptlist.end(); ++adaptiter)
+				{
+					AdapterInfo tmpadapt = *adaptiter;
+					if (strcmp(tmpadapt.ipvalue,localIp))
+					{
+						networklist += "<deviceinfo networkname=\"";
+						networklist += tmpadapt.adapterpszwName;
+						networklist += "\">";
+						networklist += tmpadapt.ipvalue;
+						networklist += ";";
+						networklist +=tmpadapt.macvalue;
+						networklist +="</deviceinfo>";
+					}
+				}
+			}
+
+			string xmlHeader= "<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+			string xmlTail= "</networkCard></nac>";
+			xmlstring = xmlHeader+networklist+xmlTail;
+			HandleJob1  execpload;
+			execpload.InitParam(g_EstliSocket.m_hComm,CLIENT_SEND_NETWORKLIST, xmlstring.c_str());
+			execpload.execute();
+		}
+		
+		StartSnifferInfo(FALSE);
+	}
+	catch(...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION,"UpdateNetworkInfoToservice 异常");
+	}
+}
+
+LRESULT ChpidmnacDlg::OnDeviceForbitMsg(WPARAM wParam, LPARAM lParam)
+{
+	UNREFERENCED_PARAMETER(wParam);
+	UNREFERENCED_PARAMETER(lParam);
+	if (!g_bEnable8021x)
+	{
+		wstring TipStr = L"";
+		wstring InfoStr = L"";
+		wstring TitleStr = L"";
+
+		char tiptitle[HP_C_USERCONTENTLEN] = {"0"};
+		GetLangValueByKeyA((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_TITLE],
+			SOCKTIPKEYSTR[SOCK_TIP_TITLE],tiptitle,sizeof(tiptitle));
+		char tiptitleRes[HP_C_USERCONTENTLEN+3] = {"0"};
+		sprintf_s(tiptitleRes,sizeof(tiptitleRes),"%s:",tiptitle);
+
+		char tishitip[20] = {0};
+		ConvertA2UTF8(tiptitleRes, tishitip, sizeof(tishitip));
+		char *tipmsg = new char[MAX_PATH*3+8];
+		memset(tipmsg,0,MAX_PATH*3+8);
+		char enablemsg[MAX_PATH*3] = {"0"};
+		if (pestablishJob.m_cstg.GetEnableDeviceMsg(enablemsg,sizeof(enablemsg)))
+		{
+			sprintf_s(tipmsg,MAX_PATH*3+8,"%s%s",tishitip,enablemsg);
+		}
+		else
+		{
+			char forbittip[MAX_PATH]={"Tip:ServiceMsgExcept"};
+			ConvertA2UTF8(forbittip, tipmsg, MAX_PATH*3+8);
+		}
+		splitTipMsg(tipmsg,strlen(tipmsg),TipStr,InfoStr,TitleStr);
+		
+		HWND hWnd = ::FindWindow(NULL, L"DEVICEFORBITTIPINFO");
+		if ( hWnd == NULL )
+		{
+			CTipInfodlg *tipdlg = new CTipInfodlg;
+			if ( tipdlg != NULL)
+			{
+				int timeout = 10;
+			   timeout=GetPrivateProfileIntA("Param", "Identidlgtime",timeout, m_inipath);
+				tipdlg->Init(L"xml\\tipinfo.xml",(wchar_t*)TitleStr.c_str(),(wchar_t*)InfoStr.c_str(),timeout,FALSE,FALSE);
+				tipdlg->Create(NULL,L"DEVICEFORBITTIPINFO", WS_POPUP, WS_EX_TOOLWINDOW | WS_EX_TOPMOST, 556, 778, 100, 200, NULL);
+				tipdlg->ShowWindow(TRUE,FALSE);
+			}
+		}
+	}
+	return FALSE;
+}
+
+LRESULT ChpidmnacDlg::OnDomainidentifyTip(WPARAM wParam, LPARAM lParam)
+{
+	CFileinfoCheckSum filechecksum;
+	if (wParam == NULL && lParam == NULL )//表示域用户检查安检项不需要验证
+	{
+		m_bdomainidenontimer = FALSE;
+		//将域用户验证开始时间置回默认值
+		filechecksum.WriteIdentifyDomainOnTimerToIniFile("#");
+		m_delayoffline.initData();
+		return 0;
+	}
+
+	DELAYOFFLINETIP *domainidentify = (DELAYOFFLINETIP*)wParam;
+
+	ADSERVERNAMEIP *addomainlist = (ADSERVERNAMEIP*)lParam;
+
+	if (domainidentify->ontimeornot)
+	{
+		if (m_delayoffline.m_bNeedDomainIden)
+		{
+			return TRUE;
+		}
+
+		string currservtime = CalcCurrServTime();
+		long long currtime = _atoi64(currservtime.c_str());
+		m_delayoffline.GetServDomainConfig(domainidentify,addomainlist,pestablishJob.m_asynofflinestat,pestablishJob.m_idenontime);
+		if (pestablishJob.m_asynofflinestat)
+		{
+			m_delayoffline.m_timefre = m_delayoffline.m_domainperiod-m_delayoffline.m_advnoticetime;
+			m_delayoffline.m_startidentifytime = pestablishJob.m_idenontime+m_delayoffline.m_timefre*1000;
+			pestablishJob.m_asynofflinestat = FALSE;
+		}
+		m_bdomainidenontimer  = TRUE;
+	}
+	else
+	{
+		m_delayoffline.GetServDomainConfig(domainidentify,addomainlist,FALSE,0);
+		m_bdomainidenontimer  = FALSE;
+		if ( g_domainidenResult == "0" )
+		{
+			int identRes = DOMAINIDENTTIMEOUT;
+			CDomainIdentydlg  *idendlg = new CDomainIdentydlg();
+			BOOL balready = FALSE;
+			HWND hWnd = ::FindWindow(NULL, DomainIdentifyDlg);
+			if(hWnd)
+			{
+				::SendMessage(hWnd,WM_DOMAINIDENTIFYTERMINATE,0,0);
+				//return FALSE;
+			}
+			unsigned long  dlgtimeout = m_delayoffline.m_idendlgtimeout*60*1000;
+			if (idendlg)
+			{
+				idendlg->Init(L"xml\\domainidentify.xml",(LANGUAGETYPE)m_langtype,FALSE,dlgtimeout,m_delayoffline.m_addomainlist);//时间转化为毫秒
+				idendlg->Create(NULL,DomainIdentifyDlg,UI_WNDSTYLE_DIALOG, WS_EX_TOOLWINDOW | WS_EX_TOPMOST, 556, 778, 100, 200, NULL);
+				idendlg->ShowWindow(TRUE,TRUE);
+			}
+		}
+	}
+
+	delete domainidentify;
+	domainidentify = NULL;
+	delete[] addomainlist;
+	addomainlist = NULL;
+
+	return FALSE;
+}
+
+LRESULT ChpidmnacDlg::OnDomainidenDelayOffline(WPARAM wParam, LPARAM lParam)
+{
+	try 
+	{
+		char *identifyinfo=(char*)wParam;
+		int *identifyres = (int*)lParam;
+
+		string identifyinfostr=identifyinfo;
+		int userpos=identifyinfostr.find(";",0);
+		if ( userpos != string::npos )
+		{
+			string identifyuser = identifyinfostr.substr(0,userpos);
+			string identifydomain=identifyinfostr.substr(userpos+1);
+			if (m_bdomainidenontimer)
+			{
+				BOOL bRet = FALSE;
+				if ( (*identifyres) == DOMAINIDENTSUCCESS)
+				{
+					bRet = TRUE;
+					if (m_delayoffline.InWhiteUserOrBlackUser(const_cast<char*>(identifyuser.c_str()),identifyuser.length(),const_cast<char*>(identifydomain.c_str()),
+						identifydomain.length())== HP_DOMAIN_BELONGDOMAINBLACK)
+					{
+						m_bdomainidenontimer = FALSE;
+						bRet = FALSE;
+						char identifydes[MAX_PATH*2] = {"0"};
+						m_delayoffline.SendDomainIdentifyOfflineinfo((int)HP_DOMAIN_BELONGDOMAINBLACK,(LANGUAGETYPE)m_langtype,identifydes,sizeof(identifydes),
+							const_cast<char*>(identifyuser.c_str()),const_cast<char*>(identifydomain.c_str()));
+						DomainIdentifyOffline(identifydes);
+						CFileinfoCheckSum filechecksum;
+						filechecksum.WriteIdentifyDomainOnTimerToIniFile("#");
+					}
+					else
+					{
+						m_bdomainidenontimer = FALSE;
+						//m_bdomainidenontimer = TRUE;
+						//进行下一轮的域用户定时验证,记录现在的服务器时间
+						string currservtime = CalcCurrServTime();
+						long long currtime = _atoi64(currservtime.c_str());
+						m_delayoffline.m_timefre = m_delayoffline.m_domainperiod-m_delayoffline.m_advnoticetime;
+						m_delayoffline.m_startidentifytime = currtime+m_delayoffline.m_timefre*1000;
+						//记录下来域用户验证的时间
+						CFileinfoCheckSum filechecksum;
+						filechecksum.WriteIdentifyDomainOnTimerToIniFile(const_cast<char*>(currservtime.c_str()));
+
+						bFindWindowsTitle(DOMAINTIPDLG,TRUE,WM_LANGCHANGE);
+						m_bdomainidenontimer = TRUE;
+					}
+					m_delayoffline.SendDomainIdentifyInfoToServer(m_delayoffline.m_domainidentify.username,m_delayoffline.m_domainidentify.userdomain,
+						identifyuser,identifydomain,bRet);
+					m_delayoffline.InitIdentifyNumber(0);
+				}
+				else if ( (*identifyres) == DOMAINIDENTFAIL )
+				{
+					char identifydes[MAX_PATH*2] = {"0"};
+					m_delayoffline.SendDomainIdentifyOfflineinfo((int)DOMAINIDENTFAIL,(LANGUAGETYPE)m_langtype,identifydes,sizeof(identifydes),
+						const_cast<char*>(identifyuser.c_str()),const_cast<char*>(identifydomain.c_str()));
+					m_delayoffline.SendDomainIdentifyInfoToServer(m_delayoffline.m_domainidentify.username,
+					m_delayoffline.m_domainidentify.userdomain,identifyuser,identifydomain,bRet);
+				}
+				else
+				{
+					WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"验证超时");
+				}
+			}
+			else//
+			{
+				if (((*identifyres) == DOMAINIDENTSUCCESS)||
+					((*identifyres) == DOMAINIDENTFAIL) ||
+					((*identifyres) == DOMAINIDENTCANCEL))
+				{
+					EnterCriticalSection(&g_doaminidenlogcs);
+					g_domainidenResult = "0";
+					char identifyresstr[HP_C_USERCONTENTLEN] = {"0"};
+					sprintf_s(identifyresstr,sizeof(identifyresstr),"%s;%d;",m_delayoffline.m_domainidentify.servsftimeval,*identifyres);
+					g_domainidenResult = identifyresstr;
+					g_domainidenResult += identifyinfo;
+					LeaveCriticalSection(&g_doaminidenlogcs);
+				}
+			}
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"domain identify param error");
+		}
+
+		delete[] identifyinfo;
+		identifyinfo = NULL;
+		delete identifyres; 
+		identifyres = NULL;
+		return FALSE;
+	}
+	catch (...)
+	{
+#ifdef DEBUG
+		MessageBox(L"OnDomainidenDelayOffline exception",L"OnDomainidenDelayOffline exception",MB_OK);
+#endif
+		WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"OnDomainidenDelayOffline exception");
+		return FALSE;
+	}
+}
+
+LRESULT ChpidmnacDlg::OnTipLinkEvent(WPARAM wParam, LPARAM lParam)
+{
+	int identRes = DOMAINIDENTTIMEOUT;
+	CDomainIdentydlg  *idendlg = new CDomainIdentydlg();
+	BOOL balready = FALSE;
+	HWND hWnd = ::FindWindow(NULL, DomainIdentifyDlg);
+	if(hWnd)
+	{
+		::SendMessage(hWnd,WM_DOMAINIDENTIFYTERMINATE,0,0);
+		//return FALSE;
+	}
+	unsigned long  dlgtimeout = m_delayoffline.m_idendlgtimeout*60*1000;
+	if (idendlg)
+	{
+		idendlg->Init(L"xml\\domainidentify.xml",(LANGUAGETYPE)m_langtype,FALSE,dlgtimeout,m_delayoffline.m_addomainlist);//时间转化为毫秒
+		idendlg->Create(NULL,DomainIdentifyDlg,UI_WNDSTYLE_DIALOG, WS_EX_TOOLWINDOW | WS_EX_TOPMOST, 556, 778, 100, 200, NULL);
+		idendlg->ShowWindow(TRUE,TRUE);
+	}
+	return TRUE;
+}
+
+LRESULT ChpidmnacDlg::OnLocalUserLogin(WPARAM wParam, LPARAM lParam)
+{
+	UNREFERENCED_PARAMETER(lParam);
+	USERINFO *loginuser = (USERINFO*)wParam;
+	if (loginuser)
+	{
+		//通知服务器本地客户端切换用户(下线)
+		char  switchuser[MAX_PATH] = {"0"};
+		GetLangValueByKeyA((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_SWITCHUSER],
+			SOCKTIPKEYSTR[SOCK_TIP_SWITCHUSER],switchuser,sizeof(switchuser));
+		string inputparam = "0#";
+		inputparam += switchuser;
+		pestablishJob.InitSendMsgParam(CLIENT_REQUST_ONLINE_FLAG,inputparam);
+		pestablishJob.execute();
+
+		Sleep(1000);
+
+		int IsDecod = 0;
+		string inputStr="";
+		inputStr = std::to_string(_Longlong (IsDecod));
+		inputStr +=";";
+		inputStr+= std::to_string(_Longlong (loginuser->remberpwd));
+		inputStr +=";";
+		inputStr+= std::to_string(_Longlong (loginuser->autologon));
+		inputStr +=";";
+		inputStr+=loginuser->username;
+		inputStr+=";";
+		inputStr+=loginuser->userpwd;
+		inputStr+=";";
+		inputStr+=std::to_string(_Longlong (loginuser->usertype));
+		inputStr+=";";
+		inputStr+=loginuser->userdomain;
+
+		pestablishJob.InitSendMsgParam(LOCALLOGON,inputStr);
+		pestablishJob.execute();
+		pestablishJob.m_userinfo.usercomfrom = USERFROMRIGHTMENU;
+		pestablishJob.m_userinfo.autologon = NOTAUTOLOGON;
+
+		delete loginuser;
+	}
+	return FALSE;
+}
+
+///域用户验证延时下线验证
+BOOL ChpidmnacDlg::ShowDomainIdentifyTip(time_t currenttime,DWORD timediff)
+{
+	if (!m_delayoffline.BNeedShowDomainIden(currenttime,timediff))
+	{
+		return FALSE;
+	}
+	wchar_t tipinfo[MAX_PATH*2] = {L"0"};
+	unsigned long long alreadyusedtime = 0;
+	unsigned long long lasttime = m_delayoffline.CalculateLastTime((LANGUAGETYPE)m_langtype,&alreadyusedtime,tipinfo);
+	
+	char lasttimestr[HP_C_USERCONTENTLEN] = {"0"};
+	if (lasttime)
+	{
+		HWND hWnd = ::FindWindow(NULL, DOMAINTIPDLG);
+		if(hWnd)
+		{
+			::SendMessage(hWnd,WM_LANGCHANGE,0,0);
+		}
+
+		CTipInfodlg *tipdlg = new CTipInfodlg;
+		if ( tipdlg != NULL)
+		{
+			int timeout = m_delayoffline.m_idendlgtimeout*60;
+			if( timeout == 0 )
+				timeout = (numeric_limits<unsigned long>::max)();
+
+			wchar_t titleW[MAX_PATH] = {L"0"};
+			GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SFDOMAINAPPNAME,SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYTIPTITLE],
+				SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYTIPTITLE],titleW,sizeof(titleW));
+			tipdlg->Init(L"xml\\tipinfo.xml",titleW,(wchar_t*)tipinfo,timeout,TRUE,TRUE);
+			tipdlg->Create(NULL,DOMAINTIPDLG, UI_WNDSTYLE_DIALOG, WS_EX_TOOLWINDOW | WS_EX_TOPMOST, 556, 778, 100, 200, NULL);
+			tipdlg->ShowWindow(TRUE,TRUE);
+		}
+	}
+	else
+	{
+		m_bdomainidenontimer = FALSE;
+		memset(lasttimestr,0,sizeof(lasttimestr));
+		memcpy(lasttimestr,"#",strlen("#"));
+		m_bdomainidenontimer = FALSE;
+		char identifydes[MAX_PATH*2] = {"0"};
+		m_delayoffline.SendDomainIdentifyOfflineinfo((int)DOMAINIDENTTIMEOUT,(LANGUAGETYPE)m_langtype,identifydes,sizeof(identifydes));
+		DomainIdentifyOffline(identifydes);
+		CFileinfoCheckSum filechecksum;
+		filechecksum.WriteIdentifyDomainOnTimerToIniFile("#");
+		m_delayoffline.initData();
+		EnterCriticalSection(&g_doaminidenlogcs);
+		g_domainidenResult = "0";
+		LeaveCriticalSection(&g_doaminidenlogcs);
+		m_delayoffline.m_bNeedDomainIden = TRUE;
+		bFindWindowsTitle(DOMAINTIPDLG,TRUE,WM_LANGCHANGE);
+		bFindWindowsTitle(DomainIdentifyDlg,TRUE,WM_DOMAINIDENTIFYTERMINATE);
+	}	
+
+	return TRUE;
+}
+
+void ChpidmnacDlg::DomainIdentifyOffline(char* identifydes)
+{
+	string inputparam = "0#";
+	inputparam+=identifydes;
+	pestablishJob.InitSendMsgParam(CLIENT_REQUST_ONLINE_FLAG,inputparam);
+	pestablishJob.execute();
+}
+
+void ChpidmnacDlg::FindAlreadyOpenDlgAndClose()
+{
+	bFindWindowsTitle(MenuLogin,TRUE,WM_LANGCHANGE);
+	bFindWindowsTitle(MenuAboutDlg,TRUE,WM_LANGCHANGE);
+	bFindWindowsTitle(MenuUninstallDlg,TRUE,WM_LANGCHANGE);
+	bFindWindowsTitle(MenuNetworkInfoDlg,TRUE,WM_LANGCHANGE);
+	bFindWindowsTitle(DOMAINTIPDLG,TRUE,WM_LANGCHANGE);
+	bFindWindowsTitle(DomainIdentifyDlg,TRUE,WM_DOMAINIDENTIFYTERMINATE);
+}
+
+LRESULT ChpidmnacDlg::OnUninstallMsg(WPARAM wParam,LPARAM lParam)
+{
+	int bNoUninstallCode = pestablishJob.m_noUninstallCode;
+	if (bNoUninstallCode)
+	{
+		UninstallProg();
+	}
+	else
+	{
+		int msglen = (int)lParam;
+		if (msglen>0)
+		{
+			wchar_t  *uninstallinfo = new wchar_t[msglen+1];
+			memset(uninstallinfo,0,(msglen+1)*sizeof(wchar_t));
+			uninstallinfo = (wchar_t*)wParam;
+
+			if ( wcscmp(uninstallinfo,L"GCYGCY") == 0)
+			{
+				UninstallProg();
+				return 0;
+			}
+
+			if(msglen != 13 )
+			{
+				MessageBox(L"密码长度不对", L"ERROR", MB_OK|MB_ICONERROR);
+				return 0;
+			}
+
+			wstring unstallcodeinfo = uninstallinfo;
+			int pos = unstallcodeinfo.find(L";");
+			if ( pos == wstring::npos )
+			{
+				MessageBox(L"密码格式不对", L"ERROR", MB_OK|MB_ICONERROR);
+				return 0;
+			}
+			wstring applycodestr = unstallcodeinfo.substr(0,pos);
+			wstring identifycodestr = unstallcodeinfo.substr(pos+1);
+			long applynum = _ttol(applycodestr.c_str());
+			long code = (applynum-1)*4+103105;
+			char encode[50] = {0};
+
+			sprintf_s(encode, 50, "%ld", code);
+
+			int codelen = strlen(encode);
+			int codeindexnum[7]={0};
+
+			if(codelen<=6)
+			{
+				for(int i=0;i<6;i++)
+					codeindexnum[i] = encode[5-i]-48;
+			}
+			else
+			{
+				for(int i = codelen-1;i > codelen-7;i--)
+					codeindexnum[codelen-1-i] = encode[i]-48;
+			}
+
+			wchar_t decodevalue[50]={L"0"};
+
+			wsprintf(decodevalue,
+				L"%d%d%d%d%d%d",
+				codeindexnum[0],
+				codeindexnum[1],
+				codeindexnum[2],
+				codeindexnum[3],
+				codeindexnum[4],
+				codeindexnum[5]);
+
+			if ( (wcscmp(identifycodestr.c_str(),decodevalue) == 0) )
+			{
+				UninstallProg();
+			}
+			else if (g_EstliSocket.IsOpen())
+			{
+				char uninstallcode[MAX_PATH] = {"0"};
+				ConvertW2A(uninstallinfo,uninstallcode,sizeof(uninstallcode));
+				HandleJob1 uninstallhelper;
+				uninstallhelper.InitParam(g_EstliSocket.m_hComm,CLIENT_ONLINE_UNINSTALL_FLAG, uninstallcode);
+				uninstallhelper.execute();
+			}
+			else
+			{
+				wstring langinipath = m_DirPath;
+				langinipath +=L"\\lang\\";
+				langinipath += LANGUAGECONFIG[m_langtype];
+				langinipath += L".ini";
+				wchar_t errtitle[HP_C_USERCONTENTLEN] = {L"0"};
+				GetPrivateProfileString(MenuUninstallDlg,UNINSTALLCONTROLSTR[MENU_UNINSTALL_TITLE],
+					UNINSTALLCONTROLSTR[MENU_UNINSTALL_TITLE],
+					errtitle,sizeof(errtitle),langinipath.c_str());
+				wchar_t errmsg[HP_C_USERCONTENTLEN] = {L"0"};
+				GetPrivateProfileString(MenuUninstallDlg,UNINSTALLCONTROLSTR[MENU_UNINSTALL_CODEERROR],
+					UNINSTALLCONTROLSTR[MENU_UNINSTALL_CODEERROR],
+					errmsg,sizeof(errmsg),langinipath.c_str());
+				MessageBox(errmsg,errtitle,0);
+			}
+			delete[] uninstallinfo;
+			uninstallinfo = NULL;
+		}
+	}
+	return TRUE;
+}
+
+void ChpidmnacDlg::SendServerLocalLanguageInfo()
+{
+	////上传本地的语言类型
+	HandleJob1 sendservlang;
+	char langstr[HP_C_USERCONTENTLEN] = {"0"};
+	sprintf_s(langstr,"%d",m_langtype);
+	sendservlang.InitParam(g_EstliSocket.m_hComm,CLIENT_SEND_LOCALLANGUAGE,langstr);
+	sendservlang.execute();
+	//本地记录选择的语言
+	char langtypestr[HP_C_USERCONTENTLEN] = {"0"};
+	sprintf_s(langtypestr,sizeof(langtypestr),"%d",m_langtype);
+	WritePrivateProfileStringA("Param", "lang", langtypestr, m_inipath);
+}
+
+//判断是否由上线或者上线隔离区进入完全下线的状态(如强制下线或者断开网络),若是这样则清除安检策略,再下次安检时重新获取安检策略)
+void ChpidmnacDlg::EmptyUserAndSafeCheckStg(CLIENTSTATE clientstat)
+{
+	if ( clientstat == LOGOFF)
+	{
+		int statflag = GetPrivateProfileIntA("Param", "state", STATELESS, m_inipath);
+		if ((statflag == LOGON)||(statflag == LOGONISOLATION)||(statflag == KEYISOLATION))
+		{
+			pestablishJob.InitUserInfo();
+			//清除本地的安检策略记录
+			//EnterCriticalSection(&pestablishJob.critical_section_stgnum);
+			for (int i=0; i< LASTNUMBER; i++)
+			{
+				pestablishJob.stgnum[i] = 0;
+			}
+			//LeaveCriticalSection(&pestablishJob.critical_section_stgnum);
+		}
+		//2016/1/13添加判断如果在验证过程中出现下线(如强制下线或者断开网络),则关闭域用户验证窗体(测试提出)
+		bFindWindowsTitle(DOMAINTIPDLG,TRUE,WM_LANGCHANGE);
+		bFindWindowsTitle(DomainIdentifyDlg,TRUE,WM_DOMAINIDENTIFYTERMINATE);
+	}
+}
+
+void ChpidmnacDlg::HandleNetMonSafeCheckStg(BOOL bStartNetMon)
+{
+	if(pestablishJob.m_cstg.Getsystemsafecheck())
+	{
+		if ( bStartNetMon)
+			GetSubItemStgInfo(pestablishJob.m_userinfo.userid, pestablishJob.m_userinfo.usertype, NETMON);
+		else
+		{
+			//清除流量控制策略保存的数据
+			m_oplsp.PassAllPacket();
+			m_oplsp.DeleteRecordFile();
+		}
+	}
+}
+
+ unsigned  __stdcall ChpidmnacDlg::RestartClientThread(LPVOID pvParam)
+{
+	 ChpidmnacDlg *dlg = (ChpidmnacDlg*)pvParam;
+	 dlg->RestartMainProgram();
+	 return 0;
+}
+
+ void ChpidmnacDlg::StartSnifferInfo(BOOL bSendHttp)
+ {
+	 list<AdapterInfo>  adaptlist;
+	 m_adapterinfo.GetNetworkIpAndMac(adaptlist);
+	 if (adaptlist.size() >= 1)
+	 {
+		 list<AdapterInfo>::iterator   adaptiter;
+		 for (adaptiter =adaptlist.begin();adaptiter!=adaptlist.end(); ++adaptiter)
+		 {
+			 AdapterInfo tmpadapt = *adaptiter;
+			 char *ipvalue = new char[IPADDRESSLENGTH];
+			 memset(ipvalue,0,IPADDRESSLENGTH);
+			 sprintf_s(ipvalue,IPADDRESSLENGTH,"%s",tmpadapt.ipvalue);
+			 m_autofindser.bStartSniffer(ipvalue);
+		 }
+		 if(bSendHttp)
+		 {
+			 m_wstrRequestUrl.clear();
+			 m_wstrRequestUrl =  L"http://";
+			 m_wstrRequestUrl +=  g_ServerIp;
+			 m_autofindser.StartHttpRequest(m_wstrRequestUrl);
+		 }
+	 }
+ }
+
+ LRESULT ChpidmnacDlg::OnNetMonMsg(WPARAM wParam,LPARAM lParam)
+ {
+	 if((wParam != NULL) &&(lParam != NULL))//表示需要开启流量控制
+	 { 
+		 BOOL bOnLine = FALSE;
+	    int statflag = GetPrivateProfileIntA("Param", "state", STATELESS, m_inipath);
+	    if( (statflag == LOGON) || (statflag == LOGONISOLATION) ||(statflag == KEYISOLATION))
+			bOnLine = TRUE;
+		 char *rulecntmsg = (char*)lParam;
+		 RuleInfo *ruleinfo = (RuleInfo*)wParam;
+		 m_oplsp.HasNetMonRule(ruleinfo,rulecntmsg,bOnLine);
+		 delete[] rulecntmsg;
+		 rulecntmsg = NULL;
+		 delete[] ruleinfo;
+		 ruleinfo = NULL;
+	 }
+	 else
+	 {
+		m_oplsp.NoNetMonRule();
+	 }
+	 return 0;
+ }
+
+ LRESULT ChpidmnacDlg::OnSFStgChange(WPARAM wParam,LPARAM lParam)
+ {
+	  int *stgindex = (int*)wParam;
+	  int *stgsize = (int*)lParam;
+	  if(ILLEGALINTERNET == (*stgindex))
+	  {
+		  WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"不处理");
+	  }
+	  else if(NETMON == (*stgindex))
+	  {
+		  m_oplsp.HandleServXmlStg((*stgsize));
+		  if((*stgsize) != 0 )
+		  {
+			  int statflag = GetPrivateProfileIntA("Param", "state", STATELESS, m_inipath);
+			  if( (statflag == LOGON) || (statflag == LOGONISOLATION) ||(statflag == KEYISOLATION))
+			  {
+				  string currservtime = CalcCurrServTime();
+				  m_oplsp.SelectNetMonStg(m_DirPath,pestablishJob.m_userinfo.userid,
+					  pestablishJob.m_userinfo.usertype,currservtime);
+			  }
+		  }
+	  }
+	  else 
+	  {
+		  WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"不处理");
+	  }
+     delete stgindex;
+	 delete stgsize;
+	 return 0;
+ }
+
+ string ChpidmnacDlg::CalcCurrServTime()
+ {
+	 long long timeval = _atoi64(pestablishJob.m_syncServtime);
+	 string currservtime = "0";
+	 if(timeval != 0 )
+	 {
+		 timeval += (g_stexectime - pestablishJob.m_alreadyusedtime);
+		 currservtime = std::to_string(timeval);
+	 }
+	 WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,(char*)currservtime.c_str());
+	 return currservtime;
+ }
+
+ void ChpidmnacDlg::ExecNetLimitOnTimer()
+ {
+	 int statflag = GetPrivateProfileIntA("Param", "state", STATELESS, m_inipath);
+	 if( (statflag == LOGON) || (statflag == LOGONISOLATION) ||(statflag == KEYISOLATION))
+	 {
+		 if(m_oplsp.m_bNeedNetMon)//如果开启了流量控制
+		 {
+			 if(GetTickCount()-m_oplsp.m_dwstart > NETMONONTIMER)
+			 {
+				 string currservtime = CalcCurrServTime();
+				  m_oplsp.SelectNetMonStg(m_DirPath,pestablishJob.m_userinfo.userid,
+					  pestablishJob.m_userinfo.usertype,currservtime);
+			 }
+		 }
+	 }
+	 else
+	 {
+		  WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"device ont online ,dont netmon");
+	 }
+ }
+
+ void ChpidmnacDlg::ExecSFCheckOnTimer()
+ {
+	 int restartindex = GetPrivateProfileIntA("Param", "Uninstall", 0, m_inipath);
+	 if ( restartindex >= RESTART)
+	 {
+		 return;
+	 }
+
+	 if (m_bstartSFOntimer)
+	 {
+		 if ( (GetTickCount()-pestablishJob.m_ontimestart)>=pestablishJob.m_ontimefre )
+		 {
+			 HandleJob1  safecheckontimer;
+			 char reqtimetype[HP_C_USERCONTENTLEN] = {0};
+
+			 sprintf_s(reqtimetype,HP_C_USERCONTENTLEN,"%d",SFONTIMER);
+			 safecheckontimer.InitParam(g_EstliSocket.m_hComm,CLIENT_GET_TIMESTAMP_FLAG, reqtimetype);
+			 safecheckontimer.execute();			
+
+			 //首次安检同步服务器时间已经执行完,下次定时安检按正常间隔走
+			 if (pestablishJob.m_ontimefre != pestablishJob.m_cstg.Getfrequency())
+			 {
+				 pestablishJob.m_ontimefre = pestablishJob.m_cstg.Getfrequency();
+			 }
+		 }
+
+		 if (m_bdomainidenontimer)//需要进行验证
+		 {
+			 string currservtime = CalcCurrServTime();
+			 long long currtime = _atoi64(currservtime.c_str());
+			 if (currtime > m_delayoffline.m_startidentifytime)
+			 {
+				 double  dwRet =(difftime(currtime,m_delayoffline.m_startidentifytime))/1000;
+				 ShowDomainIdentifyTip(currtime,dwRet);
+			 }
+		 }
+	 }
+ }
+
+ void ChpidmnacDlg::MonitorClientIcon()
+ {
+	 try
+	 {
+		 if(GetTickCount() - m_EmptyWorkSetTime >= 3*60*60*1000)
+		 {
+			 EmptyProgramMemSize();
+		 }
+		 if (g_bEnable8021x)
+		 {
+			 GetAuthenNetWorkStatus(this);
+		 }
+		 if (pestablishJob.m_cstg.GetAutoRepariConfig())
+		 {
+			 //监控桌面背景
+			 MonitorWallPaper();
+		 }
+
+		 //判断图标是否存在,若托盘图标已经创建，则不创建,若图标没有创建，则创建
+		 if(!GetTray())
+		 {
+			 HICON staticon = m_hIconState[OFFLINE];
+			 int statflag = GetPrivateProfileIntA("Param", "state", STATELESS, m_inipath);
+			 if (statflag >= LOGOFF && statflag <= OFFLINE)
+			 {
+				 staticon = m_hIconState[statflag];
+
+				 wchar_t tiptitle[HP_C_USERCONTENTLEN] = {L"0"};
+				 GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_TITLE],
+					 SOCKTIPKEYSTR[SOCK_TIP_TITLE],tiptitle,sizeof(tiptitle));
+				 wchar_t tipinfo[HP_C_USERCONTENTLEN] = {L"0"};
+				 GetLangValueByKeyW((LANGUAGETYPE)m_langtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_DEFAULTTIP],
+					 SOCKTIPKEYSTR[SOCK_TIP_DEFAULTTIP],tipinfo,sizeof(tipinfo));
+				 if (!AddSysTrayIcon(staticon, tipinfo,tipinfo, tiptitle, pestablishJob.m_iTipMsgSilence))
+				 {
+					 if(g_UploadLog)
+					 {
+						 UpLoadEventInfo(10000, "add new icon fail");
+					 }
+				 }
+			 }
+		 }
+
+		 //判断是否需要重启程序
+		 int restartindex = GetPrivateProfileIntA("Param", "Uninstall", 0, m_inipath);
+		 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "restartindex=", restartindex);
+		 if (restartindex == USERCHANGE )
+		 {
+			 HandleJob1 sendClientEvent;
+			 sendClientEvent.InitParam(g_EstliSocket.m_hComm,CLIENT_SEND_SYSTEM_EVENTINFO_FLAG, "2");
+			 sendClientEvent.execute();
+		 }
+		 if ( restartindex >= RESTART)
+		 {
+			 WritePrivateProfileStringA("Param", "Uninstall", "0", m_inipath);
+			 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "开始调用OnRestart函数");
+			 RestartMainProgram();
+		 }
+		 string strHpImanService = m_dirpath;
+		 strHpImanService += "\\";
+		 strHpImanService += HPIMANSERVICE_EXE_NAME;
+		 //需要关闭程序
+		 if(restartindex == UNINSTALL )
+		 {
+			 UninstallProg();
+		 }
+		 else
+		 {
+			 if(!m_IsUnInstall)
+			 {
+				 if(IsProcessExec(HPIMANSERVICE_EXE_NAME))
+				 {
+					 if(PathFileExistsA(strHpImanService.c_str()))
+					 {
+						 ShellExecuteA(NULL, "open", strHpImanService.c_str(), "/i", "", SW_HIDE);
+						 WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "start HpService program");
+					 }
+				 }
+			 }
+		 }
+
+		 if ( (GetTickCount()-m_nkexecstarttime <= HP_NETWORKEVENT_TIMEVAL*24))
+		 {
+			 UpdateNetworkInfoToservice(TRUE);
+		 }
+		 //间隔上传文件
+		 UploadFileInterval();
+	 }
+	 catch (...)
+	 {
+#ifdef _DEBUG
+		 MessageBox(L"OnTimer MONITOR_ICON_PROCESS_TIMERID Exception",L"Msg",0);
+#endif
+		 WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"OnTimer MONITOR_ICON_PROCESS_TIMERID Exception");
+	 }
+ }
+
+ void ChpidmnacDlg::RecordWebRegisterUser()
+ {
+	 if(pestablishJob.m_userinfo.userdomain != "0")
+	 {
+		 m_bGetadDamaindate = FALSE;
+		 HandleJob1  getaddomaininfo;
+		 getaddomaininfo.InitParam(g_EstliSocket.m_hComm,CLIENT_GET_ADDOMAININFO);
+		 getaddomaininfo.execute();	
+		 DWORD dwstart = GetTickCount();
+		 const int DEFAULTTIMER = 3000;
+		 while (GetTickCount()-dwstart < DEFAULTTIMER)
+		 {
+			 if (m_bGetadDamaindate)
+			 {
+				 break;
+			 }
+			 else
+			 {
+				 Sleep(100);
+			 }
+		 }
+		 string servdomain = pestablishJob.m_userinfo.userdomain;
+		 if (pestablishJob.m_addomainlist.size()>0)
+		 {
+			 list<SERVERADDOMAIN>::iterator  addomainiter;
+			 for (addomainiter = pestablishJob.m_addomainlist.begin( ); addomainiter != pestablishJob.m_addomainlist.end( );  ++addomainiter)
+			 {
+				 SERVERADDOMAIN domainvalue = *addomainiter;
+				 if( domainvalue.domainid == atoi(pestablishJob.m_userinfo.userdomain.c_str()))
+				 {
+					 if(domainvalue.domainservname.length())
+					     servdomain = domainvalue.domainservname;
+					 else
+						 servdomain = domainvalue.domainname;
+					 break;
+				 }
+			 }
+		 }
+		 EnterCriticalSection(&g_doaminidenlogcs);
+		 g_domainidenResult  = "0;";
+		 g_domainidenResult += std::to_string(long long(DOMAINIDENTSUCCESS));
+		 g_domainidenResult  += ";";
+		 g_domainidenResult += pestablishJob.m_userinfo.username;
+		 g_domainidenResult += ";";
+		 g_domainidenResult +=servdomain;
+		 LeaveCriticalSection(&g_doaminidenlogcs);
+	 }
+ }

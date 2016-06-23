@@ -1,0 +1,20 @@
+#ifndef _DEVICE_GLOBAL_DATA_H  
+#define _DEVICE_GLOBAL_DATA_H 1
+
+#define MAX_COLUMN_INFO 16
+#define MAX_DISKDRIVER_NUM 64
+
+#define DEVINFOBUFLEN 256
+
+typedef struct _DEVBASICINFO
+{
+	string strDevID;
+	string strClassDesc;
+	string strDevDesc;
+	string strManufacturer;
+
+}DEVBASICINFO, *PDEVBASICINFO;
+
+typedef vector<DEVBASICINFO>DEVBASICVECTOR;
+
+#endif

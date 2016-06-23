@@ -1,0 +1,12 @@
+[param]
+version=1.1.1.1
+installdriver=0
+installwithgui=0
+whithoutjapan=0
+filedes=Hupu.Info.Tec.Ltd
+prodname=Hupu.NAC
+copyright=Hupu.Info.Tec.Ltd
+aboutcomp=Hupu.Info.Tec.Ltd
+officnet=www.hupu.net
+devpath=D:\Program Files\Microsoft Visual Studio 10.0\Common7\IDE\devenv.exe
+nsispath=D:\imanclient\NSIS\makensis.exe

@@ -1,0 +1,388 @@
+#include "StdAfx.h"
+#include "ScreenSave.h"
+#include  "..\GlobalDate.h"
+#include "..\strconvert.h"
+#include  "..\DebugInfo.h"
+#include "SafeCheckFuntion.h"
+#include"tlhelp32.h"
+
+/////////////////////////
+#include <Sddl.h>
+#pragma  comment(lib,"Advapi32.lib")
+#include <Wtsapi32.h>
+#pragma comment(lib,"Wtsapi32.lib")
+
+#include <UserEnv.h>
+#pragma comment(lib,"UserEnv.lib")
+
+#include <MMSystem.h>
+#pragma comment(lib, "winmm.lib")
+
+#include "shlwapi.h"
+#pragma  comment(lib,"shlwapi.lib")
+
+const wchar_t  ssfile[100]={L"C:\\Windows\\System32\\桌面下雪.scr"};
+const wchar_t srcfile64[] = {L"C:\\Windows\\SysWOW64\\桌面下雪.scr"};
+
+#include "SingServerPage.h"
+
+ScreenSave::ScreenSave(void)
+{
+	m_verplatform = 32;
+	SYSTEM_INFO  si;
+
+	::GetNativeSystemInfo(&si);
+	if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||   
+		si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 )  
+	{  
+		m_verplatform=64;
+	} 
+}
+
+
+ScreenSave::~ScreenSave(void)
+{
+
+}
+
+bool  ScreenSave::GetScreenSaverActive()
+{
+	LPCTSTR data_Set = _T("Control Panel\\Desktop");
+	wchar_t  activestr[10]={L"0"};
+
+   if (_GetCurrentUserReg(data_Set, _T("ScreenSaveActive"), activestr)==0)
+   {
+	   if (_wtoi(activestr)==0)
+		   return false;
+	   else
+		   return true;
+   }
+   else
+	   return false;
+}
+
+
+int ScreenSave::GetScreenSaverTimeout()
+{
+	int value = 0;
+	LPCTSTR data_Set = _T("Control Panel\\Desktop");
+	wchar_t timeoutstr[10]={L"0"};
+
+	if (_GetCurrentUserReg(data_Set, _T("ScreenSaveTimeOut"), timeoutstr)==0)
+	{
+		value = _wtoi(timeoutstr);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,L"ScreenSaveTimeOut=",timeoutstr);
+		return value;
+	}
+	else
+		return 0;
+}
+
+int ScreenSave::GetScreenSaverIsPwd()
+{
+	int value=0;
+	LPCTSTR data_Set = _T("Control Panel\\Desktop");
+	wchar_t  pwdstr[10]={L"0"};
+	if (_GetCurrentUserReg(data_Set,_T("ScreenSaverIsSecure"), pwdstr)==0)
+	{
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,L"ScreenSaverIsSecure=",pwdstr);
+		value=_wtoi(pwdstr);
+		return value;
+	}
+	else
+		return 0;
+}
+
+
+void ScreenSave::StartScreenSaver(int secondtimeout,int userpwd)
+{
+	TCHAR  exePath[MAX_PATH]={_T("0")};
+	::GetModuleFileName(NULL,exePath,MAX_PATH);
+	LPCTSTR pstrSep = _tcsrchr(exePath, '\\');//从一个字符串中查找字符  C:\GCY\TEST\tezt.txt结果是\tezt.txt
+	TCHAR  pstrName[MAX_PATH]={_T("0")};
+	TCHAR  pstrPath[MAX_PATH]={_T("0")};
+	if( pstrSep != NULL )
+	{
+		::lstrcpy(pstrName, pstrSep + 1);
+		 (int)((pstrName - exePath) / sizeof(TCHAR));
+		::lstrcpyn(pstrPath, exePath, (int)((pstrName - exePath) / sizeof(TCHAR)) + 1);//将第二个字符串中指定的字符复制到第一个字符串
+		//中指定的字符,第三个字符串指定复制的个数。
+		pstrPath[ pstrSep - exePath ] = '\0';
+	}
+
+	if (!PathFileExists(ssfile))
+	{
+		wchar_t  srcbackup[MAX_PATH]={L"0"};
+		wsprintf(srcbackup,L"%s\\桌面下雪.scr",pstrPath);
+		CopyFile(srcbackup,ssfile,TRUE);
+	}
+
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"StartScreenSaver");
+
+	////////首先判断是否有屏幕保护程序
+	
+	LPCTSTR data_Set = _T("Control Panel\\Desktop");
+	wchar_t screensaverpath[MAX_PATH]={L"0"};
+	if (_GetCurrentUserReg(data_Set,_T("SCRNSAVE.EXE"),screensaverpath)==0)
+	{
+		if (wcsncmp(screensaverpath, ssfile ,MAX_PATH)!=0)
+        {
+            if ( m_verplatform == 64 )
+            {
+                _SetCurrentUserReg(data_Set,_T("SCRNSAVE.EXE"),srcfile64);
+            }
+            else
+            {
+                _SetCurrentUserReg(data_Set,_T("SCRNSAVE.EXE"),ssfile);
+            }
+        }
+	}
+	else
+    {
+        if ( m_verplatform == 64 )
+        {
+            _SetCurrentUserReg(data_Set,_T("SCRNSAVE.EXE"),srcfile64);
+        }
+        else
+        {
+            _SetCurrentUserReg(data_Set,_T("SCRNSAVE.EXE"),ssfile);
+        }
+    }
+
+	_SetCurrentUserReg(data_Set,_T("ScreenSaveActive"),_T("1"));
+    wchar_t  ispwd[50]={L"0"};
+    wsprintf(ispwd,L"%d",userpwd);
+	_SetCurrentUserReg(data_Set,_T("ScreenSaverIsSecure"),ispwd);
+    wchar_t timeouttime[50]={L"0"};
+    wsprintf(timeouttime,L"%d",secondtimeout);
+    	_SetCurrentUserReg(data_Set,_T("ScreenSaveTimeOut"),timeouttime);
+}
+
+BOOL ScreenSave::GetSCRFile(TCHAR  *scrpath)
+{
+	TCHAR  DirPath[512]={L"C:\\Windows\\System32\\*.*"};
+	WIN32_FIND_DATA wfd;
+	HANDLE hFind;
+	if((hFind=FindFirstFile(DirPath,&wfd))==INVALID_HANDLE_VALUE)
+	{
+		return FALSE;
+	}
+	do 
+	{
+		if(wcscmp(wfd.cFileName,L".")==0||wcscmp(wfd.cFileName,L"..")==0||
+			wcscmp(wfd.cFileName,L"desktop.ini")==0)
+		{
+			continue;
+		} 
+		wchar_t FilePath[512]={0};
+		wsprintf(FilePath,L"C:\\Windows\\System32\\%s",wfd.cFileName);
+		DWORD dwAttributes = GetFileAttributes(FilePath);
+		if (!(dwAttributes&FILE_ATTRIBUTE_DIRECTORY))
+		{
+			wstring FNAME = wfd.cFileName;
+			if (wcsncmp(FNAME.c_str(),ssfile ,MAX_PATH)==0)
+			{
+				wsprintf(scrpath,L"%s",FilePath);
+			   break;
+			}
+		}
+	} while (FindNextFile(hFind,&wfd));
+	FindClose(hFind);
+	return TRUE;
+}
+
+void ScreenSave::CloseScreenSaver()
+{
+	LPCTSTR data_Set = _T("Control Panel\\Desktop");
+    _SetCurrentUserReg(data_Set,_T("SCRNSAVE.EXE"),_T(""),true);
+	_SetCurrentUserReg(data_Set,_T("ScreenSaveActive"),_T("0"));
+	_SetCurrentUserReg(data_Set,_T("ScreenSaverIsSecure"),_T("0"));
+}
+
+
+int ScreenSave::_SetCurrentUserReg( LPCTSTR lpszPath,  LPCTSTR lpszKey, LPCTSTR lpszValue,bool bDeleteKey)  
+{  
+	HANDLE hUserToken = NULL;  
+	wchar_t usertokenstr[MAX_PATH] = {L"0"};
+	BOOL bIsOK = GetProcessUserToken(L"explorer.exe", &hUserToken );  
+	if ( bIsOK )  
+	{  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"GetProcessUserToken success");
+		bIsOK= GetCurrentUserStringSid(hUserToken,usertokenstr,MAX_PATH);
+		if(!bIsOK)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"GetCurrentUserStringSid fail");
+            CloseHandle(hUserToken);
+            hUserToken = NULL;
+			return -1;
+		}
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"GetProcessUserToken fail");
+		return -1;
+	}
+	CRegKey theReg;  
+	CString strReg;  
+	strReg.Format( _T("%s\\%s"), usertokenstr, lpszPath );  
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,strReg.GetBuffer());
+    
+	LONG lRetCode = theReg.Open( HKEY_USERS, strReg.GetBuffer()); 
+	if ( lRetCode != 0 )  
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"Open Fail");
+		return  -1;  
+	}  
+
+    if ( bDeleteKey )
+    {
+        lRetCode = theReg.DeleteValue( lpszKey );  
+    }
+    else
+    {
+        lRetCode = theReg.SetStringValue( lpszKey, lpszValue );  
+        char setregvalue[MAX_PATH]={0};
+        ConvertW2A(lpszValue,setregvalue,MAX_PATH);
+        WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"setregvalue",setregvalue);
+    }
+	if ( lRetCode != 0 )  
+	{  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"SetStringValue Fail");
+		return  -1;  
+	}  
+	theReg.Flush();
+	lRetCode = theReg.Close();  
+	if ( lRetCode != 0 )  
+	{  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"Close Fail");
+		return  -1;  
+	}  
+	return  0;  
+}  
+
+int ScreenSave::_GetCurrentUserReg( LPCTSTR lpszPath,  LPTSTR lpszKey, LPTSTR lpszValue )  
+{  
+	HANDLE hUserToken = NULL;  
+	 wchar_t usertokenstr[MAX_PATH] = {L"0"};
+	BOOL bIsOK = GetProcessUserToken(L"explorer.exe", &hUserToken );  
+	if ( bIsOK )  
+	{  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"GetProcessUserToken success");
+		bIsOK= GetCurrentUserStringSid(hUserToken,usertokenstr,MAX_PATH);
+		if(!bIsOK)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"GetCurrentUserStringSid fail");
+            CloseHandle(hUserToken);
+            hUserToken = NULL;
+			return -1;
+		}
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"GetProcessUserToken fail");
+		return -1;
+	}
+
+	CString strPath = _T("%s\\%s");  
+	CRegKey theReg;  
+	CString strReg;  
+	WriteDebugInfomation(LEVEL_RELEASE,MODULE_SCREENSAVER,LOGLOCATION,"strReg  Format enter");
+	strReg.Format( strPath.GetBuffer(), usertokenstr, lpszPath );  
+	WriteDebugInfomation(LEVEL_RELEASE,MODULE_SCREENSAVER,LOGLOCATION,"strReg  Format leaver");
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,strReg.GetBuffer());
+	 
+	LONG lRetCode = theReg.Open( HKEY_USERS, strReg.GetBuffer() );  
+	if ( lRetCode != 0 )  
+	{  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"Open Fail");
+		return  -1;  
+	}  
+	DWORD dwsz=50;
+	lRetCode = theReg.QueryStringValue(lpszKey, lpszValue,&dwsz);  
+	if ( lRetCode != 0 )  
+	{  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"QueryStringValue Fail");
+		return  -1;  
+	}  
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,L"lpszKey=",lpszKey);
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,L"lpszValue=",lpszValue);
+	lRetCode = theReg.Close();  
+	if ( lRetCode != 0 )  
+	{  
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"Close Fail");
+		return  -1;  
+	}  
+	return  0;  
+}  
+
+/*************************************************
+Function Name: GetScreenSaverStateForSafeCheck
+Description: 获取屏幕保护状态
+Input and output:  
+        timeout:获取屏幕保护的间隔时间
+        userpwd:获取屏幕开启时是否需要密码
+RetVal:
+      UNKNOWNSTATE:表示执行屏幕保护函数出错
+      ENABLE:表示屏幕保护开启状态
+      DISABLE:表示屏幕保护关闭状态
+**************************************************/
+int SingServerPage::GetScreenSaverStateForSafeCheck(OUT char* timeout,OUT char* userpwd)
+{
+    WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"GetScreenSaverStateForSafeCheck");
+    int state = UNKNOWNSTATE;
+	BOOL bFileExit = FALSE;
+    ScreenSave screensave;
+    bool  ActiveFlag = screensave.GetScreenSaverActive();
+    int timeoutset = screensave.GetScreenSaverTimeout();
+    int needPwd =screensave.GetScreenSaverIsPwd(); 
+
+	LPCTSTR data_Set = _T("Control Panel\\Desktop");
+	wchar_t screensaverpath[MAX_PATH]={L"0"};
+	if (screensave._GetCurrentUserReg(data_Set,_T("SCRNSAVE.EXE"),screensaverpath)==0)
+	{
+		if(PathFileExists(screensaverpath))
+			bFileExit = TRUE;
+	}
+
+    if (ActiveFlag)
+    {
+		if(bFileExit)
+		{
+			state = ENABLE;
+			sprintf_s(timeout,HP_C_USERCONTENTLEN,"%d",timeoutset/60);
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_SCREENSAVER,LOGLOCATION,"timeout=",timeout);
+			sprintf_s(userpwd,HP_C_USERCONTENTLEN,"%d",needPwd);
+		}
+    }
+    else
+    {
+        state = DISABLE;
+    }
+    return state;
+}
+
+/*************************************************
+Function Name: SetScreenSaverStateForSafeCheck
+Description: 设置屏幕保护状态
+Input and output:  
+        action:设置屏保保护开启关闭，1表示开启，0表示关闭
+        timeout:设置屏幕保护的间隔时间
+        userpwd:设置屏幕开启时是否需要密码
+RetVal:
+        HP_SUCCESS:表示防火墙的状态成功
+        HP_SF_REPAIRESAFECHECKFAIL:表示设置防火墙的状态失败
+**************************************************/
+int SingServerPage::SetScreenSaverStateForSafeCheck(IN int action,IN char* timeout,IN char* userpwd)
+{
+    ScreenSave screensave;
+    if (action == 0)
+    {
+        screensave.CloseScreenSaver();
+    }
+    else
+    {
+        int timeoutsec = atoi(timeout)*60;
+        screensave.StartScreenSaver(timeoutsec, atoi(userpwd));
+    }
+     return HP_SUCCESS;
+}

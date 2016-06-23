@@ -1,0 +1,689 @@
+
+#ifndef DEBUGINFO_H_
+#define DEBUGINFO_H_
+
+#include <fstream>
+#include "CommPub.h"
+#include "GlobalDate.h"
+
+
+#define  STRINGIFY(x) #x
+#define  TOSTRING(x) STRINGIFY(x)
+#define  LOGLOCATION  __FILE__"[" TOSTRING(__LINE__) "]:"__FUNCTION__ 
+
+
+////异常处理
+enum LOG_ERROR_CODE
+{
+    LOG_NOERROR=0,
+    LOG_CRITICALSECTION,
+    LOG_WLOG,
+};
+
+////删除多余的zip文件
+inline void DeleteTooManyZipFile()
+{
+	try
+	{
+		//超过五个日志文件删除最早的
+		struct  FileTimeLog
+		{
+			FILETIME ft;
+			char filename[MAX_PATH];
+		};
+		vector<FileTimeLog> ftloginfo;
+		/////////////////
+		TCHAR dirPath[MAX_PATH]={_T("0")};
+		MultiByteToWideChar(CP_ACP,0,g_nacdirpath,-1,dirPath,MAX_PATH);
+		TCHAR dirpath[MAX_PATH]={0};
+		_snwprintf_s(dirpath,MAX_PATH,MAX_PATH-1,_T("%s\\data\\*.zip"),dirPath);
+		WIN32_FIND_DATA fd = { 0 };
+		HANDLE hFind = ::FindFirstFile(dirpath,&fd);
+		if( hFind != INVALID_HANDLE_VALUE )
+		{
+			do 
+			{
+				FileTimeLog ftlog;
+				memset(&ftlog,0,sizeof(FileTimeLog));
+				WideCharToMultiByte(CP_ACP,0,fd.cFileName,-1,ftlog.filename,MAX_PATH,NULL,NULL);
+				ftlog.ft=fd.ftLastWriteTime;
+				ftloginfo.push_back(ftlog);
+			} 
+			while( ::FindNextFile(hFind, &fd));
+			::FindClose(hFind);
+			hFind = NULL;
+		}
+
+		int logCnt=ftloginfo.size();
+
+		if (logCnt>50)
+		{
+			for (int m=0;m<logCnt;m++)
+			{
+				for (int i=m+1;i<logCnt;i++)
+				{
+					int res=CompareFileTime(&ftloginfo[m].ft,&ftloginfo[i].ft);
+					if (res==-1)////表示前面的小，将时间大的排在最前面
+					{
+						FileTimeLog ftlogtmp;
+						ftlogtmp     =  ftloginfo[i];
+						ftloginfo[i]   = ftloginfo[m];
+						ftloginfo[m] = ftlogtmp;
+					}
+				}
+			}
+			for (int n = 45; n < logCnt; n++ )
+			{
+				char filepath[MAX_PATH]={0};
+				sprintf_s(filepath,MAX_PATH,"%s\\data\\%s",g_nacdirpath,ftloginfo[n].filename);
+				ASSERT(filepath);
+				DeleteFileA(filepath);
+			}
+		}
+
+		vector<FileTimeLog>::iterator iter;
+		for( iter  =  ftloginfo.begin();  iter != ftloginfo.end(); )
+		{
+			iter = ftloginfo.erase(iter);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"DeleteTooManyZipFile Exception", L"Msg", 0);
+#endif
+	}
+ }
+
+////删除多余的Log
+inline void DeleteTooManyLog()
+{
+	try
+	{
+		//超过五个日志文件删除最早的
+		struct  FileTimeLog
+		{
+			FILETIME ft;
+			char filename[MAX_PATH];
+		};
+		vector<FileTimeLog> ftloginfo;
+		/////////////////
+		TCHAR dirPath[MAX_PATH]={_T("0")};
+		MultiByteToWideChar(CP_ACP,0,g_nacdirpath,-1,dirPath,MAX_PATH);
+		TCHAR dirpath[MAX_PATH]={0};
+		_snwprintf_s(dirpath,MAX_PATH,MAX_PATH-1,_T("%s\\data\\*.log"),dirPath);
+		WIN32_FIND_DATA fd = { 0 };
+		HANDLE hFind = ::FindFirstFile(dirpath,&fd);
+		if( hFind != INVALID_HANDLE_VALUE )
+		{
+			do 
+			{
+				FileTimeLog ftlog;
+				memset(&ftlog,0,sizeof(FileTimeLog));
+				WideCharToMultiByte(CP_ACP,0,fd.cFileName,-1,ftlog.filename,MAX_PATH,NULL,NULL);
+				ftlog.ft=fd.ftLastWriteTime;
+				ftloginfo.push_back(ftlog);
+			} 
+			while( ::FindNextFile(hFind, &fd));
+			::FindClose(hFind);
+			hFind = NULL;
+		}
+		/////////////////
+		int logCnt=ftloginfo.size();
+
+		if (logCnt>50)
+		{
+			for (int m=0;m<logCnt;m++)
+			{
+				for (int i=m+1;i<logCnt;i++)
+				{
+					int res=CompareFileTime(&ftloginfo[m].ft,&ftloginfo[i].ft);
+					if (res==-1)////表示前面的小，将时间大的排在最前面
+					{
+						FileTimeLog ftlogtmp;
+						ftlogtmp     =  ftloginfo[i];
+						ftloginfo[i]   = ftloginfo[m];
+						ftloginfo[m] = ftlogtmp;
+					}
+				}
+			}
+			for (int n = 45; n < logCnt; n++ )
+			{
+				char filepath[MAX_PATH]={0};
+				_snprintf_s(filepath,MAX_PATH,MAX_PATH-1,"%s\\data\\%s",g_nacdirpath,ftloginfo[n].filename);
+				ASSERT(filepath);
+				DeleteFileA(filepath);
+			}
+		}
+
+		vector<FileTimeLog>::iterator iter;
+		for( iter  =  ftloginfo.begin();  iter != ftloginfo.end(); )
+		{
+			iter = ftloginfo.erase(iter);
+		}
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"DeleteTooManyLog Exception", L"Msg", 0);
+#endif
+	}
+}
+
+inline bool  isShouldWriteLog(LEVEL_TYPE level,LEVEL_MODULE module)
+{
+	try
+	{
+		char inifile[MAX_PATH]={0};
+
+		_snprintf_s(inifile, MAX_PATH,MAX_PATH-1,"%s\\data\\VersAndLog_config.ini", g_nacdirpath);
+		ASSERT(inifile);
+
+		char levelconf[HP_C_USERCONTENTLEN] = {0};
+		char moduleconf[HP_C_USERCONTENTLEN] = {0};
+		int  uninstallindex = NOUNINSTALL;
+
+		GetPrivateProfileStringA("Param", "LOG_LEVEL", "LEVEL_NONE", levelconf, HP_C_USERCONTENTLEN, inifile);
+		GetPrivateProfileStringA("Param", "LOG_MODULE", "MODULE_NOMODULE", moduleconf, HP_C_USERCONTENTLEN, inifile);
+		uninstallindex=GetPrivateProfileIntA("Param", "Uninstall",NOUNINSTALL, inifile);
+
+		int ilevelconf = 0;
+		int imoduleconf = 0;
+
+		if ( (UNINSTALL== uninstallindex)|| (RESTART ==uninstallindex ))
+		{
+			return false;
+		}
+		if ( _strnicmp(levelconf,"LEVEL_NONE",HP_C_USERCONTENTLEN) == 0 )
+		{
+			ilevelconf = LEVEL_NONE;
+		}
+		else if (_strnicmp(levelconf,"LEVEL_RELEASE",HP_C_USERCONTENTLEN) == 0)
+		{
+			ilevelconf = LEVEL_RELEASE;
+		}
+		else
+		{
+			ilevelconf = LEVEL_DEBUG;
+		}
+
+		for ( int i=0;i<MODULE_ALL+1;i++ )
+		{
+			if ( _strnicmp(moduleconf,logininames[i],HP_C_USERCONTENTLEN) == 0 )
+			{
+				imoduleconf = i;
+				break;
+			}
+		}
+
+		if ( ilevelconf < (int)level)
+		{
+			return false;
+		}
+
+		if (_strnicmp(moduleconf,"MODULE_ALL",HP_C_USERCONTENTLEN) == 0 )
+		{
+			return TRUE;
+		}
+
+		if ( imoduleconf == MODULE_ALL)
+		{
+			return true;
+		}
+		else if (imoduleconf == (int)module)
+		{
+			return true;
+		}
+		else 
+			return false;
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"isShouldWriteLog Exception", L"Msg", 0);
+#endif
+	}
+	
+	return false;
+}
+
+inline void  WriteExceptionDebugInfomation(LEVEL_TYPE level,LEVEL_MODULE module,const char* loglocation, char *WriteString)
+{
+	try
+	{
+		UNREFERENCED_PARAMETER(level);
+		UNREFERENCED_PARAMETER(module);
+
+		char logfile[MAX_PATH]={0};
+
+		ASSERT(g_nacdirpath);
+		_snprintf_s(logfile, MAX_PATH,MAX_PATH-1, "%s\\data\\exception.log", g_nacdirpath);
+		ASSERT(logfile);
+
+		FILE *pfile =NULL;
+		char time[255]={"0"};
+
+		pfile= _fsopen(logfile,"a+",_SH_DENYNO);
+
+		if (pfile== NULL)
+		{
+			return;
+		}
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+
+        sprintf_s(  time, 
+            255, 
+            "%d-%02d-%02d %02d:%02d:%02d:%s\r\n",
+            st.wYear,
+            st.wMonth,
+            st.wDay,
+            st.wHour,
+            st.wMinute,
+            st.wSecond,
+            loglocation);
+
+        fwrite(time, 1, strlen(time), pfile);
+        fwrite(loglocation, 1, strlen(loglocation), pfile);
+		fwrite(WriteString, 1, strlen(WriteString), pfile);
+        fwrite("\r\n", 1, 2, pfile);
+        fflush(pfile);
+		fflush(pfile);
+		fclose(pfile);
+
+        HANDLE hfile = CreateFileA(logfile,
+            GENERIC_READ|GENERIC_WRITE,
+            FILE_SHARE_READ|FILE_SHARE_WRITE,
+            NULL,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            NULL);
+
+        if (hfile == INVALID_HANDLE_VALUE  )
+        {
+            return;
+        }
+        DWORD dwsize=GetFileSize(hfile,NULL);
+
+        if(dwsize==INVALID_FILE_SIZE)
+        {
+            CloseHandle(hfile);
+            hfile=NULL;
+            return;
+        }
+
+        DWORD dwsizeLow = GetFileSize(hfile, NULL);
+
+        CloseHandle(hfile);
+        hfile=NULL;
+
+        if(dwsizeLow>1024*1000)
+        {
+            char dstname[MAX_PATH]={0};
+
+            DeleteTooManyZipFile();
+
+            DeleteTooManyLog();
+
+            sprintf_s(  dstname, 
+                MAX_PATH, 
+                "%s\\data\\HelpLog-%d%02d%02d-%02d%02d%02dexception.log", 
+                g_nacdirpath, 
+                st.wYear, 
+                st.wMonth, 
+                st.wDay, 
+                st.wHour, 
+                st.wMinute, 
+                st.wSecond);
+
+            rename(logfile, dstname);
+        }
+	}
+	catch (...)
+	{
+#ifdef _DEBUG
+		::MessageBox(NULL, L"WriteExceptionDebugInfomation Exception", L"Msg", 0);
+#endif
+	}
+
+}
+
+inline void  WriteExceptionDebugInfomation(LEVEL_TYPE level,LEVEL_MODULE module,const char* loglocation, char *WriteString,int numvalue)
+{
+    try
+    {
+        UNREFERENCED_PARAMETER(level);
+        UNREFERENCED_PARAMETER(module);
+        string strWriteInfo = "";
+        char buffer[20];   
+
+        strWriteInfo = (char*)WriteString;
+        _itoa( numvalue, buffer, 10);
+        strWriteInfo += buffer;
+
+        WriteExceptionDebugInfomation(level, module, loglocation, (char*)strWriteInfo.c_str());
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        ::MessageBox(NULL, L"WriteExceptionDebugInfomation Exception", L"Msg", 0);
+#endif
+    }
+
+}
+
+inline  void  WriteDebugInfomation(LEVEL_TYPE level,LEVEL_MODULE module,const char* loglocation, char *WriteString)
+{
+    try
+    {
+        if ( (loglocation == NULL) ||(WriteString == NULL) )
+        {
+            return;
+        }
+
+        if (!isShouldWriteLog(level,module))
+        {
+            return;
+        }
+
+		if(g_logcs.DebugInfo == NULL)
+			return;
+
+       EnterCriticalSection(&g_logcs);
+    
+        char logfile[MAX_PATH]={0};
+
+        ASSERT(g_nacdirpath);
+        _snprintf_s(logfile, MAX_PATH, MAX_PATH-1, "%s\\data\\nac.log", g_nacdirpath);
+        ASSERT(logfile);
+
+        FILE *pfile =NULL;
+        SYSTEMTIME st;
+        char time[255]={"0"};
+
+        pfile= _fsopen(logfile,"a+",_SH_DENYNO);
+
+        if (pfile== NULL)
+        {
+            LeaveCriticalSection(&g_logcs);
+            return;
+        }
+
+        GetLocalTime(&st);
+
+        sprintf_s(  time, 
+            255, 
+            "%d-%02d-%02d %02d:%02d:%02d:%s\r\n",
+            st.wYear,
+            st.wMonth,
+            st.wDay,
+            st.wHour,
+            st.wMinute,
+            st.wSecond,
+            loglocation);
+
+        fwrite(time, 1, strlen(time), pfile);
+        fwrite(WriteString, 1, strlen(WriteString), pfile);
+        fwrite("\r\n", 1, 2, pfile);
+        fflush(pfile);
+        fclose(pfile);
+
+        LeaveCriticalSection(&g_logcs);
+
+        HANDLE hfile = CreateFileA(logfile,
+            GENERIC_READ|GENERIC_WRITE,
+            FILE_SHARE_READ|FILE_SHARE_WRITE,
+            NULL,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            NULL);
+
+        if (hfile == INVALID_HANDLE_VALUE  )
+        {
+            return;
+        }
+        DWORD dwsize=GetFileSize(hfile,NULL);
+
+        if(dwsize==INVALID_FILE_SIZE)
+        {
+            CloseHandle(hfile);
+            hfile=NULL;
+            return;
+        }
+
+        DWORD dwsizeLow = GetFileSize(hfile, NULL);
+
+        CloseHandle(hfile);
+        hfile=NULL;
+
+        if(dwsizeLow>1024*1000)
+        {
+            char dstname[MAX_PATH]={0};
+
+            DeleteTooManyZipFile();
+
+            DeleteTooManyLog();
+
+            sprintf_s(  dstname, 
+                MAX_PATH, 
+                "%s\\data\\HelpLog-%d%02d%02d-%02d%02d%02d.log", 
+                g_nacdirpath, 
+                st.wYear, 
+                st.wMonth, 
+                st.wDay, 
+                st.wHour, 
+                st.wMinute, 
+                st.wSecond);
+
+            rename(logfile, dstname);
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+    	MessageBox(NULL,L"WriteDebugInfomationchar Exception",L"Msg",0);
+        MessageBoxA(NULL,loglocation,"loglocation",0);
+        MessageBoxA(NULL,WriteString,"WriteString",0);
+#endif
+    }
+}
+
+inline  void WriteDebugInfomation(LEVEL_TYPE level,LEVEL_MODULE module,const char* loglocation,wchar_t *WriteString)
+{
+    try
+    {
+        if ((WriteString == NULL)||(loglocation == NULL))
+        {
+            return;
+        }
+
+        if ( !isShouldWriteLog(level,module) )
+        {
+            return;
+        }
+
+        int Len= WideCharToMultiByte(CP_ACP,0,WriteString,-1,NULL,0,NULL,0);
+        char *writeBuff = new char[Len+1];
+        memset(writeBuff,'\0',Len+1);
+        WideCharToMultiByte(CP_ACP,0,WriteString,-1,writeBuff,Len,NULL,0);
+        writeBuff[Len]='\0';
+        WriteDebugInfomation(level,module,loglocation,writeBuff);
+        delete[] writeBuff;
+        writeBuff = NULL;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"WriteDebugInfomationwchar",L"err",0);
+#endif
+    }
+}
+
+inline void WriteDebugInfomation(LEVEL_TYPE level,LEVEL_MODULE module,const char* loglocation,char* WriteString,int result)
+{
+    try
+    {
+        if ((loglocation == NULL) ||(WriteString == NULL))
+        {
+            return;
+        }
+
+        if ( !isShouldWriteLog(level,module) )
+        {
+            return;
+        }
+
+		string strWriteInfo = "";
+		char buffer[20];   
+
+		strWriteInfo = (char*)WriteString;
+		_itoa( result, buffer, 10);
+		strWriteInfo += buffer;
+
+        WriteDebugInfomation(level, module, loglocation, (char*)strWriteInfo.c_str());
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL, L"WriteDebugInfomationcharint", L"err",0);
+#endif
+    }
+
+}
+
+inline  void WriteDebugInfomation(LEVEL_TYPE level,LEVEL_MODULE module,const char* loglocation,wchar_t *WriteString,int result)
+{
+    try
+    {
+        if ( (loglocation == NULL) ||(WriteString == NULL))
+        {
+            return;
+        }
+
+        if ( !isShouldWriteLog(level,module) )
+        {
+            return;
+        }
+
+        int Len= WideCharToMultiByte(CP_ACP,0,WriteString,-1,NULL,0,NULL,0);
+        char *writeBuff = new char[Len+1];
+        memset(writeBuff,'\0',Len+1);
+        WideCharToMultiByte(CP_ACP,0,WriteString,-1,writeBuff,Len,NULL,0);
+        writeBuff[Len]='\0';
+        WriteDebugInfomation(level,module,loglocation,writeBuff,result);
+        delete[] writeBuff;
+        writeBuff = NULL;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"WriteDebugInfomationwcharint",L"err",0);
+#endif   
+    }
+}
+
+inline void WriteDebugInfomation(LEVEL_TYPE level,LEVEL_MODULE module,const char* loglocation,char* WriteString,char* result)
+{
+    try
+    {
+        if ((loglocation == NULL) ||(WriteString == NULL) ||(result == NULL))
+        {
+            return;
+        }
+
+        if ( !isShouldWriteLog(level,module) )
+        {
+            return;
+        }
+
+        int Lenstr = strlen(WriteString);
+        int Lenres = strlen(result);
+        char *writeinfo = new char[Lenstr+Lenres+1];
+        memset(writeinfo,'\0',Lenstr+Lenres+1);
+        _snprintf_s(writeinfo,Lenstr+Lenres+1,Lenstr+Lenres,"%s%s",WriteString,result);
+        writeinfo[Lenstr+Lenres]='\0';
+        WriteDebugInfomation(level,module,loglocation,writeinfo);
+        delete[] writeinfo;
+        writeinfo = NULL;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"WriteDebugInfomationwcharchar",L"err",0);
+#endif
+    }
+}
+
+inline  void WriteDebugInfomation(LEVEL_TYPE level,LEVEL_MODULE module,const char* loglocation,wchar_t *WriteString,wchar_t*  result)
+{
+    try
+    {
+
+        if ((loglocation == NULL) ||(WriteString == NULL) ||(result == NULL))
+        {
+            return;
+        }
+
+        if ( !isShouldWriteLog(level,module) )
+        {
+            return;
+        }
+
+        int Lenstr = wcslen(WriteString);
+        int Lenres = wcslen(result);
+        wchar_t  *writeinfo = new wchar_t[Lenstr+Lenres+1];
+        memset(writeinfo,'\0',Lenstr+Lenres+1);
+        _snwprintf_s(writeinfo,Lenstr+Lenres+1,Lenstr+Lenres,L"%s%s",WriteString,result);
+        writeinfo[Lenstr+Lenres]=L'\0';
+        WriteDebugInfomation(level,module,loglocation,writeinfo);
+        delete[] writeinfo;
+        writeinfo = NULL;
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"WriteDebugInfomationwcharwchar",L"err",0);
+#endif
+    }
+}
+
+inline  void WriteDebugInfomation(LEVEL_TYPE level,LEVEL_MODULE module,const char* loglocation,RECVMSG *recvmsg)
+{
+    try
+    {
+        if ((loglocation == NULL) || (recvmsg == NULL))
+        {
+            return;
+        }
+
+        if ( !isShouldWriteLog(level,module) )
+        {
+            return;
+        }
+
+        string  str = g_debugMap[recvmsg->Flag];
+        char flagstr[MAX_PATH] = {0};
+
+        _snprintf_s(flagstr, MAX_PATH, MAX_PATH-1, "[%d]%s", recvmsg->Flag, (char*)str.c_str());
+        WriteDebugInfomation(level,module,loglocation, flagstr);
+        WriteDebugInfomation(level,module,loglocation,"totalLen=",recvmsg->TotalLen);
+
+        //用户名和密码的消息不记录
+        if (recvmsg->Flag == CLIENT_LOGNO_USRE_FLAG)
+        {
+            WriteDebugInfomation(level, module, loglocation," 客户端发送用户信息到服务器");
+        }
+        else
+        {
+            WriteDebugInfomation(level, module, loglocation, "Msg:", (char*)recvmsg->Msg);
+        }
+    }
+    catch (...)
+    {
+#ifdef _DEBUG
+        MessageBox(NULL,L"WriteDebugInfomationrecvmsg",L"err",0);
+#endif
+    }
+}
+
+#endif

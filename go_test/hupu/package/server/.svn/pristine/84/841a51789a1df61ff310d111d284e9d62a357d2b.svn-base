@@ -1,0 +1,7 @@
+#include "StdAfx.h"
+#include "RemoteDesk.h"
+#include "..\DebugInfo.h"
+#include "..\strconvert.h"
+#include <string>
+using namespace std;
+#include "SingServerPage.h"

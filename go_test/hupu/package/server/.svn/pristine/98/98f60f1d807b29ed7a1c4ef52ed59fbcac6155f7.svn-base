@@ -1,0 +1,1159 @@
+#include "stdafx.h"
+#include "HandleRecvData.h"
+#include "CommPub.h"
+#include "AssistRunAlarm.h"
+#include "JobThread\HandleJob1.h"
+#include "SafeCheckFuntion.h"
+#include "strconvert.h"
+#include "HandleJob2.h"
+#include "GlobalFunction.h"
+#include <algorithm>
+
+#include <Winhttp.h>
+#include "xml\tinyxml.h"
+#include "8021x\Hp8021x.h"
+#pragma comment(lib,"Winhttp.lib")
+#include "UserInfo.h"
+#include "GetLangValue.h"
+
+
+using namespace std;
+
+#define DEBUGID 1001
+
+//http://10.10.3.227/GetVersionServlet?type=1
+BOOL HttpGetVersion(IN wchar_t* pServerIp, IN size_t iOutBufLen, OUT char* pGetBuf)
+{
+    BOOL bRet = FALSE;
+    DWORD dwSize = 0;
+    DWORD dwDownloaded = 0;
+    LPSTR pszOutBuffer = NULL;
+    BOOL  bResults = FALSE;
+    DWORD dwFlags = 0;
+    DWORD dwBuffLen = 0;
+    HINTERNET  hSession = NULL, hConnect = NULL, hRequest = NULL;
+
+    hSession = WinHttpOpen( L"HUPUNAC",  
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+        WINHTTP_NO_PROXY_NAME, 
+        WINHTTP_NO_PROXY_BYPASS, 0);
+
+    if (hSession)
+        hConnect = WinHttpConnect( hSession, pServerIp, INTERNET_DEFAULT_PORT, 0);
+
+    if (hConnect)
+        hRequest = WinHttpOpenRequest( hConnect, L"GET", L"/GetVersionServlet?type=1", NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
+
+    WinHttpQueryOption (hRequest, WINHTTP_OPTION_SECURITY_FLAGS, (LPVOID)&dwFlags, &dwBuffLen);
+
+    dwFlags |= SECURITY_FLAG_IGNORE_UNKNOWN_CA;
+    dwFlags |= SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
+    dwFlags |= SECURITY_FLAG_IGNORE_CERT_CN_INVALID;
+
+    WinHttpSetOption (hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwFlags, sizeof (dwFlags));
+
+    if (hRequest)
+        bResults = WinHttpSendRequest( hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+
+    if (bResults)
+        bResults = WinHttpReceiveResponse(hRequest, NULL);
+
+    if (bResults)
+    {
+        do 
+        {
+            dwSize = 0;
+            if (!WinHttpQueryDataAvailable( hRequest, &dwSize))
+                OutputDebugStringA( "Error %u in WinHttpQueryDataAvailable.\n");
+
+            pszOutBuffer = new char[dwSize+1];
+            if (!pszOutBuffer)
+            {
+                OutputDebugStringA("Out of memory\n");
+                dwSize=0;
+            }
+            else
+            {
+                ZeroMemory(pszOutBuffer, dwSize+1);
+
+                if (!WinHttpReadData( hRequest, (LPVOID)pszOutBuffer, dwSize, &dwDownloaded))
+                    OutputDebugStringA( "Error %u in WinHttpReadData.\n");
+                else
+                {
+                    if (strlen(pszOutBuffer) < iOutBufLen )
+                    {
+                        strcpy_s(pGetBuf, iOutBufLen, pszOutBuffer);
+                        if (strstr(pGetBuf, ";/SoftwareDownLoadServlet?softwareName="))
+                        {
+                            bRet = TRUE;
+                        }
+                    }
+                }
+
+                delete [] pszOutBuffer;
+            }
+
+        } while (0);
+    }
+
+    if (hRequest) WinHttpCloseHandle(hRequest);
+    if (hConnect) WinHttpCloseHandle(hConnect);
+    if (hSession) WinHttpCloseHandle(hSession);
+
+    return bRet;
+}
+
+/************************************************************
+Description: 链接服务器并提交小助手版本
+input: pCurPath[当前路径]
+       pMsg[消息体]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void ConnectedServer(IN wchar_t* pCurPath, IN char* pMsg, IN CEstablishSocket *pEs)
+{
+	try
+	{
+		if(strstr(pMsg, SERVER_SUCCESS_STR))
+		{
+			HandleJob1 getNacTech;
+
+			pEs->m_esFCbFn(CONNECTED_SERVER_FLAG, SERVER_SUCCESS_STR, strlen(SERVER_SUCCESS_STR));
+
+			getNacTech.InitParam(g_EstliSocket.m_hComm, SERVER_SEND_NAC_TECHNOLOGY, "0");
+			getNacTech.execute();
+
+			//提交保存的小助手动作事件
+			SendAssistEventFromDbData(pCurPath);
+			pEs->SendClientVersion();
+		}
+	}
+	catch (...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ConnectedServer Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"ConnectedServer Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 处理接收到的客户端版本信息
+input: pMsg[消息体]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void HandleClientVersionMsg(IN char* pMsg, IN CEstablishSocket *pEs)
+{
+	try
+	{
+		assert(pMsg);
+
+		if(!(pEs->NeedUpdateClient(pMsg)))
+		{
+            HandleJob1 getDebugStatus;
+
+            getDebugStatus.InitParam(g_EstliSocket.m_hComm, SERVER_SEND_DEBUG_ON_OR_OFF_FLAG, "2");
+            getDebugStatus.execute();
+
+			SyncServerCurrentTime();
+
+			//获取系统运行警报策略
+			GetAssistRunAlarmPolicy();
+			pEs->SendRedirecData();
+		}
+	}
+	catch (...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleClientVersionMsg Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleClientVersionMsg Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 设备信息注册
+input: pMsg[消息体]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void DeviceInfoReg(IN char* pMsg, DWORD totalLen, IN CEstablishSocket *pEs)
+{
+	try
+	{
+		bool IsNum = true;
+
+		for(int i = 0; i < (int)totalLen; i++)
+		{
+			if(!::isdigit(pMsg[i]))
+			{
+				IsNum = false;
+				break;
+			}
+		}
+
+		if((IsNum) && (atoi(pMsg) != 0))
+		{
+			g_deviceid = pMsg;
+
+			pEs->m_esFCbFn(CLINET_DEVICE_REG_FLAG, (char*)g_deviceid.c_str(), g_deviceid.length());
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "设备ID=", (char*)g_deviceid.c_str());
+
+			if(g_UploadLog)
+			{
+				SYSTEMTIME st;
+				char errresult[MAXBUFLEN] = {0};
+
+				GetLocalTime(&st);
+				sprintf_s(  errresult,
+							MAXBUFLEN,
+							"1000;%04d-%02d-%02d %02d:%02d:%02d; Device id=%s",
+							st.wYear,
+							st.wMonth,
+							st.wDay,
+							st.wHour,
+							st.wMinute,
+							st.wSecond,
+							g_deviceid.c_str() );
+
+				pEs->UploadExecptionInfo(errresult);
+			}	
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "服务器返回设备ID有误");
+			g_deviceid = "-1";
+		}
+		HandleJob1  getDeviceAuthInfo;
+		 getDeviceAuthInfo.InitParam(g_EstliSocket.m_hComm,CLIENT_GET_DEVICE_AUTH_INFO_FLAG);
+		 getDeviceAuthInfo.execute();
+	}	
+	catch (...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION,"DeviceInfoReg Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"DeviceInfoReg Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 获取重定向Url
+input: pMsg[消息体]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void GetDirectionUrl(IN char* pMsg, IN CEstablishSocket *pEs)
+{
+    try
+    {
+        assert(pMsg);
+        if( pMsg && strncmp(pMsg, "EMPTY", strlen("EMPTY")) != 0 )
+        {
+            string strRedirecUrl = "";
+            char localIp[IPADDRESSLENGTH] = {0};
+            char localMac[MACADDRESSLEN] = {0};
+
+			if (GetLocalIpAndMac(localIp, localMac))
+			{
+				strRedirecUrl = "?ip="; 
+				strRedirecUrl += localIp; 
+				strRedirecUrl += "&mac="; 
+				strRedirecUrl += localMac; 
+				strRedirecUrl += pMsg; 
+
+				transform (strRedirecUrl.begin( ), strRedirecUrl.end( ), strRedirecUrl.begin( ), toupper);
+
+				int acsmacpos = strRedirecUrl.find("ETH0_MAC=", 0); 
+				int eth0maclen= strlen("ETH0_MAC=");
+
+				if(acsmacpos != string::npos)
+				{
+					int maclen = strlen(HPMACINITVALUE);
+					string nacmac = strRedirecUrl.substr(acsmacpos+eth0maclen, maclen);
+					
+					if(g_strAscMac.compare(nacmac.c_str()) != 0)
+					{
+                        string strIniFilePath(g_nacdirpath);
+
+                        strIniFilePath += "\\data\\VersAndLog_config.ini";
+						WritePrivateProfileStringA("eth0", "mac", (char*)nacmac.c_str(), strIniFilePath.c_str());
+						g_strAscMac = nacmac;
+					}
+
+                    if ( (g_deviceid == "-1") &&(g_strAscMac.compare(HPMACINITVALUE)) )//只要设备信息没有上传均上传设备信息
+                    {
+                        WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "需要上传设备信息");
+                        pEs->m_esFCbFn(GETASCMAC, (char*)nacmac.c_str(), nacmac.length());
+                    }
+                    else
+                    {
+                        WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "不需要上传设备信息");
+                    }
+				}
+                int netTypepos = strRedirecUrl.find("NATTYPE=", 0); 
+                int netTypelen= strlen("NATTYPE=");
+                if ( netTypepos != string::npos )
+                {
+                    string nactype = strRedirecUrl.substr(netTypepos+netTypelen, 1);
+					pEs->m_esFCbFn(GETNATSETTING, (char*)nactype.c_str(), nactype.length());
+                }
+			}
+        }
+        else//2015/7/9添加若服务器未返回控制器mac则从配置档中查看是否有记录
+        {
+            char macvalue[MACADDRESSLEN] = {"0"};
+            string strIniFilePath(g_nacdirpath);
+
+            strIniFilePath += "\\data\\VersAndLog_config.ini";
+            GetPrivateProfileStringA("eth0", "mac", HPMACINITVALUE, macvalue, MACADDRESSLEN, strIniFilePath.c_str());
+            if ( (strcmp(macvalue,HPMACINITVALUE)) && (g_strAscMac.compare(HPMACINITVALUE) == 0 ))
+            {
+                g_strAscMac = macvalue;    
+            }
+			if (g_strAscMac.compare(macvalue))
+			{
+				WritePrivateProfileStringA("eth0", "mac", (char*)g_strAscMac.c_str(), strIniFilePath.c_str());
+			}
+			if ( (g_deviceid == "-1") &&(g_strAscMac.compare(HPMACINITVALUE)) )//只要设备信息没有上传均上传设备信息
+			{
+				pEs->m_esFCbFn(GETASCMAC, macvalue, strlen(macvalue));
+			}
+        }
+    }
+    catch (...)
+    {
+        WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetDirectionUrl Exception");
+#ifdef _DEBUG
+        MessageBox(NULL, L"GetDirectionUrl Exception", L"Msg", 0);
+#endif
+    }
+}
+
+/************************************************************
+Description: 处理用户信息
+input: pMsg[消息体]
+       pCurPath[当前路径]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void HandleUserInfo(IN char* pMsg, IN wchar_t* pCurPath, IN CEstablishSocket *pEs)
+{
+	try
+	{
+		string userinfo = pMsg;
+		int pos = userinfo.find(":");
+		string idinfo = userinfo.substr(0, pos);
+
+		if(atoi(idinfo.c_str()) <= 0)
+		{
+            string errinfo = userinfo.substr(pos+1);
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "用户名和密码认证失败");
+			
+			char tiptitle[HP_C_USERCONTENTLEN] = {"0"};
+			GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_TITLE],
+				SOCKTIPKEYSTR[SOCK_TIP_TITLE],tiptitle,sizeof(tiptitle));
+			char tiptitleRes[HP_C_USERCONTENTLEN+3] = {"0"};
+			sprintf_s(tiptitleRes,sizeof(tiptitleRes),"%s:",tiptitle);
+            
+			char tipmsg[MAX_PATH*2+8] = {"0"};
+			if(strcmp(errinfo.c_str(),USERPWDEXPIRED)==0)//密码过期
+			{
+				char pwdexpire[MAX_PATH] = {"0"};
+				GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_PWDEXPIRED],
+					SOCKTIPKEYSTR[SOCK_TIP_PWDEXPIRED],pwdexpire,sizeof(pwdexpire));
+				string timpmsg = tiptitle;
+				timpmsg += ":";
+				timpmsg += pwdexpire;
+				ConvertA2UTF8(timpmsg.c_str(), tipmsg, sizeof(tipmsg));
+			}
+			else
+			{
+			  char errtip[20] = {"0"};
+			  ConvertA2UTF8(tiptitleRes, errtip, sizeof(errtip));
+			  sprintf_s(tipmsg,sizeof(tipmsg),"%s%s",errtip,errinfo.c_str());
+			}
+            EnterCriticalSection(&pEs->m_usercs);
+            pEs->InitUserInfo();
+            LeaveCriticalSection(&pEs->m_usercs);
+            pEs->m_esFCbFn(CLIENT_LOGNO_USRE_FLAG, tipmsg, strlen(tipmsg));
+		}
+		else
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "用户名和密码认证成功");
+			wchar_t dbpath[MAX_PATH] = {L"0"};
+			char autoLogOnInfo[HP_C_USERCONTENTLEN] = {"0"};
+			char usertype[MAX_NUMBER_LEN] = {"0"};
+			string strErrTip = "";
+			vector<string> usertipinfo;
+			if (GetLangVectorByKeyA((LANGUAGETYPE)pEs->m_sflangtype,(char*)SOCKTIPAPPNAME,(char*)SOCKTIPKEYSTR[SOCK_TIP_LOGONSUCC],
+				SOCKTIPKEYSTR[SOCK_TIP_LOGONSUCC],MAX_PATH,2,&usertipinfo))
+			{
+				strErrTip = usertipinfo[0]+pEs->m_userinfo.username+usertipinfo[1];
+			}
+            char tipmsg[MAX_PATH+8] = {"0"};
+            ConvertA2UTF8(strErrTip.c_str(), tipmsg, sizeof(tipmsg));
+
+            EnterCriticalSection(&pEs->m_usercs);
+            pEs->m_userinfo.userid = atoi((char*)idinfo.c_str());
+            pEs->m_userinfo.userpwd = userinfo.substr(pos+1);
+		   WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "给用户密码赋值");
+            LeaveCriticalSection(&pEs->m_usercs);
+
+			pEs->m_esFCbFn(CLIENT_LOGNO_USRE_FLAG,tipmsg, strlen(tipmsg));
+
+			if(g_UploadLog)
+			{
+				string strLogMsg = "Auto LogOn:";
+
+				strLogMsg += pEs->m_userinfo.username;
+				pEs->UpLoadSocketEventInfo(DEBUGID, (char*)strLogMsg.c_str());
+			}
+
+			wsprintf(dbpath, L"%s\\nacdata.db", pCurPath);
+			sprintf_s(autoLogOnInfo, HP_C_USERCONTENTLEN, "%d", pEs->m_userinfo.autologon);
+			sprintf_s(usertype, MAX_NUMBER_LEN, "%d", pEs->m_userinfo.usertype);
+
+            string remberpwStr = std::to_string(_Longlong (pEs->m_userinfo.remberpwd));
+			if (pEs->m_userinfo.username.length() > 0)
+			{
+				CUserInfo locallogonuser;
+				locallogonuser.SaveUserNameAndPassWordToDB(dbpath,pEs->m_userinfo);
+			}
+			
+			pEs->GetRegisterStgInfo(pEs->m_userinfo.userid, pEs->m_userinfo.usertype);
+		}
+	}
+	catch (...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleUserInfo Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleUserInfo Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 处理设备认证消息
+input: pMsg[消息体]
+       dwTotalLen[消息长度]
+       iAuthId[认证身份]
+	   iUserId[用户ID]
+       tipinfo[客户端冒气泡显示的提示信息]
+Return: NULL
+*************************************************************/
+void HandleDeviceAuthInfo(IN CEstablishSocket *pEs,IN char* pMsg, OUT int* piStateFlag, OUT int* piIdentityAuth, OUT int* piUserId, 
+    OUT int* piNatType,OUT  string &clientonlinetime,OUT string& strTipInfo )
+{
+	try
+	{
+		string strTempMsg = "";
+		string strStateFlag = "";
+		int iStateFlag = g_sysiconflag;
+
+		string paramStr = pMsg;
+		vector<string> paramVec;
+		paramVec = split(paramStr,";");
+		int paramsize = paramVec.size();
+		if (paramsize>0)
+		{
+			*piStateFlag = atoi(paramVec[0].c_str());
+			g_sysiconflag = CLIENT_GET_DEVICE_AUTH_INFO_FLAG;
+			iStateFlag = *piStateFlag;
+
+			*piIdentityAuth = atoi(paramVec[1].c_str());
+
+			*piUserId = atoi(paramVec[2].c_str());
+			
+			*piNatType = atoi(paramVec[3].c_str());
+		}
+		if ( paramsize >= 5 )
+		{
+			clientonlinetime = paramVec[4];
+		}
+
+		char devicestatDes[MAX_PATH] = {"0"};
+		char tipInfo[MAX_PATH*2] = {0};
+
+		switch (iStateFlag)
+		{
+		case LOGOFF:
+			{
+				GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_LOGOFF],
+					SOCKTIPKEYSTR[SOCK_TIP_LOGOFF],devicestatDes,sizeof(devicestatDes));
+			}
+			break;
+		case LOGON:
+			{
+				GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_LOGON],
+					SOCKTIPKEYSTR[SOCK_TIP_LOGON],devicestatDes,sizeof(devicestatDes));
+			}
+			break;
+		case LOGOFFISOLATION:
+			{
+				GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_LOGOFFISOLATION],
+					SOCKTIPKEYSTR[SOCK_TIP_LOGOFFISOLATION],devicestatDes,sizeof(devicestatDes));
+			}
+			break;
+		case LOGONISOLATION:
+			{
+				GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_LOGONISOLATION],
+					SOCKTIPKEYSTR[SOCK_TIP_LOGONISOLATION],devicestatDes,sizeof(devicestatDes));
+			}
+			break;
+		case ASCESCAPEORDISABLE:
+			{
+				GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_ASCESCAPEORDISABLE],
+					SOCKTIPKEYSTR[SOCK_TIP_ASCESCAPEORDISABLE],devicestatDes,sizeof(devicestatDes));
+			}
+			break;
+		case ASCLOGOFF:
+			{
+				GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_ASCLOGOFF],
+					SOCKTIPKEYSTR[SOCK_TIP_ASCLOGOFF],devicestatDes,sizeof(devicestatDes));
+			}
+			break;
+		case KEYISOLATION:
+			{
+				GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_KEYISOLATION],
+					SOCKTIPKEYSTR[SOCK_TIP_KEYISOLATION],devicestatDes,sizeof(devicestatDes));
+			}
+			break;
+		default:
+			break;
+		}
+
+		char titleA[HP_C_USERCONTENTLEN] = {"0"};
+		GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_TITLE],
+			SOCKTIPKEYSTR[SOCK_TIP_TITLE],titleA,sizeof(titleA));
+
+		char tempinfo[MAX_PATH*2] = {"0"};
+		sprintf_s(tempinfo,sizeof(tempinfo),"%d;%s:%s",iStateFlag,titleA,devicestatDes);
+		ConvertA2UTF8(tempinfo, tipInfo, sizeof(tipInfo));
+		strTipInfo = tipInfo;
+	}
+	catch(...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleDeviceAuthInfo Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleDeviceAuthInfo Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 处理客户端状态
+input: pMsg[消息体]
+       dwTotalLen[消息长度]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void HandleClientState(IN char* pMsg, IN DWORD dwTotalLen, IN CEstablishSocket *pEs) 
+{
+	try
+	{
+		int DebugLen = 0;
+		wchar_t *recvmsg = NULL;
+		wstring wstrRecvMsg = L"";
+		string strTempMsg = "";
+		string::size_type stBrPos = 0;
+		string strToolTipMsg = "";
+
+		pMsg[dwTotalLen] = '\0';
+
+		strTempMsg = (string)pMsg;
+
+		stBrPos = strTempMsg.find("<br/>"); 
+
+		if (stBrPos != string::npos)
+		{
+			strToolTipMsg = strTempMsg.substr(0, stBrPos);
+		}
+		else
+		{
+			strToolTipMsg = strTempMsg;
+		}
+
+		pEs->m_esFCbFn(SERVER_NOTICE_CLIENT_CHANGESTATE_FLAG, (char*)strToolTipMsg.c_str(), strToolTipMsg.length()+1);		
+
+		DebugLen = MultiByteToWideChar(CP_ACP, 0, pMsg, -1, NULL, 0);
+
+		recvmsg = new wchar_t[DebugLen+1];
+
+		MultiByteToWideChar(CP_UTF8, 0, pMsg, -1, recvmsg, DebugLen);
+		recvmsg[DebugLen] = L'\0';
+
+		wstrRecvMsg = (wstring)recvmsg;
+		ParseNetworkStr(wstrRecvMsg, g_nacdirpath);
+
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, L"Msg:", recvmsg);
+
+		delete[] recvmsg;
+		recvmsg = NULL;
+	}
+	catch (...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleClientState Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleClientState Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 解析下发的可访问的网络字符串
+input: pMsg[消息体]
+       dwTotalLen[消息长度]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void ParseNetworkStr(IN wstring& wstrSource, IN char* pCurPath)
+{
+	try
+	{
+		wstring wstrTempSource = wstrSource;
+		wstring::size_type stBrPos = wstring::npos;
+
+		wstring wstrSubStr = L"";
+		wstring wstrDestination = L"";
+		string strWriteBuf = "";
+		string strFilePath = "";
+		FILE *pfile = NULL;
+		errno_t err = 0;
+
+		stBrPos = wstrTempSource.find(L"<br/>");
+		wstrTempSource = wstrTempSource.substr(stBrPos+strlen("<br/>"));
+
+		while(stBrPos != string::npos)
+		{
+			stBrPos = wstrTempSource.find(L"<br/>");
+
+			if (stBrPos == wstring::npos)
+			{
+				wstrSubStr = wstrTempSource;
+			}
+			else
+			{
+				wstrSubStr = wstrTempSource.substr(0, stBrPos);
+				wstrTempSource = wstrTempSource.substr(stBrPos+strlen("<br/>"));
+			}
+			wstrDestination += wstrSubStr;
+			wstrDestination += L"\n";
+		}
+
+		strFilePath = (string)pCurPath;
+		strFilePath += (string)"\\";
+		strFilePath += (string)ACCESS_NETWORK_POLICY_FILE_NAME;
+
+		if (wstrDestination.length() > 0)
+		{
+			strWriteBuf = WCharToAnsi(wstrDestination.c_str());
+			EncryptString((unsigned char*)strWriteBuf.c_str(), strWriteBuf.length());
+
+			if ( err = fopen_s(&pfile, strFilePath.c_str(), "w+") == 0)
+			{
+				fwrite(strWriteBuf.c_str(), sizeof(CHAR), strWriteBuf.length(), pfile);
+				fclose(pfile);
+				pfile = NULL;
+			}
+		}
+		else
+		{
+			wstring::size_type stCommaPos = wstring::npos;
+			wstring wstrStateFlag = L"";
+			int iStateFlag = LOGOFF;
+
+			stCommaPos = wstrSource.find(L";");
+
+			wstrStateFlag = wstrSource.substr(0, stCommaPos);
+
+			iStateFlag = _wtoi(wstrStateFlag.c_str());
+			if (iStateFlag >= LOGOFF && iStateFlag < STATELESS)
+			{
+				if (iStateFlag != OFFLINE && 
+					iStateFlag != ASCLOGOFF && 
+					iStateFlag != LOGOFFISOLATION &&
+					iStateFlag != LOGONISOLATION)
+				{
+					DeleteFileA(strFilePath.c_str());
+				}
+			}
+		}
+	}
+	catch(...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "ParseNetworkStr Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"ParseNetworkStr Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 处理修复检查项
+input: pMsg[消息体]
+       dwTotalLen[消息长度]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+2015/8/25修改服务器通知客户端自动修复时添加开始安检时的时间戳，
+方便客户端找到需要修复的安检项
+*************************************************************/
+void HandleAtuoFixCheckItem(IN char* pMsg, IN DWORD dwTotalLen, IN CEstablishSocket *pEs) 
+{
+	try
+	{
+        BOOL bShouldReparied = FALSE;
+
+        pMsg[dwTotalLen]='\0';
+		string timeval = pMsg;
+        string currtimeval = pMsg;
+        string lasttimeval = "";
+
+        int safechecknum = 0;
+        int lasttimevalpos = timeval.find(";");
+		if ( lasttimevalpos == string::npos)  //表明这是修改协议之前的客户端,直接进行修复
+		{
+            bShouldReparied = TRUE;
+		} 
+        else
+        {
+            int lasttimevalend = timeval.find(";",lasttimevalpos+1);
+            if ( lasttimevalend == string::npos )
+            {
+                bShouldReparied = TRUE;
+                currtimeval = timeval.substr(0,lasttimevalpos);
+                lasttimeval = timeval.substr(lasttimevalpos+1);
+                for (int i=0;i<SAFECHECKSAMETIMENUM;i++)
+                {
+                    if ( strcmp(lasttimeval.c_str(),pEs->m_sfmake[i].timeval) == 0 )
+                    {
+                        safechecknum = i;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "服务器发送异常的自动修复数据", pMsg);
+            }
+        }
+        if ( bShouldReparied )
+        {
+            pEs->RepairFailItemAndSendMsgToSrv(const_cast<char*>(currtimeval.c_str()),safechecknum);
+            WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "接收到自动修复msg:", pMsg);
+            //将时间戳的信息置为初始值
+            memset(pEs->m_sfmake[safechecknum].timeval,0,sizeof(pEs->m_sfmake[safechecknum].timeval));
+            memcpy(pEs->m_sfmake[safechecknum].timeval,DEFAULTTIMESTAMP,strlen(DEFAULTTIMESTAMP));
+        }
+	}
+	catch (...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleAtuoFixCheckItem Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleAtuoFixCheckItem Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 处理卸载信息
+input: pMsg[消息体]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void HandleUninstallInfo(IN char* pMsg, IN CEstablishSocket *pEs)
+{
+	try
+	{
+		string uninstallInfo = pMsg;
+		int pos = uninstallInfo.find(";");
+		string uninstallinfoRes = uninstallInfo.substr(0, pos);
+		string failResult = uninstallInfo.substr(pos+1);
+		wchar_t failError[MAXBUFLEN] = {L"0"};
+
+		ConvertA2UTF8W(failResult.c_str(), failError, MAXBUFLEN);
+
+		if(_strnicmp(uninstallinfoRes.c_str(), SERVER_SUCCESS_STR, strlen(SERVER_SUCCESS_STR)) == 0)
+		{
+			pEs->m_esFCbFn(CLIENT_ONLINE_UNINSTALL_FLAG, SERVER_SUCCESS_STR, strlen(SERVER_SUCCESS_STR));
+		}
+		else
+		{
+            pEs->m_esFCbFn(CLIENT_ONLINE_UNINSTALL_FLAG, SERVER_FAILURE_STR, strlen(SERVER_FAILURE_STR));
+		}
+	}
+	catch(...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleUninstallInfo Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleUninstallInfo Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 保存获取的安检项
+input: pMsg[消息体]
+       dwTotalLen[消息体长度]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/
+void GetSafeCheckItem(IN char* pMsg, IN DWORD dwTotalLen, IN CEstablishSocket *pEs)
+{
+	try
+	{
+		if(strncmp(pMsg, "EMPTY", strlen("EMPTY"))==0)
+		{
+			WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "策略为空");
+		}
+		else
+		{
+			HandleJob2 saveStg;
+			int stgIndexPos = 0;
+			try
+			{
+				saveStg.InitParam(g_EstliSocket.m_hComm,(int)CLIENT_GET_SYSTEMCHECK_POLICY_FLAG, dwTotalLen, pMsg);
+				saveStg.execute();
+			}
+			catch (...)
+			{
+				WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "save stg info Exception");
+#ifdef _DEBUG
+				MessageBox(NULL, L"save stg info Exception", L"Msg", 0);
+#endif
+			}
+			stgIndexPos = saveStg.m_outmsg.find(";", 0);
+
+			if (stgIndexPos != string::npos)
+			{
+				string strStgIndex = saveStg.m_outmsg.substr(0, stgIndexPos);
+				int stgIndex = 0;
+				stgIndex = atoi((char*)strStgIndex.c_str());
+				pEs->stgnum[stgIndex] = 1;
+
+				if((ILLEGALINTERNET == stgIndex)||(NETMON == stgIndex))
+				{
+					if(pEs->m_alreadyusedtime == 0 )
+					{
+						HandleJob1  safecheckontimer;
+						char reqtimetype[HP_C_USERCONTENTLEN] = {0};
+						sprintf_s(reqtimetype,HP_C_USERCONTENTLEN,"%d",REALTIMESAFECHECKTIME);
+						safecheckontimer.InitParam(g_EstliSocket.m_hComm,CLIENT_GET_TIMESTAMP_FLAG, reqtimetype);
+						safecheckontimer.execute();
+					}
+					int *stgindex = new int;
+					*stgindex = stgIndex ;//策略的下标
+					int illsizepos = saveStg.m_outmsg.rfind(";");
+					int istgsiz = atoi(saveStg.m_outmsg.substr(illsizepos+1).c_str());
+					int *stgsize = new int;
+					*stgsize = istgsiz;//0表示没有策略
+					PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd,WM_SFSTGCHANGE,(WPARAM)stgindex,(LPARAM)stgsize);
+				}
+				//添加对违规外联的安检项的特殊处理:在违规外联策略发生变化
+				//时立即判断是否开启或者关闭了违规外联的策略
+				if ( ILLEGALINTERNET == stgIndex )
+				{
+					/*if (pEs->m_cstg.Getsystemsafecheck())//如果开启了系统安检，开启线程处理违规外联的安检项
+					{
+						int illsizepos = saveStg.m_outmsg.rfind(";");
+						int istgsiz = atoi(saveStg.m_outmsg.substr(illsizepos+1).c_str());
+						if (istgsiz)
+							pEs->startIllegalInternetSafeCheck(TRUE);
+						else
+							pEs->startIllegalInternetSafeCheck(FALSE);
+					}
+					else
+					{
+						WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "认证流程策略中没有开启系统安检");
+					}*/
+				}
+				else if (SFDOMAIN == stgIndex)
+				{
+					pEs->m_bidenDomainStg = TRUE;
+					WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "接收到域用户检查策略");
+				}
+			}
+		}
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "结束保存策略数据");
+	}
+	catch (...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "GetSafeCheckItem Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"GetSafeCheckItem Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 定时安检信息
+input: pMsg[消息体]
+       pCurPath[当前路径]
+       pEs[CEstablishSocket类对象]
+Return: NULL
+*************************************************************/ 
+void OnTimerSafeCheckCheckItem(IN SFSAFECHECKTYPE sfchecktype,IN char* pMsg, IN char* pCurPath, IN CEstablishSocket *pEs)
+{
+	try
+	{
+		char timeVal[MAXBUFLEN] = {0};
+		int safeCheckRes = HP_SF_SAFECHECKFAIL;
+        int safechecknumIndex = 0;
+
+		char iniFilePath[MAXBUFLEN] = {"0"};
+		int  currstat = 0;
+
+		sprintf_s(timeVal, MAXBUFLEN, "%s", pMsg);
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL,LOGLOCATION, "enter 1007");
+        
+		int iautorepair = pEs->m_cstg.GetAutoRepariConfig();
+
+		if ( iautorepair )
+		{
+			pEs->safeCheckAndSendResultToServer(sfchecktype,(LANGUAGETYPE)pEs->m_sflangtype,timeVal,FALSE,&safechecknumIndex,&safeCheckRes);
+			if ( safechecknumIndex == SAFECHECKSAMETIMENUM )
+			{
+				WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "safechecknumIndex == SAFECHECKSAMETIMENUM");
+				return;
+			}
+			pEs->RepairFailItem(safechecknumIndex);
+		}
+
+		if (safeCheckRes != HP_SUCCESS)
+		{
+			 pEs->safeCheckAndSendResultToServer(sfchecktype,(LANGUAGETYPE)pEs->m_sflangtype,timeVal,TRUE,&safechecknumIndex,&safeCheckRes);
+		}
+	 
+		//判断与当前状态是否一致，不一致的话通知客户端修改当前客户端的状态
+		sprintf_s(iniFilePath,sizeof(iniFilePath), "%s\\data\\VersAndLog_config.ini", pCurPath);
+
+		currstat = GetPrivateProfileIntA("Param", "state", LOGOFF, iniFilePath);
+
+       if ( (((currstat == LOGON)||(currstat == LOGONISOLATION))&&(safeCheckRes != HP_SUCCESS)) ||
+           (((currstat == LOGOFF)||(currstat == LOGOFFISOLATION))&&(safeCheckRes == HP_SUCCESS)))
+       {
+           char registerstgid[HP_C_USERCONTENTLEN] = {0};
+           if ( pEs->m_cstg.GetStgId(registerstgid, HP_C_USERCONTENTLEN) )
+           {
+               int offlinestat = 0;
+               char param[MAX_PATH] = {0};
+               if (safeCheckRes != HP_SUCCESS )
+               {
+                   offlinestat = 0;
+				   GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_SFCHECKOFFLINE],
+					   SOCKTIPKEYSTR[SOCK_TIP_SFCHECKOFFLINE],param,sizeof(param));
+               }
+               else
+               {
+                   offlinestat = 1;
+				   GetLangValueByKeyA((LANGUAGETYPE)pEs->m_sflangtype,SOCKTIPAPPNAME,SOCKTIPKEYSTR[SOCK_TIP_SFCHECKONLINE],
+					   SOCKTIPKEYSTR[SOCK_TIP_SFCHECKONLINE],param,sizeof(param));
+               }
+               if ( ((sfchecktype == CLIENTONTIMERSFCHECK) &&(safeCheckRes != HP_SUCCESS)) ||
+                   (sfchecktype == CLIENTAUTOONLINESFCHECK))
+               {
+                 pEs->SendServerOfflineOrOnlineInfo(offlinestat,param);
+				 if ((sfchecktype == CLIENTAUTOONLINESFCHECK)&&(safeCheckRes != HP_SUCCESS))
+				 {
+					pEs->m_esFCbFn(SHOWWEBPAGE, "1", strlen("1"));
+				 }
+               }
+           }
+       }
+	}
+	catch(...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleNoticeCheckItem Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleNoticeCheckItem Exception", L"Msg", 0);
+#endif
+	}
+}
+
+/************************************************************
+Description: 处理小助手运行报警服务端发送的消息
+input: pMsg[消息体]
+       pCurPath[当前路径]
+Return: NULL
+*************************************************************/
+void HandleAssitRunAlarm(IN char* pMsg, IN wchar_t* pCurPath)
+{
+	try
+	{
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "小助手运行报警服务端发送消息");
+		WriteDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, pMsg);
+
+		if (ParseMsgBuf(pMsg) ==  -1)
+		{
+			return;
+		}
+
+		//小助手启动退出报警
+		if (g_runEventFlag)
+		{
+			//小助手退出报警
+			if (_strnicmp(exitStg.eventCode, ASSIST_EXIT_CODE, strlen(ASSIST_EXIT_CODE)) == 0)
+			{
+				AssistEventAlarm(pCurPath, &exitStg);
+			}
+
+			//小助手启动报警
+			if (_strnicmp(runStg.eventCode, ASSIST_RUN_CODE, strlen(ASSIST_RUN_CODE)) == 0)
+			{
+				AssistEventAlarm(pCurPath, &runStg);
+			}
+
+			g_runEventFlag = FALSE;
+		}
+	}
+	catch(...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "HandleAssitRunAlarm Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"HandleAssitRunAlarm Exception", L"Msg", 0);
+#endif
+	}
+}
+
+int ParseNacTechMsgBuf(IN char* pMsg, OUT string &strAscMac, OUT string &strAccessMode)
+{
+	if (strlen(pMsg) > 0 &&_strnicmp(pMsg, "EMPTY", strlen("EMPTY")) != 0)
+	{
+		TiXmlDocument* myDocument = new TiXmlDocument();
+		TiXmlElement *rootElement = NULL;
+		TiXmlElement *ascMacElement = NULL;
+		TiXmlElement *accessModeElement = NULL;
+
+		if (myDocument == NULL)
+		{
+			return FALSE;
+		}
+
+		myDocument->Parse(pMsg);
+		if (myDocument->Error())
+		{
+			delete myDocument;
+			return FALSE;
+		}
+
+		rootElement = myDocument->RootElement();
+
+		if (rootElement == NULL)
+		{
+			delete myDocument;
+			return FALSE;
+		}
+
+		ascMacElement = rootElement->FirstChildElement("ascMac");
+
+		if (ascMacElement == NULL)
+		{
+			delete myDocument;
+			return FALSE;
+		}
+
+		accessModeElement = rootElement->FirstChildElement("accessMode");
+
+		if (accessModeElement == NULL)
+		{
+			delete myDocument;
+			return FALSE;
+		}
+
+		strAscMac = (string)ascMacElement->FirstChild()->Value();
+		strAccessMode = (string)accessModeElement->FirstChild()->Value();
+
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "控制器MAC=");
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, (char*)strAscMac.c_str());
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "准入技术=");
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, (char*)strAccessMode.c_str());
+
+		delete myDocument;
+
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/************************************************************
+Description: 处理准入技术通知
+input: pMsg[消息体]
+       pCurPath[当前路径]
+Return: NULL
+*************************************************************/
+void HandleNacTechNotify(IN char* pMsg, IN string strIniFilePath, IN CEstablishSocket *pEs)
+{
+	string strAscMac = "";
+	string strAccessMode = "1";
+	char curNetAccessTech[4]={0};
+
+	GetPrivateProfileStringA("Param", "NetworkAccessTechnology", "1", curNetAccessTech, 4, strIniFilePath.c_str());
+
+	if (ParseNacTechMsgBuf(pMsg, strAscMac, strAccessMode))
+	{
+		WritePrivateProfileStringA("Param", "NetworkAccessTechnology", strAccessMode.c_str(), strIniFilePath.c_str());
+		if (strAccessMode.compare(ENABLE_8021X_TECH) == 0)
+		{
+			g_strAscMac = strAscMac;
+
+			HandleJob1  uploaddevinfo;
+
+			g_bEnable8021x = TRUE;
+			uploaddevinfo.InitParam(g_EstliSocket.m_hComm, CLINET_DEVICE_REG_FLAG);
+			uploaddevinfo.execute();
+		}
+		else
+		{
+			Free8021xResource(); 
+			g_bEnable8021x = FALSE;
+			g_monitorWallPaperFlag = FALSE;
+			g_wallPaperPolicy.cstrWallPaperDownPath = L"";
+			g_wallPaperPolicy.cstrWallPaperUrl = L"";
+			g_wallPaperPolicy.dwStyle = 6;
+		}
+
+		if (strAccessMode.compare(curNetAccessTech) != 0 && 
+			(strAccessMode.compare(ENABLE_8021X_TECH) == 0 ||
+			atoi(curNetAccessTech) == atoi(ENABLE_8021X_TECH)))
+		{
+			WritePrivateProfileStringA("Param", "state", AUTHEN_FAILURE_FLAG, strIniFilePath.c_str());
+			pEs->m_esFCbFn(SERVER_SEND_NAC_TECHNOLOGY, "0", strlen("0"));
+		}
+	}	
+}
+
+/************************************************************
+Description: 向服务器发送设备信息
+Return: NULL
+*************************************************************/
+void SendDeviceInfoToSer(IN char* ascmac)
+{
+	try
+	{
+		if (strcmp(ascmac,HPMACINITVALUE))
+		{
+			g_strAscMac = ascmac;
+		}
+		HandleJob1  uploaddevinfo;
+		uploaddevinfo.InitParam(g_EstliSocket.m_hComm, CLINET_DEVICE_REG_FLAG);
+		uploaddevinfo.execute();
+	}
+	catch(...)
+	{
+		WriteExceptionDebugInfomation(LEVEL_RELEASE, MODULE_ALL, LOGLOCATION, "SendDeviceInfoToSer Exception");
+#ifdef _DEBUG
+		MessageBox(NULL, L"SendDeviceInfoToSer Exception", L"Msg", 0);
+#endif
+	}
+}
+
+//同步服务器端的时间
+void SyncServerCurrentTime()
+{
+	HandleJob1  safecheckontimer;
+	char reqtimetype[HP_C_USERCONTENTLEN] = {0};
+	sprintf_s(reqtimetype,HP_C_USERCONTENTLEN,"%d",SYNCSERVTIME);
+	safecheckontimer.InitParam(g_EstliSocket.m_hComm,CLIENT_GET_TIMESTAMP_FLAG, reqtimetype);
+	safecheckontimer.execute();
+}

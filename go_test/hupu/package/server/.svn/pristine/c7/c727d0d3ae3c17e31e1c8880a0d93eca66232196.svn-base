@@ -1,0 +1,32 @@
+#pragma once
+#include <Windows.h>
+
+class CFileinfoCheckSum
+{
+public:
+	CFileinfoCheckSum(void);
+	~CFileinfoCheckSum(void);
+
+	//制作文件的md5值:根据文件的创建时间和修改时间制作md5值
+	BOOL MakeFileMd5Value(IN char* filepath,OUT char* md5value,int md5valuelen);
+
+	//制作字符串的MD5值:根据固定的字符串制作md5值:定时安检中使用
+	BOOL MakeStringMd5Value(IN char* filepath,IN char* appname,IN char* keyname,OUT char* md5value,int md5valuelen);
+
+	//记录开始定时安检信息时间到ini文件
+	BOOL WriteSFOnTimeTimerToIniFile(IN char* servicevalue);
+
+	//判断是否需要定时安检:需要返回TRUE,不需要返回FALSE，ontimerfrequency表示返回FALSE时需要下次定时安检的时间值
+	BOOL  bStartOntimer(IN string clientonlinetime,IN char *servertime,IN unsigned long  serverfrequery,OUT unsigned long *ontimerfrequency);
+
+	//在定时安检关闭时清除定时安检记录
+	BOOL  DeleteSFOnTimeTimerToIniFile();
+
+	//客户端首次启动就上线的情况下判断是否存在距离上次域用户验证的时间
+	BOOL  bShouldContinueExecDelayOffline(IN string clientonlinetime,IN string servertime,long long *pidentimediffer);
+
+	//记录域用户验证延时下线的剩余时间:#表示已经下线不需要再处理,其他值表示还有剩余时间
+	BOOL WriteIdentifyDomainOnTimerToIniFile(char* startidentifytime);
+
+};
+

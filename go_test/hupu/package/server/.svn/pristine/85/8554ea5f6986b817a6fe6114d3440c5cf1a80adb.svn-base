@@ -1,0 +1,163 @@
+#pragma once
+
+/*windows socket的头文件，系统定义的*/
+#include <winsock2.h>					
+#include <windows.h>
+#include <ws2tcpip.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <IPHlpApi.h>
+#pragma comment(lib, "Iphlpapi.lib")
+#pragma comment(lib,"ws2_32.lib")		/*链接API相关连的Ws2_32.lib静态库*/
+#include "GlobalDate.h"
+
+#define SIO_RCVALL _WSAIOW(IOC_VENDOR,1)
+
+
+typedef struct _PROTN2T
+{ 
+	int  proto ;
+	char *pprototext ;
+}PROTN2T ; 
+						
+#define PROTO_NUM  11 
+
+/* The IP header */
+typedef struct _IPHEADER {
+        unsigned char  header_len:4;
+        unsigned char  version:4;   
+        unsigned char  tos;            // type of service
+        unsigned short total_len;      // length of the packet
+        unsigned short ident;          // unique identifier
+        unsigned short flags;          
+        unsigned char  ttl;            
+        unsigned char  proto;          // protocol ( IP , TCP, UDP etc)
+        unsigned short checksum;       
+        unsigned int   sourceIP;
+        unsigned int   destIP;
+
+}IPHEADER;
+
+
+#define UDP_HEAD_LEN 8	/* UDP head length */
+
+#define PSEUDO_HEAD_LEN 12	/* Pseudo head length */
+
+#define ICMP_HEAD_LEN 4	/* ICMP head length */
+
+struct TCPPacketHead {
+	WORD SourPort;
+	WORD DestPort;
+	DWORD SeqNo;
+	DWORD AckNo;
+	BYTE HLen;
+	BYTE Flag;
+	WORD WndSize;
+	WORD ChkSum;
+	WORD UrgPtr;
+};
+
+struct ICMPPacketHead {
+	BYTE Type;
+	BYTE Code;
+	WORD ChkSum;
+};
+
+struct UDPPacketHead {
+	WORD SourPort;
+	WORD DestPort;
+	WORD Len;
+	WORD ChkSum;
+};
+
+const int HTTPPORTLEN = 5;
+
+const char C_SERVERIPFORMAT[] = {"HTTP://000.000.000.000:00000/"};
+const char C_INITSERVERIP[]={"127.0.0.1"};
+const char C_INITPORT[]={"80"};
+
+const char knlredireURLMake[] = {"REDIRECTSERVLET?IP"};
+const char webtokenMake[] = {"HUPUNACTOKEN="};
+const char NATTYPEMake[] = {"NATTYPE="};
+const char ASCMACMake[] = {"ETH0_MAC="};
+
+class CAutoFindService
+{
+public:
+	void InitCallBackParam(fnDataCallBackFunc callbackfn);  
+
+	CAutoFindService(void);
+	~CAutoFindService(void);
+
+	void  bStartSniffer(char* ipvalue);
+
+    //设置关闭抓包线程
+	void SetCloseSniffer(bool bFlag);
+
+    //去除字符串开头和结尾的空格
+	string trim(const string& str);
+
+    //关闭抓包的SOCKET
+	void CloseSocket(SOCKET sock);
+
+    //处理从网卡处获取的数据包
+	void HandleRecvData(SOCKET sock,char *recvdata, int recvlen);
+	
+    //处理recv接收后剩余的数据包
+	void HandleRecvLastData(SOCKET sock,char *recvdata,DWORD totllen,DWORD iretlen);
+
+    //退出标志,true表示关闭诱探程序，false表示不关闭诱探程序  
+    bool m_FClose;      
+
+    //本地已经抓到的Token的数据包
+    list<string> lstoken;
+    list<string>::iterator lstokeniter;
+
+    fnDataCallBackFunc m_FCbFn;
+
+	void StartHttpRequest(wstring httpurl);
+
+	static CAutoFindService *pautofindserv;
+private:
+    //nat类型
+	int m_nattype;
+
+	wstring  m_bInitHttpUrl;
+
+    //服务器ip地址
+    wchar_t m_serviceip[IPADDRESSLENGTH];
+
+    char m_inifilepath[MAX_PATH];
+
+	SOCKET InitSocket(char* ipvalue);
+
+	void GetIniConfigPath();
+
+    //获取ASC的MAC数据
+	void GetASCMacData(string data);
+
+    //获取NAT类型数据
+	void GetNatData(string data);
+
+    //从内核数据包中获取服务器IP地址
+	void GetServerIpFromKNL(string data);
+
+    //从Web页面获取服务器IP地址,若当前抓到的服务器ip与客户端连接的服务器ip地址一样，则返回成功
+    //否则记录ip为ServerIp2，返回失败
+	BOOL  GetServerIpFromWeb(string data);
+
+    //获取页面Token
+	void GetWebToken(string data);
+	
+    //正则匹配IP和内核重定向数据
+    bool regexData(const char* sourcestr,const char* regexpatter);
+
+	//从重定向参数中获取重定向ip
+	void GetRedictIpAndMac(string data);
+
+	static unsigned  __stdcall  threadFunc(LPVOID pvParam);
+
+	int SetTaskOffloadValueInReg();
+
+};

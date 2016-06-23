@@ -1,0 +1,53 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKPROCESS_H
+#define _CHECKPROCESS_H 1
+
+#include <Windows.h>
+
+#define MD5_VALUE_LEN 32
+#define MIN_BUF_LEN 64
+
+typedef	struct _PROC_MONITOR_EVENT 
+{
+	HANDLE	hEvent;
+}PROC_MONITOR_EVENT,*PPROC_MONITOR_EVENT;
+
+string CheckProcIsExist(IN const char* szProcName, 
+						IN const char* szProcMd5Value, 
+						IN int iCheckCondition, 
+						IN LANGUAGETYPE language,
+						IN int iTrigger, 
+						OUT string& strTrigrSucc);
+
+string CheckProcIsInclude(IN const char* szProcName, 
+						IN const char* szIncludedDllName, 
+						IN LANGUAGETYPE language,
+						IN int iTrigger, 
+						OUT string& strTrigrSucc);
+
+void SetAndMonitorProc(wchar_t* pArgv);
+
+string GetProcNameFromDownUrl(IN const char* pDownloadUrl);
+
+string CheckProcOutput(IN const char* szUrlPath, 
+						IN const char* szDownLoadPath, 
+						IN const char* szCmpOutput, 
+						IN int iCheckCondition, 
+						IN LANGUAGETYPE language,
+						IN int iTrigger, 
+						OUT string& strTrigrSucc);
+
+string CheckProcReturnValue(IN const char* szUrlPath, 
+							IN const char* szCmpRetValue,
+							IN LANGUAGETYPE language,
+							IN int iTrigger, 
+							OUT string& strTrigrSucc);
+
+#endif

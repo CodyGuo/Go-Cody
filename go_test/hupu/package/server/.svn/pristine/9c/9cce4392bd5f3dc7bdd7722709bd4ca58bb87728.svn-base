@@ -1,0 +1,71 @@
+#include "stdafx.h"
+#include "DeviceControlFunction.h"
+#include "..\..\common\GlobalFunction\GlobalFunction.h"
+
+#define USB_STROAGE_DEV_MANAGE_DLL_NAME "UsbStorageDevMana.dll"
+
+bool EnableUsbDev(IN std::vector<std::string>&enableDevList)
+{
+	bool bRet = false;
+	char currPath[MAX_PATH] = {0};
+	char usbStorageDevManaDllPath[MAX_PATH] = {0};
+	HINSTANCE hUsbDevManageDll = NULL;	
+
+	GetCurrentPath(currPath);
+	sprintf_s(usbStorageDevManaDllPath, "%s\\%s", currPath, USB_STROAGE_DEV_MANAGE_DLL_NAME);
+	hUsbDevManageDll = LoadLibraryA(usbStorageDevManaDllPath); 
+
+	if (hUsbDevManageDll == NULL)
+	{
+		return bRet;
+	}
+
+	pFnEnableAllUsbPolicyDev fEnableAllUsbPolicyDev = NULL;
+	fEnableAllUsbPolicyDev = (pFnEnableAllUsbPolicyDev)GetProcAddress(hUsbDevManageDll, "EnableAllUsbPolicyDev");
+
+	if(fEnableAllUsbPolicyDev == NULL)
+	{
+		FreeLibrary(hUsbDevManageDll);
+		return bRet;
+	}
+
+	fEnableAllUsbPolicyDev(enableDevList);
+
+	FreeLibrary(hUsbDevManageDll);
+	hUsbDevManageDll = NULL;
+
+	return bRet;
+}
+
+bool DisableUsbDev(IN std::vector<std::string>&disbleDevList)
+{
+	bool bRet = false;
+	char currPath[MAX_PATH] = {0};
+	char usbStorageDevManaDllPath[MAX_PATH] = {0};
+	HINSTANCE hUsbDevManageDll = NULL;	
+
+	GetCurrentPath(currPath);
+	sprintf_s(usbStorageDevManaDllPath, "%s\\%s", currPath, USB_STROAGE_DEV_MANAGE_DLL_NAME);
+	hUsbDevManageDll = LoadLibraryA(usbStorageDevManaDllPath); 
+
+	if (hUsbDevManageDll == NULL)
+	{
+		return bRet;
+	}
+
+	pFnDisableAllUSbPolicyDev fDisableAllUsbPolicyDev = NULL;
+	fDisableAllUsbPolicyDev = (pFnDisableAllUSbPolicyDev)GetProcAddress(hUsbDevManageDll, "DisableAllUSbPolicyDev");
+
+	if(fDisableAllUsbPolicyDev == NULL)
+	{
+		FreeLibrary(hUsbDevManageDll);
+		return bRet;
+	}
+
+	fDisableAllUsbPolicyDev(disbleDevList);
+
+	FreeLibrary(hUsbDevManageDll);
+	hUsbDevManageDll = NULL;
+
+	return bRet;
+}

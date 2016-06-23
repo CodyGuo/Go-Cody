@@ -1,0 +1,38 @@
+#pragma once
+
+#include "lspdef.h"
+#include "..\common\preheader.h"
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include "mmsystem.h"
+
+#pragma comment(lib, "winmm.lib")
+
+
+
+void 
+PrintProcTable(
+    LPWSPPROC_TABLE lpProcTable);
+
+
+void 
+CopyOffset(
+    WSAOVERLAPPED  *ProviderOverlapped, 
+    WSAOVERLAPPED  *UserOverlapped);
+
+WSABUF *
+CopyWSABuf(
+    WSABUF *BufferArray, 
+    DWORD   BufferCount, 
+    int    *lpErrno);
+
+void 
+FreeWSABuf(
+    WSABUF *BufferArray);
+
+void 
+FreeSocketsAndMemory(
+    BOOL processDetach,
+    int *lpErrno);

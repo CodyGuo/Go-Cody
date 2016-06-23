@@ -1,0 +1,53 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKCUSTOM_H
+#define _CHECKCUSTOM_H 1
+
+#include "..\OpStgClass.h"
+#include "..\CustomCheck\CommData.h"
+
+#define TSTG_CHECKCUSTOM_TABLE_NAME "tstgcheckcustom"
+#define TSTG_CHECKCUSTOM_FORITEM_TABLE_NAME "tstgcheckcustomforitem"
+#define TSTG_CHECKCUSTOM_CHECKITEM_TABLE_NAME "tstgcheckcustomcheckitem"
+#define TSTG_CHECKCUSTOM_REPAIRITEM_TABLE_NAME "tstgcheckcustomrepairitem "
+
+/************************************************************ 
+ Description: 从数据库中获取自定义检查策略
+ input: 
+ Return: 
+*************************************************************/
+int GetCustomCheckDataFromTables( IN wchar_t *pDirPath, 
+	IN char *pUserId, 
+	IN char* pUserType, 
+	IN char *pCurrdata, 
+	IN char *pMilliSecond, 
+	IN char *pWeekday, 
+	OUT list<CHECKCUSTOMPOLICY>& checkCustomPolicyList);
+
+int ClearCustomCheckTable(IN OpStgClass *pOsc, IN sqlite3 *pDb, IN const char* pUserId, IN const char* pUserType);
+
+/************************************************************
+Function Name: SaveCustomCheckPolicy
+Input and output:  
+          policyId: 自定义的策略id号
+          pDb: 数据库句柄
+          thirditemattri: thirditem中的xml数据
+          pOsc: OpStgClass类对象
+RetVal:成功返回HP_SUCCESS
+       失败返回HP_DB_OPFAIL
+*************************************************************/
+int SaveCustomCheckPolicy(IN int policyId, IN sqlite3 *pDb, IN XMLDATA* pXmlData, IN OpStgClass *pOsc);
+
+int CheckCustomCheck(IN LANGUAGETYPE language);
+bool CustomCheckRetShowMsg(IN int iCheckState, OUT int* pFailNum, OUT std::string& strErrorMsg );
+BOOL RepairCustomCheck(IN int iRepairIndex);
+
+extern list<CHECKCUSTOMPOLICY> g_checkCustomPolicyList;
+
+#endif

@@ -1,0 +1,18 @@
+
+#pragma once 
+#ifndef REGISTERFUN
+#define REGISTERFUN
+
+#include "stdafx.h"
+#include <Windows.h>
+#include "tlhelp32.h"
+#include "sqlite3.h"
+#include "CommPub.h"
+#include "WtsApi32.h"
+#include "GlobalDate.h"
+#include <string>
+using namespace std;
+
+#include "DebugInfo.h"
+
+#endif

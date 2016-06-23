@@ -1,0 +1,57 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKSHARERESOURCE_H
+#define _CHECKSHARERESOURCE_H 1
+
+#define MAX(x, y) x>y?x:y
+
+#define MAX_DIR_NAME_LEN 248
+
+#define NET_SHARE_TABLE_NAME "tstgnetshare"
+#define NETSHARE_CONTENT_TABLE_NAME "tstgnetsharecontent"
+
+typedef std::list<std::wstring> SHAREDIR;
+
+typedef struct _SHAREDIRPOLICY
+{
+    SHAREDIR exceptShareDir;
+    SHAREDIR violationShareDir;
+
+}SHAREDIRPOLICY, *PSHAREDIRPOLICY;
+
+/************************************************************ 
+ Description: 从数据库中获取资源共享策略
+ input: 
+ Return: 
+*************************************************************/
+int GetNetShareDataFromDB(  IN wchar_t *pDirPath, 
+                            IN char *pUserId, 
+                            IN char* pUserType, 
+                            IN char *pCurrdata, 
+                            IN char *pMilliSecond, 
+                            IN char *pWeekday, 
+                            OUT PSHAREDIRPOLICY pShareDirPolicy,
+                            OUT safecheckattr *pNetShareAttriInfo);
+
+/************************************************************ 
+ Description: 返回安检失败后显示信息
+ input: 
+ Return: 
+*************************************************************/
+bool NetShareRetShowMsg(IN int iCheckState, IN safecheckattr checkItem, IN PSHAREDIRPOLICY pShareDirPolicy, OUT int* pFailNum, OUT char* pMsgBuf, IN size_t msgBufLen, IN LANGUAGETYPE language);
+
+/************************************************************
+ Description: 处理网络共享资源
+ Input: isRestore[是否修复]
+ Return: TRUE[检查网络存在共享资源不符合要求或修复成功]
+         FALSE[检查网络共享资源符合要求或修复失败]
+*************************************************************/
+BOOL NetShareResourceEnum(IN BOOL isRestore, _Inout_ PSHAREDIRPOLICY pShareDirPolicy);
+
+#endif

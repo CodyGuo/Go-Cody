@@ -1,0 +1,341 @@
+#include "StdAfx.h"
+#include "DomainDelayOfflineTip.h"
+#include "DebugInfo.h"
+#include "JobThread/HandleJob1.h"
+#include "ControlName.h"
+#include "SafeCheckItem/SafeCheckFuntion.h"
+
+#include "GetLangValue.h"
+
+
+
+CDomainDelayOfflineTip::CDomainDelayOfflineTip(void)
+{
+  initData();
+}
+
+
+CDomainDelayOfflineTip::~CDomainDelayOfflineTip(void)
+{
+	initData();
+}
+
+void CDomainDelayOfflineTip::GetServDomainConfig(DELAYOFFLINETIP *domainidentifyconf,ADSERVERNAMEIP *addomainlist,
+	BOOL basystate,unsigned long long asynstatofflintime)
+{
+	initData();
+
+	if (domainidentifyconf)
+	{
+		memset(m_domainidentify.blackuser,0,sizeof(m_domainidentify.blackuser));
+		memcpy(m_domainidentify.blackuser,domainidentifyconf->blackuser,strlen(domainidentifyconf->blackuser));
+		m_domainidentify.identdlgtime = domainidentifyconf->identdlgtime;
+		m_domainidentify.lastlen = domainidentifyconf->lastlen;
+		m_domainidentify.idenperiod = domainidentifyconf->idenperiod;
+		m_domainidentify.idenperiodunit = domainidentifyconf->idenperiodunit;
+		m_domainidentify.advnotifytime = domainidentifyconf->advnotifytime;
+		m_domainidentify.advnotifytimeunit = domainidentifyconf->advnotifytimeunit;
+		m_domainidentify.tipnum = domainidentifyconf->tipnum;
+
+		memset(m_domainidentify.servsftimeval,0,sizeof(m_domainidentify.servsftimeval));
+		memcpy(m_domainidentify.servsftimeval,domainidentifyconf->servsftimeval,strlen(domainidentifyconf->servsftimeval));
+
+		memset(m_domainidentify.tiptext,0,sizeof(m_domainidentify.tiptext));
+		memcpy(m_domainidentify.tiptext,domainidentifyconf->tiptext,strlen(domainidentifyconf->tiptext));
+
+		memset(m_domainidentify.swarnname,0,sizeof(m_domainidentify.swarnname));
+		sprintf_s(m_domainidentify.swarnname,sizeof(m_domainidentify.swarnname),"%s",domainidentifyconf->swarnname);
+		memset(m_domainidentify.warninglevel,0,sizeof(m_domainidentify.warninglevel));
+		sprintf_s(m_domainidentify.warninglevel,sizeof(m_domainidentify.warninglevel),"%s",domainidentifyconf->warninglevel);
+		memset(m_domainidentify.srcevent,0,sizeof(m_domainidentify.srcevent));
+		sprintf_s(m_domainidentify.srcevent,sizeof(m_domainidentify.srcevent),"%s",domainidentifyconf->srcevent);
+
+		memset(m_domainidentify.username,0,sizeof(m_domainidentify.username));
+		sprintf_s(m_domainidentify.username,sizeof(m_domainidentify.username),"%s",domainidentifyconf->username);
+		memset(m_domainidentify.userdomain,0,sizeof(m_domainidentify.userdomain));
+		sprintf_s(m_domainidentify.userdomain,sizeof(m_domainidentify.userdomain),"%s",domainidentifyconf->userdomain);
+
+		memset(m_domainidentify.whilteuser,0,sizeof( m_domainidentify.whilteuser));
+		memcpy(m_domainidentify.whilteuser,domainidentifyconf->whilteuser,strlen(domainidentifyconf->whilteuser));
+		m_idendlgtimeout = m_domainidentify.identdlgtime;
+
+		m_bNeedDomainIden = TRUE;
+	}
+	if (addomainlist)
+	{
+		int nameandipsize = m_domainidentify.lastlen;
+		for (int i=0;i<nameandipsize-1;i++)
+		{
+			m_addomainlist.push_back(addomainlist[i]);
+		}
+	}
+
+	m_domainperiod = TranslateTimeTosec(m_domainidentify.idenperiod,m_domainidentify.idenperiodunit);//验证周期
+	m_advnoticetime = TranslateTimeTosec(m_domainidentify.advnotifytime,m_domainidentify.advnotifytimeunit);//提前通知时间
+	m_domainidentify.tipnum = m_domainidentify.tipnum;//验证次数
+	m_frequency = m_advnoticetime/m_domainidentify.tipnum;//验证频率
+	m_lastperiodtime = m_domainperiod;
+
+	if (basystate)
+	{
+		if (m_lastperiodtime>asynstatofflintime)
+		{
+			m_lastperiodtime = m_lastperiodtime-asynstatofflintime;
+		}
+	}
+	
+	m_alreadytipnum = 0;
+
+	ConvertA2W(m_domainidentify.tiptext,m_servTipInfo,sizeof(m_servTipInfo));
+}
+
+
+unsigned long long CDomainDelayOfflineTip::CalculateLastTime(LANGUAGETYPE lang,unsigned long long *alreadyusedtime,wchar_t*  tipmsg)
+{
+	char msginfo[MAX_PATH] = {"0"};
+	sprintf_s(msginfo,sizeof(msginfo),"m_advnoticetime=%u,m_alreadytipnum=%d,m_frequency=%u",m_advnoticetime,
+		m_alreadytipnum,m_frequency);
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,msginfo);
+
+	*alreadyusedtime = (m_alreadytipnum-1)*m_frequency;
+	CString str; 
+	unsigned long long lasttime = (m_advnoticetime-(m_alreadytipnum-1)*m_frequency)/60;
+	if (lasttime>0)
+	{
+		vector<wstring> lasttimestrvec;
+		unsigned long long hourtime = lasttime/60;
+		if (hourtime>0)
+		{
+			str.Format(L"%llu", hourtime);  
+			GetLangVectorByKeyW(lang,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYTIPAPPENDHOUR],
+				(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYTIPAPPENDHOUR],MAX_PATH,2,&lasttimestrvec);
+		}
+		else
+		{
+			str.Format(L"%llu", lasttime);  
+			GetLangVectorByKeyW(lang,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYTIPAPPENDINFP],
+				(char*)SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYTIPAPPENDINFP],MAX_PATH,2,&lasttimestrvec);
+		}
+		if (lasttimestrvec.size() == 2)
+		{
+			wsprintf(tipmsg,L"%s(%s%s%s)",m_servTipInfo,(wchar_t*)lasttimestrvec[0].c_str(),str.GetBuffer(str.GetLength()),(wchar_t*)lasttimestrvec[1].c_str());
+		}
+		else
+		{
+			wsprintf(tipmsg,L"%s",m_servTipInfo);
+		}
+		str.ReleaseBuffer();
+	}
+	return lasttime;
+}
+
+void CDomainDelayOfflineTip::initData()
+{
+	memset(&m_domainidentify,0,sizeof(DELAYOFFLINETIP));
+	list<ADSERVERNAMEIP>::iterator  servdomainipiter;
+	for ( servdomainipiter = m_addomainlist.begin(); servdomainipiter != m_addomainlist.end(); )
+	{
+		m_addomainlist.erase(servdomainipiter++);
+	}
+	memset(m_servTipInfo,0,sizeof(m_servTipInfo));
+	m_idendlgtimeout = 0;
+
+	memset(m_domainidentify.blackuser,0,sizeof(m_domainidentify.blackuser));
+	m_domainidentify.identdlgtime = 0;
+	m_domainidentify.lastlen = 0;
+	m_domainidentify.idenperiod = 0;
+	m_domainidentify.idenperiodunit = 0;
+	m_domainidentify.advnotifytime = 0;
+	m_domainidentify.advnotifytimeunit = 0;
+	m_domainidentify.tipnum = 0;
+	memset(m_domainidentify.servsftimeval,0,sizeof(m_domainidentify.servsftimeval));
+	memset(m_domainidentify.tiptext,0,sizeof(m_domainidentify.tiptext));
+	memset(m_domainidentify.swarnname,0,sizeof(m_domainidentify.swarnname));
+	memset(m_domainidentify.warninglevel,0,sizeof(m_domainidentify.warninglevel));
+	memset(m_domainidentify.srcevent,0,sizeof(m_domainidentify.srcevent));
+	memset(m_domainidentify.whilteuser,0,sizeof( m_domainidentify.whilteuser));
+	memset(m_domainidentify.username,0,sizeof(m_domainidentify.username));
+	memset(m_domainidentify.userdomain,0,sizeof( m_domainidentify.userdomain));
+	m_advnoticetime = 0;
+	m_domainidentify.tipnum = 0;
+	m_frequency = 0;
+	m_lastperiodtime = 0;
+	m_alreadytipnum = 0;
+	m_domainperiod = 0;
+	m_bNeedDomainIden = FALSE;
+	memset(m_domainidentify.tiptext,0,sizeof(m_domainidentify.tiptext));
+}
+
+int CDomainDelayOfflineTip::InWhiteUserOrBlackUser(char* userName,int userNamelen,char* domain,int domainlen)
+{
+	int ret = HP_DOMAIN_BELONGDOMAINUSEROUT;
+	string str =  m_domainidentify.blackuser;
+	str += ",";
+	int totallen = str.size();
+	int startpos = 0;
+	int endpos = str.find(",", 0);
+	while (endpos != string::npos )
+	{
+		string usersubstr = str.substr(startpos,endpos-startpos);
+		if ( stricmp(usersubstr.c_str(), userName) == 0 )
+		{
+			ret = HP_DOMAIN_BELONGDOMAINBLACK;
+			break;
+		}
+		startpos = endpos+1;
+		if (startpos>= totallen)
+		{
+			break;
+		}
+		endpos = str.find(",", startpos);
+	}
+	return ret;
+}
+
+void  CDomainDelayOfflineTip::SendDomainIdentifyOfflineinfo(IN int identifyres,IN LANGUAGETYPE language,OUT char* identifydes,IN int identifydeslen,
+	char *identifyuser,char* identifydomain)
+{
+	time_t currtime;
+	time(&currtime);
+	currtime += m_advnoticetime-m_lastperiodtime*60;
+	char servtimvalstr[20] ={"0"};
+	sprintf_s(servtimvalstr,"%I64d000",currtime);
+
+	char localmacinfo[HP_C_USERCONTENTLEN] = {"0"};
+	GetLocalMac(localmacinfo);
+	char tempheader[MAX_PATH]={"0"};
+	sprintf_s(tempheader,MAX_PATH,"%s;%s;1;%d;1;-1;%s;", servtimvalstr, g_deviceid.c_str(), SFDOMAIN, localmacinfo);
+
+	char titleA[MAX_PATH] = {"0"};
+	GetLangValueByKeyA((LANGUAGETYPE)language,SFDOMAINAPPNAME,SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYTIPTITLE],
+		SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYTIPTITLE],titleA,sizeof(titleA));
+
+	char identifyResult[MAX_PATH*3] = {"0"};//记录域验证信息
+	memset(identifydes,0,identifydeslen);
+	char identifydestoserv[MAX_PATH*2] = {"0"};
+
+	if ((identifyres == HP_DOMAIN_BELONGDOMAINBLACK) || (identifyres == DOMAINIDENTFAIL))
+	{
+		int keynum = SF_SFDOMAIN_IDENTIFYFAIL;
+		if (identifyres == HP_DOMAIN_BELONGDOMAINBLACK)
+		{
+			keynum = SF_SFDOMAIN_IDENTIFYBLACKUSER;
+			GetLangValueByKeyA(language,SFDOMAINAPPNAME,SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYDELAYOFFLINEBLACKUSER],
+				SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYDELAYOFFLINEBLACKUSER],identifydes,identifydeslen);
+		}
+		if (identifyres == DOMAINIDENTFAIL)
+		{
+			GetLangValueByKeyA(language,SFDOMAINAPPNAME,SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYDELAYOFFLINE],
+				SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYDELAYOFFLINE],identifydes,identifydeslen);
+		}
+		vector<string> identifyresdes;
+		if (GetLangVectorByKeyA(language,(char*)SFDOMAINAPPNAME,(char*)SFDOMAINKEYSTR[keynum],
+			(char*)SFDOMAINKEYSTR[keynum],MAX_PATH*3,5,&identifyresdes))
+		{
+			sprintf_s(identifydestoserv,sizeof(identifydestoserv),"%s%s%s%s%s%s%s%s%s",identifyresdes[0].c_str(),m_domainidentify.username,identifyresdes[1].c_str(),m_domainidentify.userdomain,identifyresdes[2].c_str(),
+				identifyuser,identifyresdes[3].c_str(),identifydomain,identifyresdes[4].c_str());
+		}
+	}
+	else if ((identifyres == DOMAINIDENTTIMEOUT)||(identifyres == DOMAINIDENTCANCEL))
+	{
+		GetLangValueByKeyA(language,SFDOMAINAPPNAME,SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYDELAYOFFLINE],
+			SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYDELAYOFFLINE],identifydestoserv,sizeof(identifydestoserv));
+		GetLangValueByKeyA(language,SFDOMAINAPPNAME,SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYDELAYOFFLINE],
+			SFDOMAINKEYSTR[SF_SFDOMAIN_IDENTIFYDELAYOFFLINE],identifydes,identifydeslen);
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_DOMAIN,LOGLOCATION,"exception data");
+	}
+	string symblestr = ConvertUniToAnsi(L"￥");
+	if(strcmp(m_domainidentify.tiptext,"0"))
+	{
+	   sprintf_s(identifyResult, sizeof(identifyResult),"<iman succflag =\"0\"><subitem checkItemId=\"0\" checkItemAction=\"%d\" faildes=\"%s\" name=\"%s\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%s\"/></iman>",
+		ALLOW,/*identifydestoserv*/m_domainidentify.tiptext,m_domainidentify.userdomain,m_domainidentify.swarnname,m_domainidentify.warninglevel,m_domainidentify.srcevent);   
+	}
+	else
+    {
+	   sprintf_s(identifyResult, sizeof(identifyResult),"<iman succflag =\"0\"><subitem checkItemId=\"0\" checkItemAction=\"%d\" faildes=\"%s\" name=\"%s%s2\" swarnname=\"%s\" iwarnlevel=\"%s\"  ilogrecord=\"%s\"/></iman>",
+		ALLOW,identifydestoserv,m_domainidentify.userdomain,symblestr.c_str(),m_domainidentify.swarnname,m_domainidentify.warninglevel,m_domainidentify.srcevent);   
+	}
+
+	string xmlBody = identifyResult;
+	string Sendtmpheader =tempheader;
+	string  xmlHeader ="<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+	string  xmltail ="</nac>";
+	string xmlstring = Sendtmpheader+xmlHeader+xmlBody+xmltail;
+
+	HandleJob1 checkJob;
+	checkJob.InitParam(g_EstliSocket.m_hComm,CLIENT_SEND_CHECKRESULT_FLAG, xmlstring.c_str());
+	checkJob.execute();
+
+}
+
+void CDomainDelayOfflineTip::SendDomainIdentifyInfoToServer(string username,string userdomain,string idenuser,string idendomain,BOOL  idenRes)
+{
+	char macvalue[MACADDRESSLEN] = {"0"};
+	GetLocalMac(macvalue);
+	string idendes=SERVER_FAILURE_STR;
+	if (idenRes)
+		idendes = SERVER_SUCCESS_STR;
+
+	char sfchecktypestr[HP_C_USERCONTENTLEN] = {"0"};
+	sprintf_s(sfchecktypestr,sizeof(sfchecktypestr),"%d",(int)CLIENTONTIMERSFCHECK);
+
+	string tmpstr;
+	tmpstr =  "<iman slocalaccount=\""+(string)m_domainidentify.username+ 
+		"\" slocaldomain=\""+m_domainidentify.userdomain+
+		"\" sdomain=\""+idendomain+
+		"\" sdomainuser=\""+idenuser+
+		"\" sdevicemac=\""+macvalue+
+		"\" sfsafechecktype=\""+sfchecktypestr+
+		"\" sauthstatusreason=\"" + idendes + "\"/>";
+
+	string xmlHeader= "<?xml version=\"1.0\" encoding=\"utf-8\"?><nac>";
+	string xmlTail= "</nac>";
+	string xmlstring = xmlHeader+tmpstr+xmlTail;
+	HandleJob1 sendidentifyinfo;
+	sendidentifyinfo.InitParam(g_EstliSocket.m_hComm,CLIENT_SEND_DOMAINIDENTIFYINFO,xmlstring.c_str());
+	sendidentifyinfo.execute();
+}
+
+//判断是否需要向进行域用户验证提示
+BOOL CDomainDelayOfflineTip::BNeedShowDomainIden(time_t currenttime,DWORD timediff)
+{
+	if (timediff>=m_advnoticetime)
+	{
+		m_alreadytipnum = m_domainidentify.tipnum+1;
+		return TRUE;
+	}
+	
+	for (int i=0;i<m_domainidentify.tipnum;i++)
+	{
+		if ( (timediff>=m_frequency*i) && (timediff<m_frequency*i+min(60*2,m_frequency)))//两分钟之内的误差
+		{
+			if(m_alreadytipnum == 0 )
+			{
+				m_alreadytipnum =i+1;
+				return TRUE;
+			}
+			else
+			{
+				if (m_alreadytipnum == (i+1))
+				{
+					return FALSE;
+				}
+				else//表示还没有进行弹窗提示
+				{
+					m_alreadytipnum = i+1;
+					return TRUE;
+				}
+			}
+		}
+	}
+
+	return FALSE;
+}
+
+void CDomainDelayOfflineTip::InitIdentifyNumber(int number)
+{
+	m_alreadytipnum = number;
+}

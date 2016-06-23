@@ -1,0 +1,222 @@
+#include "StdAfx.h"
+#include "WallPaperSetting.h"
+
+#include "..\DebugInfo.h"
+
+#include "tlhelp32.h"
+#include <sddl.h>
+#pragma comment(lib,"Advapi32.lib")
+#include <Wtsapi32.h>
+#pragma comment(lib,"Wtsapi32.lib")
+
+#include <UserEnv.h>
+#pragma comment(lib,"UserEnv.lib")
+
+#include <lm.h>  
+#pragma comment (lib,"Netapi32.lib")   
+
+#include  "SafeCheckFuntion.h"
+
+CWallPaperSetting::CWallPaperSetting(void)
+{
+	m_procId = 0;
+}
+
+
+CWallPaperSetting::~CWallPaperSetting(void)
+{
+	m_procId = 0;
+}
+
+//设置壁纸
+//************************************
+// 函数名称:  SetWallPaper
+// 函数说明:  
+// 返回值:   BOOL
+// 参数: char * wallpaperpath:壁纸路径
+// 参数: int wallpaperstyle:壁纸的格式
+// 作者: gaochunyan
+// 日期：2015/11/10
+//************************************
+BOOL  CWallPaperSetting::SetWallPaper(char* wallpaperpath,int wallpaperstyle)
+{
+	wchar_t dirpathW[MAX_PATH] = {L"0"};
+	MultiByteToWideChar(CP_ACP,0,g_nacdirpath,-1,dirpathW,sizeof(dirpathW));
+	wchar_t  exepath[MAX_PATH] = {L"0"};
+	wsprintf(exepath,L"%s\\HpUninstall.exe",dirpathW);
+
+	wchar_t wallpapeRwstr[MAX_PATH] = {L"0"};
+	MultiByteToWideChar(CP_ACP,0,wallpaperpath,-1,wallpapeRwstr,sizeof(wallpapeRwstr));
+	wchar_t  paramWstr[MAX_PATH] = {L"0"};
+	wsprintf(paramWstr,L" /wallpaper %s;%d",wallpapeRwstr,wallpaperstyle);
+
+	 UseCurrentUserPriviToExe(exepath,paramWstr);
+	 return TRUE;
+}
+
+//取消壁纸
+//************************************
+// 函数名称:  CancelWallPaper
+// 函数说明:  
+// 返回值:   BOOL
+// 作者: gaochunyan
+// 日期：2015/11/10
+//************************************
+BOOL CWallPaperSetting::CancelWallPaper()
+{
+	TerminateProcessByName(L"HpUninstall.exe");
+	return TRUE;
+}
+
+
+BOOL CWallPaperSetting::UseCurrentUserPriviToExe(wchar_t *exepath,wchar_t* paraminfo)
+{
+	PROCESS_INFORMATION pi;
+	STARTUPINFO si;
+	BOOL bResult = FALSE;
+	DWORD dwSessionId, winlogonPid;
+	HANDLE /*hUserToken,*/hUserTokenDup,hPToken,hProcess;
+	DWORD dwCreationFlags;
+
+	// Log the client on to the local computer.
+	PWTS_SESSION_INFO  pSessionInfo = 0;  
+	DWORD dwCount = 0;   
+
+	::WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionInfo, &dwCount);  
+
+	int session_id = 0;  
+
+	for (DWORD i = 0; i < dwCount; ++i) 
+	{        
+		WTS_SESSION_INFO si = pSessionInfo[i];   
+		if (WTSActive == si.State)    
+		{          
+			session_id = si.SessionId;    
+			break;      
+		}  
+	}    ::WTSFreeMemory(pSessionInfo); 
+	dwSessionId=session_id;
+
+	PROCESSENTRY32 procEntry;
+
+	HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (hSnap == INVALID_HANDLE_VALUE)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"CreateToolhelp32Snapshot Fail");
+		return FALSE ;
+	}
+
+	procEntry.dwSize = sizeof(PROCESSENTRY32);
+
+	if (!Process32First(hSnap, &procEntry))
+	{
+		CloseHandle(hSnap);
+		hSnap=NULL;
+		return FALSE ;
+	}
+	do
+	{
+		if (_wcsicmp(procEntry.szExeFile, L"explorer.exe") == 0)
+		{
+			WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,L"Find explorer.exe");
+			DWORD winlogonSessId = 0;
+			if (ProcessIdToSessionId(procEntry.th32ProcessID, &winlogonSessId) && winlogonSessId == dwSessionId)
+			{
+				winlogonPid = procEntry.th32ProcessID;
+				WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"为explorerpid赋值");
+				break;
+			}
+		}
+
+	} while (Process32Next(hSnap, &procEntry));
+
+	dwCreationFlags = NORMAL_PRIORITY_CLASS|CREATE_NEW_CONSOLE;
+	ZeroMemory(&si, sizeof(STARTUPINFO));
+	si.cb= sizeof(STARTUPINFO);
+	si.lpDesktop = L"winsta0\\default";
+	ZeroMemory(&pi, sizeof(pi));
+	si.wShowWindow = SW_HIDE;
+	si.dwFlags = STARTF_USESHOWWINDOW;
+	hProcess = OpenProcess(MAXIMUM_ALLOWED, FALSE, winlogonPid);
+
+	if(!::OpenProcessToken(hProcess,TOKEN_ADJUST_PRIVILEGES|TOKEN_QUERY
+		|TOKEN_DUPLICATE|TOKEN_ASSIGN_PRIMARY|TOKEN_ADJUST_SESSIONID
+		|TOKEN_READ|TOKEN_WRITE,&hPToken))
+	{
+		char ErrMsg[MAX_PATH]={0};
+
+		sprintf(ErrMsg,"Process token open Error: %u\n",GetLastError()); 
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,ErrMsg);
+		CloseHandle(hSnap);
+		hSnap=NULL;
+		return FALSE;
+	}
+
+	DuplicateTokenEx(hPToken,MAXIMUM_ALLOWED,NULL,SecurityIdentification,TokenPrimary,&hUserTokenDup);
+
+	//Adjust Token privilege
+	SetTokenInformation(hUserTokenDup,TokenSessionId,(void*)dwSessionId,sizeof(DWORD));
+
+	LPVOID pEnv =NULL;
+
+	if(CreateEnvironmentBlock(&pEnv,hUserTokenDup,TRUE))
+	{
+		dwCreationFlags|= CREATE_UNICODE_ENVIRONMENT;
+	}
+	else
+		pEnv=NULL;
+
+	bResult = CreateProcessAsUser(
+		hUserTokenDup,           
+		exepath,              
+		paraminfo,            
+		NULL,            
+		NULL,             
+		FALSE,             
+		dwCreationFlags,  
+		pEnv,           
+		NULL,             
+		&si,               
+		&pi            
+		);
+	DWORD  dwres = GetLastError();
+	char CreateProcmsg[MAX_PATH] = {"0"};
+	sprintf_s(CreateProcmsg,sizeof(CreateProcmsg),"CreateProcessAsUser=%d",dwres);
+	WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, CreateProcmsg);
+
+	if ( bResult )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "进程已经启动");
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "进程启动失败");
+	}
+	DWORD dwprocessres = WaitForSingleObject(pi.hProcess, 100);
+	if ( dwprocessres == WAIT_OBJECT_0 )
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "WaitForSingleObject 执行完毕");
+	}
+	else if (dwprocessres == WAIT_TIMEOUT)
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "WaitForSingleObject timeout");
+	}
+	else
+	{
+		WriteDebugInfomation(LEVEL_DEBUG, MODULE_ALL, LOGLOCATION, "其他错误");
+	}
+
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+
+	DestroyEnvironmentBlock(pEnv);
+
+	//Perform All the Close Handles task
+	CloseHandle(hProcess);
+	hProcess=NULL;
+	CloseHandle(hUserTokenDup);
+	hUserTokenDup=NULL;
+	CloseHandle(hPToken);
+	hPToken=NULL;
+	return TRUE;
+}

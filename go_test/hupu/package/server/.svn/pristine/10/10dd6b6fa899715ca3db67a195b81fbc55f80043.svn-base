@@ -1,0 +1,256 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+#include "stdafx.h"
+#include <Windows.h>
+#include <string>
+#include <fstream>
+#include <wininet.h>
+#include <shlobj.h>
+
+#include "CheckDeskWallPaper.h"
+#include "GlobalFunction.h"
+
+using namespace std;
+
+#define MAXL_URL_LEN 256
+#define MIN(x, y) x>y?y:x
+
+int ReadWallPaperInfoFile(wstring& wstrCurWallPaperPath, DWORD& dwCurSetStyle)
+{
+	string  strLineBuf = "";
+	string strWallPaperFilePath = "";
+	string strReadBuf = "";
+	size_t stPos = string::npos;
+	int iRet = FALSE;
+
+	strWallPaperFilePath = GetCurrentPath();
+	strWallPaperFilePath += "SetWallPaper";
+
+	ifstream ifstr(strWallPaperFilePath.c_str());  
+
+	strReadBuf = "";
+
+	while (getline(ifstr, strLineBuf))
+	{    
+		strReadBuf += strLineBuf;
+	}
+
+	ifstr.clear();
+	ifstr.close();
+
+	DeleteFileA(strWallPaperFilePath.c_str());
+
+	stPos = strReadBuf.find(";");
+
+	if (stPos != string::npos)
+	{
+		string strCurSetStyle = "";
+		string strWallPaperPath = strReadBuf.substr(0, stPos);
+
+		wstrCurWallPaperPath = AnsiToWChar(strWallPaperPath.c_str());
+
+		strReadBuf = strReadBuf.substr(stPos+1, strReadBuf.length()-stPos-1);
+		stPos = strReadBuf.find(";");
+
+		if (stPos != string::npos)
+		{
+			strCurSetStyle = strReadBuf.substr(0, stPos);
+			dwCurSetStyle = atoi(strCurSetStyle.c_str());
+			iRet =  TRUE;
+		}
+	}
+
+	return iRet;
+}
+
+BOOL SetDeskWallPaper()
+{
+	HRESULT hr;
+	IActiveDesktop* pActiveDesktop;
+	WALLPAPEROPT wpo;
+	wstring wstrCurWallPaperPath = L"";
+	DWORD dwCurSetStyle = 6;
+
+	if (ReadWallPaperInfoFile(wstrCurWallPaperPath, dwCurSetStyle))
+	{
+		CoInitialize(NULL);  
+		hr = CoCreateInstance ( CLSID_ActiveDesktop,  NULL, CLSCTX_INPROC_SERVER, IID_IActiveDesktop, (void**)&pActiveDesktop);
+
+		if(!SUCCEEDED(hr)) 
+			return FALSE;
+
+		if (wstrCurWallPaperPath.length() > 3)
+		{
+			hr = pActiveDesktop->SetWallpaper(wstrCurWallPaperPath.c_str(), 0);
+
+			if(!SUCCEEDED(hr))
+				return FALSE;
+		}
+
+		wpo.dwSize = sizeof(wpo);
+		wpo.dwStyle = dwCurSetStyle;
+		hr = pActiveDesktop->SetWallpaperOptions(&wpo, 0);
+
+		if(!SUCCEEDED(hr))
+			return FALSE;
+
+		hr = pActiveDesktop->ApplyChanges(AD_APPLY_ALL);
+
+		if(!SUCCEEDED(hr)) 
+			return FALSE;
+
+		pActiveDesktop->Release();
+		CoUninitialize(); 
+	}
+
+	return TRUE;
+}
+
+/************************************************************
+ Description: 获取键值数据
+ input: 
+ output:
+ Return: TRUE[成功]；FALSE[失败];ERROR_MORE_DATA[buffer太小]
+*************************************************************/
+LONG GetValueDataFromReg(IN HKEY hKey, IN LPCWSTR lpSubKey, IN LPCTSTR lpValueName, IN DWORD dwType, OUT WCHAR* pValueData, OUT PDWORD pDwDataLen)
+{
+    LONG ret = FALSE;
+    HKEY hRetKey = NULL;
+    DWORD dwDataLen = 0;
+    WCHAR* pDatabuf = NULL;
+
+    ret = RegOpenKeyEx(hKey, lpSubKey, 0, KEY_ALL_ACCESS, &hRetKey);
+
+    if(  ret == ERROR_SUCCESS )
+    {
+        ret = RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, NULL, &dwDataLen);
+
+        if (  ret == ERROR_SUCCESS )
+        {
+            if (*pDwDataLen == 0)
+            {
+                *pDwDataLen = dwDataLen;
+                RegCloseKey(hRetKey);
+                return ERROR_MORE_DATA;
+            }
+
+            pDatabuf = (WCHAR*)malloc(dwDataLen);
+
+            if ( RegQueryValueEx(hRetKey, lpValueName, NULL, &dwType, (LPBYTE)pDatabuf, &dwDataLen) == ERROR_SUCCESS )
+            {
+                wmemcpy(pValueData, pDatabuf, MIN(dwDataLen/sizeof(WCHAR), MAXL_URL_LEN));
+                ret = TRUE;
+            }
+            free(pDatabuf);
+        }
+        RegCloseKey(hRetKey);
+    }
+
+    return ret;
+}
+
+wstring GetWinXpWallPaperPath()
+{
+	LPCWSTR lpSubKey = L"Control Panel\\Desktop";
+	LPCTSTR lpValueName = L"ConvertedWallpaper";
+	DWORD dwType = REG_SZ;
+	WCHAR* wConvertedWallpaper = NULL;
+	DWORD urlLen = 0;
+	wstring wstrWallPaperPath = L"";
+
+	if (GetValueDataFromReg(HKEY_CURRENT_USER, lpSubKey, lpValueName, dwType, NULL, &urlLen) == ERROR_MORE_DATA)
+	{
+		wConvertedWallpaper =(WCHAR*)malloc(urlLen);
+
+		LONG retGetValue = GetValueDataFromReg(HKEY_CURRENT_USER, lpSubKey, lpValueName, dwType, wConvertedWallpaper, &urlLen);
+
+		if (retGetValue)
+		{
+			wstrWallPaperPath = (wstring)wConvertedWallpaper;
+		}
+
+		free(wConvertedWallpaper);
+		wConvertedWallpaper = NULL;
+	}
+
+	return wstrWallPaperPath;
+}
+
+BOOL GetDeskWallPaper()
+{
+	BOOL bRet = FALSE;
+	IActiveDesktop *pActiveDesktop;
+	HRESULT hr;
+	wstring wstrCurWallPaperPath = L"";
+	DWORD dwCurWallPaperStyle = 6;
+	OSVERSIONINFO osVer;
+
+	osVer.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);     
+	GetVersionEx(&osVer);     
+
+	CoInitialize(NULL);  
+	hr = CoCreateInstance(CLSID_ActiveDesktop, NULL, CLSCTX_INPROC_SERVER, IID_IActiveDesktop, (void**)&pActiveDesktop);
+
+	if(hr == S_OK)
+	{
+		WALLPAPEROPT WallpaperOpt = { sizeof(WALLPAPEROPT), 0 };
+		WCHAR szPathFile[MAX_PATH + 1] = {0};
+
+		if (pActiveDesktop->GetWallpaperOptions(&WallpaperOpt, 0) == S_OK)
+		{
+			dwCurWallPaperStyle = WallpaperOpt.dwStyle;
+		}
+
+		if (osVer.dwMajorVersion < 6 )
+		{
+			wstrCurWallPaperPath =  GetWinXpWallPaperPath();
+		}
+		else
+		{
+			if(pActiveDesktop->GetWallpaper(szPathFile, MAX_PATH, AD_GETWP_LAST_APPLIED) == S_OK)
+			{
+				wstrCurWallPaperPath = (wstring)szPathFile; 
+			}
+		}
+		pActiveDesktop->Release();
+		bRet = TRUE;
+	}
+
+	CoUninitialize(); 
+
+	if (bRet)
+	{
+		char windowwPath[MAX_PATH] = {0};
+		string strWallPaperFilePath = "";
+		string strWriteBuf = "";
+		FILE *pfile = NULL;
+		errno_t err = -1;
+
+		GetWindowsDirectoryA(windowwPath, MAX_PATH);
+		strWallPaperFilePath = (string)windowwPath;
+		strWallPaperFilePath += (string)"\\Temp\\GetWallPaper";
+
+		strWriteBuf = WCharToAnsi(wstrCurWallPaperPath.c_str());
+		strWriteBuf += ";";
+		strWriteBuf += std::to_string((_Longlong)dwCurWallPaperStyle);
+		strWriteBuf += ";";
+
+		if (strWriteBuf.length() > 0)
+		{
+			if ( (err = fopen_s(&pfile, strWallPaperFilePath.c_str(), "w+")) == 0)
+			{
+				fwrite(strWriteBuf.c_str(), sizeof(CHAR), strWriteBuf.length(), pfile);
+				fclose(pfile);
+				pfile = NULL; 
+			}
+		}
+	}
+
+	return bRet;
+}
+

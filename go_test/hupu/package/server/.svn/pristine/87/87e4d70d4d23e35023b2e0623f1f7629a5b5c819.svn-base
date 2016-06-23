@@ -1,0 +1,13 @@
+#ifndef USB_STORAGE_DEVMANAGE_H_
+#define USB_STORAGE_DEVMANAGE_H_ 1
+
+#include "../../../HpRemovableStorageManage/HpRemovableStorageManage/RemovStorageGlobalData.h"
+
+typedef void (__cdecl *pFnGetAllUSBStorageDevInfo)(OUT int* piUSBStorageDevDevNum);  
+
+void GetAlUSBStorageDevInfo(OUT int* piUSBStorageDevDevNum);
+
+extern BOOL bUpdateUsbStorageDevFlag;
+extern int iUSBStorageDevDevNum;
+
+#endif

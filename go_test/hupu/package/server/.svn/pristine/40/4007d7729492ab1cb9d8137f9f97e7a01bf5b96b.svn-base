@@ -1,0 +1,39 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#ifndef _CHECKJUNKFILES_H
+#define _CHECKJUNKFILES_H 1
+
+typedef struct _JUNKDIRPOLICY
+{
+    char isCheckTempFile;
+    char isCheckRecycle;
+    long fileSize;
+    long fileNum;
+
+}JUNKDIRPOLICY, *PJUNKDIRPOLICY;
+
+/************************************************************ 
+ Description: 检查垃圾文件
+ input: clearFlag[是否清理标志]
+        pCheckRecycleRet[检查回收站结果]
+        pCheckTempFileRet[临时目录结果]
+ Return: true[检查/修复成功]
+         false[检查/修复失败]
+*************************************************************/
+extern "C" BOOL __declspec(dllexport) CheckJunkFiles(IN BOOL clearFlag, 
+                                                    OUT DWORD* pCheckRecycleRet, 
+                                                    OUT DWORD* pCheckTempFileRet);
+
+/************************************************************ 
+ Description: 设置垃圾文件策略
+ input:pJunkDirPolicy[检查策略结构]
+*************************************************************/
+extern "C" void __declspec(dllexport) SetJunkFilePolicy(IN PJUNKDIRPOLICY pJunkDirPolicy);
+
+#endif

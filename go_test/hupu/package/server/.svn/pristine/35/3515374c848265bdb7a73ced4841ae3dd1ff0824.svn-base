@@ -1,0 +1,212 @@
+#pragma once
+
+#include "RegisterInfo.h"
+
+
+const int HP_SUPPLYANTIVIRUS_NUM = 9;
+
+const int HP_ANTIVIRUS_WMIFAIL = 22000;
+
+const int HP_ANTIVIRUS_GETREGFAIL = 22001;
+
+const int HP_ANTIVIRUS_KEYNOTEXIST = 22002;
+
+const int HP_ANTIVIRUS_GETLIBVERFAIL = 22003;
+
+const int HP_ANTIVIRUS_NOTINSTALL = 22004;
+
+const int HP_ANTIVIRUS_SFVERSNOTSATIFY = 22005;
+
+const int HP_ANTIVIRUS_GETSFVERSIONFAIL = 22006;
+
+const int HP_ANTIVIRUS_GETLIBVERSIONFAIL = 22007;
+
+const int HP_ANTIVIRUS_LIBVERSNOTSATIFY = 22008;
+
+const int HP_PROCESS_EXEPATHFAIL = 22009;
+
+const char WIN8MSE[] = "windows defender";
+
+typedef struct ANTIVIRUSSETTING
+{
+    //杀毒软件名称
+    char santname[HP_C_USERCONTENTLEN];
+    //杀毒软件版本判断条件:0表示大于,1表示等于,2表示小于
+    char softverindetify[HP_C_USERCONTENTLEN];
+    //服务器配置杀毒软件版本描述:管理员手动输入时:可能为5,5.0,5.0.0.1, -1表示该项不进行判断
+    //程序获取时:获取不到值为#.#.#.#,获取到值的话就为程序版本
+    char softverdes[HP_C_USERCONTENTLEN];
+    //病毒库判断条件的选择:0表示未更新天数,1表示更新日期
+    char libverchoose[HP_C_USERCONTENTLEN];
+    //杀毒软件病毒库判断条件:0表示大于,1表示等于,2表示小于
+    char libverindetify[HP_C_USERCONTENTLEN];
+    //服务器配置杀毒软件病毒库版本描述:管理员手动输入的，可能为15,16,2015-03-16,-1表示该项不进行判断
+    //程序获取时:获取不到值为####-##-##,获取到值的话就为2015-03-16的格式
+    char libverdes[HP_C_USERCONTENTLEN];
+    //服务器配置杀毒软件是否需要必须运行:0表示不需要必须运行,1表示必须运行
+    //程序获取时:获取不到值为#,获取在运行就为1
+    char runant[HP_C_USERCONTENTLEN];
+}_ANTIVIRUSSETTING;
+
+
+typedef struct REPAIRESETTING
+{
+    //修复选择:0表示使用安装包进行修复,1表示使用网页进行引导修复
+    char repairflag[HP_C_USERCONTENTLEN];
+
+    //修复路径
+    char path[MAX_PATH];
+
+    //修复参数
+    char param[HP_C_USERCONTENTLEN];
+    //使用网页进行引导的url路径
+    char handrep[MAX_PATH];
+}_REPAIRESETTING;
+
+typedef enum FAILREASON
+{
+    NOTINSTALL = 0, //0表示没有安装服务器指定的杀毒软件
+    CANTGETSOFTVERSION = 1,//表示获取杀毒软件版本失败
+    SOFTVERSIONNOTSATIFY = 2,//表示杀毒软件版本不符合要求
+    CANGETLIBVERSION = 3,//表示获取杀毒软件病毒库失败
+    LIBVERSIONNOTSATIFY = 4,//表示杀毒软件病毒库版本不符合要求
+    CANTGETRUN = 5,//获取程序是否正在运行失败
+    NOTRUN = 6,//表示程序没有运行
+}_FAILREASON;
+
+typedef struct ANTIVIRUSSTGINFO
+{
+    //杀毒软件设置
+   ANTIVIRUSSETTING antivirusset;
+   //全局修复配置
+    REPAIRESETTING gnotinstset;
+    REPAIRESETTING gsoftverset;
+    REPAIRESETTING glibverset;
+    //局部修复配置
+    REPAIRESETTING softverset;
+    REPAIRESETTING libverset;
+    //警示及警告信息配置
+    safecheckattr attriinfo;
+}_ANTIVIRUSSTGINFO;
+
+typedef struct ANTIVIRUSSTGFAILINFO
+{
+    //杀毒软件设置
+    ANTIVIRUSSETTING antivirusset;
+    //全局修复配置
+    REPAIRESETTING gnotinstset;
+    REPAIRESETTING gsoftverset;
+    REPAIRESETTING glibverset;
+    //局部修复配置
+    REPAIRESETTING softverset;
+    REPAIRESETTING libverset;
+    //失败的原因:取值为FAILREASON中的值
+    int  failreason;
+    //程序启动时的修复路径
+    char mianexepath[MAX_PATH];
+    //警示及警告信息配置
+    safecheckattr attriinfo;
+}_ANTIVIRUSSTGFAILINFO;
+
+typedef struct  INSTALLEDAVTIVIRUSINFO
+{
+    //产品信息来源:1:只来源与wmi,2:只来源与注册表,3:wmi和注册表中均存在
+    int  productsrc;
+    //杀毒软件的安装路径
+    char installpath[MAX_PATH];
+    //杀毒软件的主进程名称,修复必须运行时使用,判断程序是否正在运行
+    char mainexe[MAX_PATH];
+    //杀毒软件信息
+    ANTIVIRUSSETTING  antivirussetting;
+}_INSTALLEDAVTIVIRUSINFO;
+
+
+class Cantivirus
+{
+
+public:
+    Cantivirus(void);
+    ~Cantivirus(void);
+public:
+    //当前设置的杀毒软件的个数
+    int m_antiCnt;      
+
+    //执行的策略信息
+    list<ANTIVIRUSSTGINFO> m_antiInfo;
+
+    //与服务器比对失败的杀毒软件的个数
+    int m_failantinum;  
+
+    //失败的策略信息
+    list<ANTIVIRUSSTGFAILINFO> m_failantiInfo;
+
+    //进程策略数据
+    int GetDataFromDB(wchar_t  *dirpath,char *userid,char* usertype,char *currdata,char *millisecond,char *weekday);
+    string ExecAntivirusItem(char *servertime,char* mac,int totalitem,int curritem,int nextitem,int  *IsSuccess);
+    int RestoreFailItem();
+
+    int DownloadFileFromSevice(char* installexepath,char* installexeparam);
+
+private:
+    //当前设置的杀毒软件的个数
+    int m_antitotalCnt;
+
+    //执行的策略信息
+    list<ANTIVIRUSSTGINFO> m_antitotalInfo;
+
+    //标识WMI中的命名空间
+     wchar_t m_namespacestr[2][50];
+
+     //支持的杀毒软件列表
+     wchar_t  m_supportedantivirus[HP_SUPPLYANTIVIRUS_NUM][HP_C_USERCONTENTLEN];
+      BOOL m_bInstallindex[HP_SUPPLYANTIVIRUS_NUM];
+
+     //大于,小于和等于的描述
+     char identifydes[3][HP_C_USERCONTENTLEN];
+
+     //病毒库版本的比较选择
+     char libchoosedes[2][HP_C_USERCONTENTLEN];
+
+     //服务器端的时间戳
+     char m_currsafechecktime[HP_C_USERCONTENTLEN];
+
+     bool m_x64Version;//64位电脑
+
+     //已安装的杀毒软件的产品信息
+     list<INSTALLEDAVTIVIRUSINFO> m_installedantivirusproduct;
+
+     //软件的注册表信息
+     list<UninstallSoftwareInfo>  m_softwareInfo;
+
+    void InitData();
+
+    void GetAntivirusdbColumndata(const char* dbcolumnname,const char* dbcolumnvalue, ANTIVIRUSSTGINFO *dbrowdata);
+
+    //去除拒绝的项和合并执行全局配置
+    void RemoveRefuseItemAndMergeGlobalSetting();
+
+    //使用WMI获取杀毒软件的显示名称
+    int GetWMIAVInfo();
+
+    //判断当前计算机中是否安装有指定的杀毒软件
+    int InstallThisAntivirusProduct(char* antivirusname,INSTALLEDAVTIVIRUSINFO *installedprod);
+
+    //判断当前程序版本是否符合服务器端的版本信息
+    int CmpSFVersionInfo(char* condition,char* versdes,char* sfvers);
+
+    //判断杀毒软件的病毒库版本是否符合服务器端的病毒库版本信息
+    int CmpLibVersionInfo(char*  libchoose,char* condition,char* libversdes,char* locallibvers);
+
+    void InitInstalledAntivirusProduct(INSTALLEDAVTIVIRUSINFO *installedprod,int productsrc,wchar_t* antivirusname);
+
+    //获取杀毒软件的注册表信息
+    int GetWMIAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod,wchar_t* nameinfo);
+
+     int GetotherAntivirusRegInfo(INSTALLEDAVTIVIRUSINFO *installedprod,wchar_t* nameinfo);
+    
+     long long ConvertDateToDay(string dateTime);
+
+	 //手动修复的项:使用当前用户打开网页
+	 void OpenWebUrl(char* urlpath);
+
+};

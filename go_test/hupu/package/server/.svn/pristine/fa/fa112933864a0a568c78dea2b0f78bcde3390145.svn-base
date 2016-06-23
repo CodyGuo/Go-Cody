@@ -1,0 +1,57 @@
+/******************************************************************************
+ *  版权所有（C）上海互普信息技术股份有限公司                 *
+ *  保留所有权利。                                                            *
+ ******************************************************************************
+ *  作者 : zzhw
+ *  版本 : <当前版本号>
+ *****************************************************************************/
+
+#include "stdafx.h"
+#include <Windows.h>
+#include <string>
+#include "HpMntIoCtrl.h"
+
+using namespace std;
+
+HANDLE OpenMntDriverDevice()
+{
+	 HANDLE	hMntDriverHandle = NULL;
+
+	 hMntDriverHandle = CreateFileA(HNM_DEVICE_NAME, GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, hMntDriverHandle); 
+
+	 if (hMntDriverHandle == INVALID_HANDLE_VALUE)
+	 {
+		 hMntDriverHandle = CreateFileA(HNM_DEVICE_NAME, GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE , NULL, OPEN_EXISTING, 0, NULL); 
+		 printf("hMntDriverHandle == INVALID_HANDLE_VALUE hMntDriverHandle[%x] error[%d]\n", hMntDriverHandle, GetLastError());
+	 }
+
+	 return hMntDriverHandle;
+}
+
+BOOL MntDeviceIOControl(LPVOID pInputBuf, DWORD dwInputLen, DWORD dwIoControlCode, LPVOID pOutputBuf, DWORD dwOutputLen)
+{
+	HANDLE hMntDriverHandle = NULL;
+	BOOL bRet = FALSE;
+
+	hMntDriverHandle = OpenMntDriverDevice();
+	if (hMntDriverHandle != NULL)
+	{
+		ULONG ulBytesReturned = 0;
+		string strPrint = "MntDeviceIOControl bret ";
+		
+		bRet = DeviceIoControl(hMntDriverHandle, (DWORD)dwIoControlCode, pInputBuf, dwInputLen, pOutputBuf, dwOutputLen, &ulBytesReturned, NULL);
+
+		strPrint += std::to_string((_ULonglong)bRet);
+		strPrint += "; GetLastError ";
+		strPrint += std::to_string((_ULonglong)GetLastError());
+		strPrint += "; ulBytesReturned ";
+		strPrint += std::to_string((_ULonglong)ulBytesReturned);
+		strPrint += "\n";
+
+		OutputDebugStringA(strPrint.c_str());
+
+		 CloseHandle(hMntDriverHandle);
+	}
+
+	return bRet;
+}

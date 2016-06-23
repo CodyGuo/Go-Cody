@@ -1,0 +1,82 @@
+#include "stdafx.h"
+#include "NLMNetwork.h"
+
+#include "..\DebugInfo.h"
+
+CNLMNetwork::CNLMNetwork(void) : m_lRefCnt(1)
+{
+	
+}
+
+
+CNLMNetwork::~CNLMNetwork(void)
+{
+
+}
+
+STDMETHODIMP CNLMNetwork::QueryInterface(REFIID riid, void **ppvObject)
+{
+	HRESULT Result = S_OK;
+	if (IsEqualIID(riid, IID_IUnknown))
+	{
+		*ppvObject = (IUnknown *)this;
+	}
+	else if (IsEqualIID(riid ,IID_INetworkListManagerEvents))
+	{
+		*ppvObject = (INetworkListManagerEvents *)this;
+	}
+	else
+	{
+		Result = E_NOINTERFACE;
+	}
+
+	return Result;
+}
+
+STDMETHODIMP_(ULONG) CNLMNetwork::AddRef()
+{
+	return (ULONG)InterlockedIncrement(&m_lRefCnt);
+}
+
+STDMETHODIMP_(ULONG) CNLMNetwork::Release()
+{
+	LONG Result = InterlockedDecrement(&m_lRefCnt);
+	if (Result == 0)
+		delete this;
+	return (ULONG)Result;
+}
+
+STDMETHODIMP  CNLMNetwork :: ConnectivityChanged( NLM_CONNECTIVITY NewConnectivity)
+{
+	
+	if (NewConnectivity == NLM_CONNECTIVITY_DISCONNECTED)
+	{
+		WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"The machine is disconnected from Network");
+	}
+	if (((int)NewConnectivity & (int)NLM_CONNECTIVITY_IPV4_INTERNET) != 0)
+	{
+		WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"The machine is connected to internet with IPv4 capability");
+	}
+	if (((int)NewConnectivity & 
+		(int)NLM_CONNECTIVITY_IPV6_INTERNET) != 0)
+	{
+		WriteExceptionDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"The machine is connected to internet with IPv6 capability");
+	}
+	if ((((int)NewConnectivity & 
+		(int)NLM_CONNECTIVITY_IPV4_INTERNET) == 0) && 
+		(((int)NewConnectivity & 
+		(int)NLM_CONNECTIVITY_IPV6_INTERNET) == 0))
+	{
+		WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"The machine is not connected to internet yet");
+	}
+
+	bool bInternet = false;
+	if((NewConnectivity & NLM_CONNECTIVITY_IPV4_INTERNET) || (NewConnectivity & NLM_CONNECTIVITY_IPV6_INTERNET))
+	{
+		bInternet = true;
+	}
+
+	WriteDebugInfomation(LEVEL_DEBUG,MODULE_ALL,LOGLOCATION,"ConnectivityChanged");
+	PostMessage(AfxGetApp()->GetMainWnd()->m_hWnd, UM_NETWORKCHANGE, (WPARAM) bInternet, 0);
+	return S_OK;
+}
