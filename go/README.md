@@ -64,3 +64,17 @@
     相关解释：
     -s去掉符号表,panic时候的stack trace就没有任何文件名/行号信息了，这个等价于普通C/C++程序被strip的效果，
     -w去掉DWARF调试信息，得到的程序就不能用gdb调试了。 -s和-w也可以分开使用.
+### 1.3 更新git上fork的代码
+    当然，那是完全不用命令行的办法，其实我还是更推荐命令行，流程如下：
+
+    首先要先确定一下是否建立了主repo的远程源：
+    git remote -v
+    如果里面只能看到你自己的两个源(fetch 和 push)，那就需要添加主repo的源：
+    git remote add upstream URL
+    git remote -v
+    然后你就能看到upstream了。
+    如果想与主repo合并：
+    git fetch upstream
+    git merge upstream/master
+    提交
+    git push origin master
