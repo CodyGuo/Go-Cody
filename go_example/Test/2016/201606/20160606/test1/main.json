@@ -1,0 +1,45 @@
+[
+	{
+		"IP": [
+			"10.10.2.1",
+			"10.10.3.1",
+			"10.10.4.1"
+		],
+		"Login": [
+			"user",
+			"passwd"
+		],
+		"Cmd": [
+			"show arp",
+			"show mac-address"
+		]
+	},
+	{
+		"IP": [
+			"10.10.5.1",
+			"10.10.10.1"
+		],
+		"Login":[
+			"user2",
+			"passwd2"
+		],
+		"Cmd": [
+			"show arp2",
+			"show mac-address2"
+		]
+	},
+	{
+		"IP": [
+			"10.10.6.1",
+			"10.10.60.1"
+		],
+		"Login":[
+			"user3",
+			"passwd3"
+		],
+		"Cmd": [
+			"show arp3",
+			"show mac-address3"
+		]
+	}
+]
