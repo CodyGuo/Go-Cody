@@ -12,7 +12,7 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
+	// "log"
 	"os"
 	"strings"
 	"sync"
@@ -73,9 +73,12 @@ func main() {
 
 	in <- "exit"
 	in <- "exit"
+
 	fmt.Printf("%s\n%s\n", <-out, <-out)
-	_ = <-out
-	_ = <-out
+
+	_, _ = <-out, <-out
+	// tmp, _ := session.Output("show arp")
+	// fmt.Println(string(tmp))
 	session.Wait()
 }
 
@@ -95,9 +98,6 @@ func MuxShell(w io.Writer, r, e io.Reader) (chan<- string, <-chan string) {
 		for cmd := range in {
 			wg.Add(1)
 			w.Write([]byte(cmd + "\n"))
-			// if debugOn {
-			//     fmt.Println("执行命令:", cmd)
-			// }
 			wg.Wait()
 		}
 	}()
@@ -115,17 +115,11 @@ func MuxShell(w io.Writer, r, e io.Reader) (chan<- string, <-chan string) {
 				close(out)
 				return
 			}
-
 			t += n
-			tmpLogIn := string(buf[:t])
-
-			// if len(tmpLogIn) > 1 {
-			//     fmt.Println("tmpLogIn:", tmpLogIn[:len(tmpLogIn)-1])
-			//     fmt.Println("-------------------------------------------------------")
-			// }
-
-			if strings.Contains(tmpLogIn, "Username:") || strings.Contains(tmpLogIn, "Password:") ||
-				strings.Contains(tmpLogIn, "#") { //assuming the $PS1 == 'sh-4.3$ '
+			result := string(buf[:t])
+			if strings.Contains(result, "Username:") ||
+				strings.Contains(result, "Password:") ||
+				strings.Contains(result, "#") {
 				out <- string(buf[:t])
 				t = 0
 				wg.Done()
