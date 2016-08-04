@@ -1,3 +1,12 @@
+/* switch ssh
+username cisco password cisco
+ip domain name hupu
+crypto key generate rsa
+ip ssh time-out 30
+line vty 0 4
+transport input all
+login local
+*/
 package main
 
 import (
