@@ -14,16 +14,17 @@ import (
 )
 
 func main() {
-
 	config := &ssh.ClientConfig{
 		User: "cisco",
 		Auth: []ssh.AuthMethod{
 			ssh.Password("cisco"),
 		},
+		Config: ssh.Config{
+			Ciphers: []string{"aes128-cbc"},
+		},
 	}
-	config.Config.Ciphers = append(config.Config.Ciphers, "aes128-cbc")
-	ip := "192.168.1.253:22"
-	clinet, err := ssh.Dial("tcp", ip, config)
+	// config.Config.Ciphers = append(config.Config.Ciphers, "aes128-cbc")
+	clinet, err := ssh.Dial("tcp", "192.168.1.253:22", config)
 	checkError(err, "连接交换机")
 
 	session, err := clinet.NewSession()
