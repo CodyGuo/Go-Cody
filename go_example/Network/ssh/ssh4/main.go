@@ -1,11 +1,13 @@
 /* switch ssh
 username cisco password cisco
+username cisco privilege 15
 ip domain name hupu
 crypto key generate rsa
 ip ssh time-out 30
 line vty 0 4
-transport input all
 login local
+privilege level 15
+transport input all
 */
 package main
 
