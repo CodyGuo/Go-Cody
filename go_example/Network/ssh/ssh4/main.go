@@ -14,7 +14,7 @@ package main
 import (
 	"fmt"
 	"io"
-	// "log"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -35,7 +35,7 @@ func main() {
 		},
 	}
 	// config.Config.Ciphers = append(config.Config.Ciphers, "aes128-cbc")
-	clinet, err := ssh.Dial("tcp", "192.168.1.253:22", config)
+	clinet, err := ssh.Dial("tcp", "10.10.2.252:22", config)
 	checkError(err, "连接交换机")
 
 	session, err := clinet.NewSession()
@@ -70,15 +70,18 @@ func main() {
 		log.Fatal(err)
 	}
 	<-out //ignore the shell output
+	in <- "enable"
+	in <- "cisco"
+
+	in <- "ter len 0"
 	in <- "show arp"
 	in <- "show int status"
 
 	in <- "exit"
 	in <- "exit"
 
-	fmt.Printf("%s\n%s\n", <-out, <-out)
-
-	_, _ = <-out, <-out
+	fmt.Printf("%s\n%s\n%s\n%s\n%s\n%s\n", <-out, <-out, <-out, <-out, <-out, <-out)
+	<-out
 	// tmp, _ := session.Output("show arp")
 	// fmt.Println(string(tmp))
 	session.Wait()
@@ -121,7 +124,8 @@ func MuxShell(w io.Writer, r, e io.Reader) (chan<- string, <-chan string) {
 			result := string(buf[:t])
 			if strings.Contains(result, "Username:") ||
 				strings.Contains(result, "Password:") ||
-				strings.Contains(result, "#") {
+				strings.Contains(result, "#") ||
+				strings.Contains(result, ">") {
 				out <- string(buf[:t])
 				t = 0
 				wg.Done()
