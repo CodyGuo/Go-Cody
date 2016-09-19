@@ -1,11 +1,10 @@
 package main
 
 import (
+	_ "github.com/CodyGuo/Go-Cody/go_example/Web/beego/2016/09/13/test3/routers"
 	"github.com/astaxie/beego"
-	"net/http"
 )
 
 func main() {
-	beego.Handler("/", http.StripPrefix("/views/", http.FileServer(assetFS())))
 	beego.Run()
 }
