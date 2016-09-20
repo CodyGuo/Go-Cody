@@ -68,7 +68,7 @@
           $play_container = $('.play_container');
         console.log($video_url);
         console.log($play_container);
-        $play_container.attr('src', 'http://jxapi.nepian.com/ckparse/?url=' + $video_url.val());
+        $play_container.attr('src', {{.requestUrl}} + $video_url.val());
       });
     </script>
   </body>

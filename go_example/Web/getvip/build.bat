@@ -3,6 +3,8 @@
     @del "rsrc.syso"
 )
 
+go-bindata-assetfs.exe views/...
+
 rsrc -manifest main.manifest -o rsrc.syso -ico main.ico
 set TAG=1.7
 

@@ -18,10 +18,15 @@ const (
 	port                 = ":8888"
 	STARTF_USESHOWWINDOW = 0x00000001
 	STARTF_USESTDHANDLES = 0x00000100
+
+	engine1 = "'http://jxapi.nepian.com/ckparse/?url='"
+	engine2 = "'http://api.aikantv.cc/?url='"
+	engine3 = "'http://www.tuhao13.com/ckflv/?url='"
 )
 
 var (
-	err error
+	err        error
+	requestUrl = engine1
 )
 
 type MyWindows struct {
@@ -66,6 +71,7 @@ func (mw *MyWindows) setVipIcon(icon *walk.Icon) {
 func (mw *MyWindows) addAction() {
 	checkErr(mw.openAction())
 	checkErr(mw.remoteAction())
+	checkErr(mw.switchEngine())
 	checkErr(mw.remoteClipboard())
 	checkErr(mw.exitAction())
 }
@@ -91,6 +97,56 @@ func (mw *MyWindows) openAction() error {
 	if err := mw.ni.ContextMenu().Actions().Add(openAction); err != nil {
 		return err
 	}
+
+	return nil
+}
+
+func (mw *MyWindows) switchEngine() error {
+	menuEngine, _ := walk.NewMenu()
+	engine, _ := mw.ni.ContextMenu().Actions().AddMenu(menuEngine)
+	engine.SetText("切换视频源")
+
+	engineAction1 := walk.NewAction()
+	engineAction1.SetText("资源一")
+	engineAction2 := walk.NewAction()
+	engineAction2.SetText("资源二")
+	engineAction3 := walk.NewAction()
+	engineAction3.SetText("资源三")
+
+	engineAction1.SetChecked(true)
+	engineAction2.SetChecked(false)
+	engineAction3.SetChecked(false)
+
+	engineAction1.Triggered().Attach(func() {
+		requestUrl = engine1
+		engineAction1.SetChecked(true)
+		engineAction2.SetChecked(false)
+		engineAction3.SetChecked(false)
+
+		mw.OpenVip()
+	})
+
+	engineAction2.Triggered().Attach(func() {
+		requestUrl = engine2
+		engineAction1.SetChecked(false)
+		engineAction2.SetChecked(true)
+		engineAction3.SetChecked(false)
+
+		mw.OpenVip()
+	})
+
+	engineAction3.Triggered().Attach(func() {
+		requestUrl = engine3
+		engineAction1.SetChecked(false)
+		engineAction2.SetChecked(false)
+		engineAction3.SetChecked(true)
+
+		mw.OpenVip()
+	})
+
+	menuEngine.Actions().Add(engineAction1)
+	menuEngine.Actions().Add(engineAction2)
+	menuEngine.Actions().Add(engineAction3)
 
 	return nil
 }
@@ -158,7 +214,11 @@ func GetVip(w http.ResponseWriter, r *http.Request) {
 	t, err := template.New("index").Parse(string(index)) //解析模板文件
 	checkErr(err)
 
-	t.Execute(w, nil)
+	data := map[string]interface{}{
+		"requestUrl": requestUrl,
+	}
+
+	t.Execute(w, data)
 }
 
 func getIP() (ip string, err error) {
@@ -178,7 +238,6 @@ func main() {
 	go func() {
 		err = http.ListenAndServe(port, nil)
 		checkErr(err)
-
 	}()
 
 	mw.OpenVip()
