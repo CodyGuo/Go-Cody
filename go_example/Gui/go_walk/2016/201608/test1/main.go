@@ -5,8 +5,8 @@ import (
 )
 
 import (
-	"github.com/lxn/walk"
-	. "github.com/lxn/walk/declarative"
+	"github.com/CodyGuo/walk"
+	. "github.com/CodyGuo/walk/declarative"
 )
 
 type MyMainWindow struct {
@@ -62,6 +62,26 @@ func main() {
 	}).Create(); err != nil {
 		log.Fatal(err)
 	}
+
+	mw.label.Clicked().Attach(func() {
+		log.Println("我被点击了.")
+	})
+
+	mw.label.MouseDown().Attach(func(x, y int, button walk.MouseButton) {
+		log.Println(x, y, button)
+	})
+
+	mw.label.MouseWheel().Attach(func(x, y int, button walk.MouseButton) {
+		log.Println(x, y, button)
+	})
+
+	mw.label.MouseMove().Attach(func(x, y int, button walk.MouseButton) {
+		log.Println(x, y, button)
+	})
+
+	mw.label.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
+		log.Println(x, y, button)
+	})
 
 	mw.Run()
 }
