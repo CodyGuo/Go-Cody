@@ -4,3 +4,8 @@ Windows Registry Editor Version 5.00
 @="Go Build"
 [HKEY_CLASSES_ROOT\Directory\Background\shell\Build\Command]
 @="cmd.exe /k go build"
+
+[HKEY_CLASSES_ROOT\Directory\Background\shell\Runas]
+@="Go CMD"
+[HKEY_CLASSES_ROOT\Directory\Background\shell\Runas\Command]
+@="cmd.exe /s /k pushd %V"
