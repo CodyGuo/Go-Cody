@@ -78,3 +78,23 @@
     git merge upstream/master
     提交
     git push origin master
+
+### 1.4 windows程序（UAC）以管理员身份运行
+    1> go get github.com/akavel/rsrc
+    2> 把windows目录下的nac.manifest 文件拷贝到当前windows项目根目录
+    3> rsrc -manifest nac.manifest -o nac.syso
+    4> go build
+
+    nac.mainfest的内容为：
+
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+    <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+    <requestedPrivileges>
+    <requestedExecutionLevel level="requireAdministrator"/>
+    </requestedPrivileges>
+    </security>
+    </trustInfo>
+    </assembly>
+
