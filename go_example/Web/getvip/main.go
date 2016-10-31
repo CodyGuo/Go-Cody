@@ -19,8 +19,8 @@ const (
 	STARTF_USESHOWWINDOW = 0x00000001
 	STARTF_USESTDHANDLES = 0x00000100
 
-	engine1 = "'http://jxapi.nepian.com/ckparse/?url='"
-	engine2 = "'http://api.aikantv.cc/?url='"
+	engine1 = "'http://jx.aikantv.cc/index.php?url='"
+	engine2 = "'http://jxapi.nepian.com/ckparse/?url='"
 	engine3 = "'http://www.tuhao13.com/ckflv/?url='"
 )
 

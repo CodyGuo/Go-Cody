@@ -51,8 +51,9 @@
         <input type="button" style="margin-left: 10px;" value="播放视频" onclick="javascript:play();">
       </div>
       <div class="player">
-        <iframe class="play_container" width="100%" height="600"
-          allowTransparency="true" frameborder="0" scrolling="no"></iframe>
+        <iframe class="play_container" width="100%" height="600" marginWidth="0" frameSpacing="0" marginHeight="0" frameBorder="0" scrolling="no" vspale="0" noResize></iframe>
+        <!-- <iframe class="play_container" width="100%" height="600"
+          allowTransparency="true" frameborder="0" scrolling="no"></iframe> -->
       </div>
     </div>
     <script src="http://lib.sinaapp.com/js/jquery/1.9.1/jquery-1.9.1.min.js"></script>
