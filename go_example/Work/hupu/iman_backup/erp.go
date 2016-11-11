@@ -12,5 +12,5 @@ func init() {
 	erp.pathName = erpPath + "/" + erp.svnName
 
 	erp.fileName = "hupuerp.sql"
-	erp.cmd = cmdPublic + "rm -rf hupuerp.sql; mysqldump -R -h 10.10.2.230 -uroot -proot --force hupuerp >hupuerp.sql"
+	erp.cmd = cmdPublic + "rm -rf hupuerp.sql; mysqldump -R -h 10.10.2.251 -uroot -proot --force hupuerp >hupuerp.sql"
 }
