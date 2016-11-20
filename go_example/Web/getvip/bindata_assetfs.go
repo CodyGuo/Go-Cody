@@ -84,7 +84,7 @@ func viewsIndexTpl() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "views/index.tpl", size: 16213, mode: os.FileMode(438), modTime: time.Unix(1477889488, 0)}
+	info := bindataFileInfo{name: "views/index.tpl", size: 16213, mode: os.FileMode(438), modTime: time.Unix(1478680909, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -238,11 +238,8 @@ func _filePath(dir, name string) string {
 
 
 func assetFS() *assetfs.AssetFS {
-	assetInfo := func(path string) (os.FileInfo, error) {
-		return os.Stat(path)
-	}
 	for k := range _bintree.Children {
-		return &assetfs.AssetFS{Asset: Asset, AssetDir: AssetDir, AssetInfo: assetInfo, Prefix: k}
+		return &assetfs.AssetFS{Asset: Asset, AssetDir: AssetDir, AssetInfo: AssetInfo, Prefix: k}
 	}
 	panic("unreachable")
 }
