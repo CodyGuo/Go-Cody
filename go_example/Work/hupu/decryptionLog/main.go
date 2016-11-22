@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 import (
@@ -106,7 +107,7 @@ func (mw *MyWindow) RunApp() {
 
 	if err := (MainWindow{
 		AssignTo: &mw.MainWindow,
-		Title:    "iMan高级调试日志解密工具 2.1",
+		Title:    "iMan高级调试日志解密工具 2.2",
 		Layout:   VBox{},
 		MinSize:  Size{980, 650},
 		Children: []Widget{
@@ -136,10 +137,10 @@ func (mw *MyWindow) RunApp() {
 
 	open.Triggered().Attach(func() {
 		if len(mw.model.items) == 0 {
-			exec.Command("cmd", "/c", "start", ".").Run()
+			runCMD("cmd /c start .").Run()
 		} else {
 			path, _ := os.Getwd()
-			exec.Command("cmd", "/c", "start", path+"\\logout\\").Run()
+			runCMD("cmd /c start " + path + "\\logout\\").Run()
 		}
 	})
 
@@ -185,7 +186,7 @@ func (mw *MyWindow) decode(ok chan bool, index int, file, fileName string) {
 	outlogFile := ".\\logout\\" + filenameOnly + ".rar"
 
 	mw.model.items[index].Result = "正在解密中..."
-	nac_cmd := exec.Command("./bin/openssl", "des3", "-salt", "-d", "-k", "zaq#@!", "-in", file, "-out", outlogFile)
+	nac_cmd := runCMD("./bin/openssl des3 -salt -d -k zaq#@! -in " + file + " -out " + outlogFile)
 	err := nac_cmd.Run()
 	if err != nil {
 		if strings.Contains(err.Error(), "exit status 1") {
@@ -225,4 +226,11 @@ func getFileList(path string) []string {
 		fmt.Println(err)
 	}
 	return files
+}
+
+func runCMD(cmds string) *exec.Cmd {
+	cmdList := strings.Split(cmds, " ")
+	cmd := exec.Command(cmdList[0], cmdList[1:]...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return cmd
 }

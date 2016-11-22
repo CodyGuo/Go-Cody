@@ -1,8 +1,3 @@
-// Copyright 2012-2014 The GoSNMP Authors. All rights reserved.  Use of this
-// source code is governed by a BSD-style license that can be found in the
-// LICENSE file.
-
-// This program demonstrates BulkWalk.
 package main
 
 import (
@@ -10,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -36,6 +32,7 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+
 	target := flag.Args()[0]
 	var oid string
 	if len(flag.Args()) > 1 {
@@ -67,6 +64,11 @@ func printValue(pdu gosnmp.SnmpPDU) error {
 		b := pdu.Value.([]byte)
 		_, date, _ := dec.Translate(b, true)
 		fmt.Printf("STRING: %s\n", string(date))
+	case gosnmp.TimeTicks:
+		b := gosnmp.ToBigInt(pdu.Value)
+		t, _ := strconv.Atoi(fmt.Sprintf("%d", b))
+		str_time := time.Unix(int64(t), 0).Format("Mon Jan 2 15:04:05.000 2006 +0800")
+		fmt.Printf("TimeTicks: %d %s\n", b, str_time)
 	case gosnmp.IPAddress:
 		b := pdu.Value.(string)
 		fmt.Printf("IpAddress: %s\n", string(b))
