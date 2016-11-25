@@ -60,7 +60,7 @@ func main() {
 	ip := "10.10.2.15"
 	pchDVRIP := StringToBytePtr(ip)
 	pchUserName := StringToBytePtr("admin")
-	pchPassword := StringToBytePtr("admin")
+	pchPassword := StringToBytePtr("admin2016")
 	var err int32
 	var deviceInfo NET_DEVICEINFO_Ex
 	lLoginID := CLIENT_LoginEx2(pchDVRIP, 37777, pchUserName, pchPassword, EM_LOGIN_SPEC_CAP_TCP, 0, &deviceInfo, &err)

@@ -14,3 +14,11 @@ Begin Time:2016-11-18 17:31:26.409
 [2016-11-18 17:31:26.971][P:7948/T:21160][dhnetsdk.cpp:432][Info][0] Leave CLIENT_LoginEx2. [error=0, login ID=853926072.]
 [2016-11-18 17:31:26.971][P:7948/T:21160][dhnetsdk.cpp:4230][Info][0] Enter CLIENT_QuerySystemInfo. [lLoginID=853926072, nSystemType=26, pSysInfoBuffer=10BBA000, maxlen=2048, nSysInfolen=10B92240, waittime=1000.]
 [2016-11-18 17:31:27.035][P:7948/T:21160][dhnetsdk.cpp:4258][Info][0] Leave CLIENT_QuerySystemInfo.[ret=1.]
+Begin Time:2016-11-23 16:09:31.392
+[2016-11-23 16:09:31.392][P:11284/T:16216][dhnetsdk.cpp:114][Info][0] Leave CLIENT_InitEx.
+[2016-11-23 16:09:31.392][P:11284/T:16216][dhnetsdk.cpp:190][Info][0] Enter CLIENT_SetNetworkParam:[nWaittime=0, nConnectTime=0, nConnectTryNum=2, nSubConnectSpaceTime=0, nGetDevInfoTime=3000, nConnectBufSize=0, nGetConnInfoTime=0, nSearchRecordTime=0, nsubDisconnetTime=0, byNetType=0, byPlaybackBufSize=0, bDetectDisconnTime=0, bKeepLifeInterval=0, nPicBufSize=0].
+[2016-11-23 16:09:31.392][P:11284/T:16216][dhnetsdk.cpp:205][Info][0] Leave CLIENT_SetNetworkParam.
+[2016-11-23 16:09:31.392][P:11284/T:16216][dhnetsdk.cpp:403][Info][0] Enter CLIENT_LoginEx2. [IP=10.10.2.15, port=37777, SpeCap=0, lpDeviceInfo=10B98000.]
+[2016-11-23 16:09:31.935][P:11284/T:16216][dhnetsdk.cpp:432][Info][0] Leave CLIENT_LoginEx2. [error=0, login ID=853074344.]
+[2016-11-23 16:09:31.935][P:11284/T:16216][dhnetsdk.cpp:4230][Info][0] Enter CLIENT_QuerySystemInfo. [lLoginID=853074344, nSystemType=26, pSysInfoBuffer=10B9C000, maxlen=2048, nSysInfolen=10B462C0, waittime=1000.]
+[2016-11-23 16:09:32.030][P:11284/T:16216][dhnetsdk.cpp:4258][Info][0] Leave CLIENT_QuerySystemInfo.[ret=1.]
