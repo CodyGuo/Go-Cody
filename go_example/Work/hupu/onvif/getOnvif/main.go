@@ -9,9 +9,12 @@ import (
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "getOnvif"
-	app.Version = "1.1"
+	app.Name = "Hupu-iMan-getOnvif"
+	app.Version = "1.2"
 	app.Usage = "Using the onvif protocol for the camera information"
+	app.Author = "CodyGuo"
+	app.Email = "xiao.guo@hupu.net"
+
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "host",
@@ -31,11 +34,12 @@ func main() {
 	}
 
 	onvif := NewOnvif()
+
 	app.Action = func(c *cli.Context) error {
 		argNum := len(c.Args())
 		flagsNum := c.NumFlags()
 		if argNum < 3 && flagsNum < 3 {
-			return cli.NewExitError("please man help.", -1)
+			cli.ShowAppHelp(c)
 		}
 		if argNum == 3 {
 			onvif.IP = c.Args()[0]
