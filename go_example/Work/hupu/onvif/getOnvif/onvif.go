@@ -147,12 +147,6 @@ func (onv *Onvif) createSoapMessage() (msg *bytes.Buffer, err error) {
 	return msg, nil
 }
 
-func sha1Encryption(str string) []byte {
-	sha := sha1.New()
-	io.WriteString(sha, str)
-	return sha.Sum(nil)
-}
-
 func createNonce() string {
 	source := rand.New(rand.NewSource(time.Now().UnixNano()))
 	nonce := source.Int()
@@ -167,4 +161,10 @@ func getEncryptedNonce(nonce string) string {
 func getUTCTime() string {
 	layout := "2006-01-02T15:04:05Z"
 	return time.Now().UTC().Format(layout)
+}
+
+func sha1Encryption(str string) []byte {
+	sha := sha1.New()
+	io.WriteString(sha, str)
+	return sha.Sum(nil)
 }
