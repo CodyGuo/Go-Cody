@@ -80,9 +80,9 @@ func (onv *Onvif) GetNetworkInterfaces() error {
 func (onv *Onvif) getEncryptedPassword() {
 	nonce := createNonce()
 	onv.Nonce64 = getEncryptedNonce(nonce)
+	onv.Created = getUTCTime()
 	passwdSha1 := sha1Encryption(fmt.Sprintf("%s%s%s", nonce, onv.Created, onv.Password))
 	onv.Password = base64.StdEncoding.EncodeToString(passwdSha1)
-	onv.Created = getUTCTime()
 }
 
 func (onv *Onvif) getRequest() ([]byte, error) {

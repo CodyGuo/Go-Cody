@@ -39,7 +39,8 @@ func main() {
 		argNum := len(c.Args())
 		flagsNum := c.NumFlags()
 		if argNum < 3 && flagsNum < 3 {
-			cli.ShowAppHelp(c)
+			fmt.Println("NotAuthorized.")
+			// cli.ShowAppHelp(c)
 		}
 		if argNum == 3 {
 			onvif.IP = c.Args()[0]
