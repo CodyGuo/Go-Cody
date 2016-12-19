@@ -19,10 +19,10 @@ const (
 	STARTF_USESHOWWINDOW = 0x00000001
 	STARTF_USESTDHANDLES = 0x00000100
 
-	engine1 = "'http://www.ckparse.com/ckparse/?url='"
+	engine1 = "'http://jxapi.nepian.com/ckparse/?url='"
 	// engine1 = "'http://jx.aikantv.cc/index.php?url='"
 	engine2 = "'http://www.wmxz.wang/video.php?url='"
-	engine3 = "'http://www.tuhao13.com/ckflv/?url='"
+	engine3 = "'http://www.ckparse.com/ckparse/?url='"
 )
 
 var (
@@ -240,6 +240,13 @@ func main() {
 		err = http.ListenAndServe(port, nil)
 		checkErr(err)
 	}()
+
+	nWidth := mw.Width()
+	nHeight := mw.Height()
+	hWnd := win.HWND(mw.Handle())
+	hRgn := win.CreateRoundRectRgn(0, 0, int32(nWidth+1), int32(nHeight+1), 5, 5)
+	win.SetWindowRgn(hWnd, hRgn, false)
+	win.DeleteObject(win.HGDIOBJ(hRgn))
 
 	mw.OpenVip()
 	mw.Run()

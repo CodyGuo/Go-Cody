@@ -9,6 +9,7 @@ import (
 )
 
 import (
+	// "github.com/codyguo/win"
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 )
@@ -214,6 +215,15 @@ func (mw *MyWindow) RunApp() {
 		mw.iman.DoCmd(cmd)
 		mw.iman.Run()
 	})
+
+	// var rect win.RECT
+
+	// hWnd := win.HWND(mw.Handle())
+	// win.GetWindowRect(hWnd, &rect)
+
+	// hRgn := win.CreateRoundRectRgn(0, 0, rect.Right-rect.Left, rect.Bottom-rect.Top, 4, 4)
+	// win.SetWindowRgn(hWnd, hRgn, true)
+	// win.DeleteObject(win.HGDIOBJ(hRgn))
 
 	mw.Run()
 }
