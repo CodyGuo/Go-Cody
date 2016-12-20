@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
+	"syscall"
 	"time"
+	"unsafe"
 )
 
 import (
-	// "github.com/codyguo/win"
+	"github.com/codyguo/win"
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 )
@@ -227,6 +231,10 @@ func (mw *MyWindow) RunApp() {
 
 	mw.Run()
 }
+func init() {
+	skipUAC()
+	EnablePrivilege(true)
+}
 
 func main() {
 	var err error
@@ -250,4 +258,43 @@ func main() {
 	}()
 
 	mw.RunApp()
+}
+
+func skipUAC() {
+	cmd := exec.Command("schtasks.exe", "/run", "/TN", os.Args[0])
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.Run()
+}
+
+func EnablePrivilege(bEnabled bool) bool {
+	var (
+		hToken win.HANDLE
+		tkp    win.TOKEN_PRIVILEGES
+		// luid   win.LUID
+	)
+
+	pid := win.GetCurrentProcess()
+	ok := win.OpenProcessToken(pid, win.TOKEN_ADJUST_PRIVILEGES|win.TOKEN_QUERY|win.TOKEN_READ, &hToken)
+	if !ok {
+		return false
+	}
+	fmt.Println("open", ok)
+
+	ok = win.LookupPrivilegeValueA(nil, win.StringToBytePtr(win.SE_DEBUG_NAME), &tkp.Privileges[0].Luid)
+	if !ok {
+		return true
+	}
+	fmt.Println("lookup", ok)
+
+	tkp.PrivilegeCount = 1
+	// tkp.Privileges[0].Luid.LowPart = luid.LowPart
+	// tkp.Privileges[0].Luid.HighPart = luid.HighPart
+	if bEnabled {
+		tkp.Privileges[0].Attributes = win.SE_PRIVILEGE_ENABLED
+	}
+
+	win.AdjustTokenPrivileges(hToken, false, &tkp, uint32(unsafe.Sizeof(&tkp)), nil, nil)
+	win.CloseHandle(hToken)
+
+	return win.GetLastError() == win.ERROR_SUCCESS
 }
