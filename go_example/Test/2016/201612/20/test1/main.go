@@ -1,9 +1,7 @@
 package main
 
-import (
-	"github.com/codyguo/win"
-)
+import "os"
 
 func main() {
-
+	os.Exit(0)
 }

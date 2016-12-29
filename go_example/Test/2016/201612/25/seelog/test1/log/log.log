@@ -1,0 +1,56 @@
+[Inf] [2016-12-25-09:44:39 (main.main 32)] hello from seelog!
+[Dbg] [2016-12-25-09:44:39 (main.printLog 37)] debug log.
+[Inf] [2016-12-25-09:44:50 (main.main 32)] hello from seelog!
+[Dbg] [2016-12-25-09:44:50 (main.printLog 37)] debug log.
+[Inf] [2016-12-25-09:45:58 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:45:58 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:05 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:05 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:07 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:07 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:08 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:08 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:29 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:29 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:31 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:31 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:33 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:33 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:35 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:35 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:37 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:37 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:39 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:39 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:41 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:41 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:46:43 (main.main 33)] hello from seelog!
+[Dbg] [2016-12-25-09:46:43 (main.printLog 38)] debug log.
+[Inf] [2016-12-25-09:49:23 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-09:49:44 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-09:50:30 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-09:50:51 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-09:52:24 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-09:52:25 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-09:53:56 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-09:53:56 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-09:54:20 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-09:54:20 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-09:55:18 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-09:55:18 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-09:56:42 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-09:57:03 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-10:04:33 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-10:04:33 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-10:07:02 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-10:07:02 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-10:07:09 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-10:07:09 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-10:08:41 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-10:08:42 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-10:08:52 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-10:09:13 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-10:11:01 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-10:11:02 (main.printLog 41)] debug log.
+[Inf] [2016-12-25-10:11:09 (main.main 36)] hello from seelog!
+[Dbg] [2016-12-25-10:11:30 (main.printLog 41)] debug log.

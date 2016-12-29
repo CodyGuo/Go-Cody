@@ -53,11 +53,12 @@ func newSession(client *ssh.Client, stdin bool) (*ssh.Session, io.WriteCloser) {
 	var w io.WriteCloser
 	if stdin {
 		session.Stdin = os.Stdin
-		session.Stdout = os.Stdout
-		session.Stderr = os.Stderr
 	} else {
 		w, _ = session.StdinPipe()
 	}
+
+	session.Stdout = os.Stdout
+	session.Stderr = os.Stderr
 
 	err = session.Shell()
 	checkErr(err, "start shell")

@@ -41,6 +41,13 @@ func main() {
 		"github.com/codyguo/xcgui",
 		"github.com/lxn/walk",
 		"github.com/lxn/win",
+		"github.com/golang/crypto",
+		"github.com/golang/image",
+		"github.com/golang/tools",
+		"github.com/golang/text",
+		"github.com/golang/net",
+		"github.com/golang/exp",
+		"github.com/golang/sys",
 	}
 
 	if flag {
