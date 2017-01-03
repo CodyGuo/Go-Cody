@@ -2,81 +2,95 @@
 var wsUri = "ws://" + location.hostname + ":" + location.port + "/ws";
 var ws = null;
 
-function NewWebScoket(){
-  if(ws){
-    return false
-  }
-  if ('WebSocket' in window) {
-      ws = new WebSocket(wsUri);
-  } else if ('MozWebSocket' in window) {
-      ws = new MozWebSocket(wsUri);
-  }
+function NewWebScoket() {
+    if (ws) {
+        return false;
+    }
+    if ('WebSocket' in window) {
+        ws = new WebSocket(wsUri);
+    } else if ('MozWebSocket' in window) {
+        ws = new MozWebSocket(wsUri);
+    }
+}
 
-  // 发送api
-  ws.onsend = function(data) {
-      var dataStr = JSON.stringify(data);
-      ws.send(dataStr);
-      printDbg("send: " + dataStr);
-  }
-};
+function writeLog(message) {
+    message = message + "<br>";
+    $logPre.append(message);
+    $logPre.scrollTop($logPre[0].scrollHeight);
+}
 
-var $pingBtn = $("#ping"),
-    $logPre = $("#log");
+var $pingBtn = $("#pingBtn"),
+    $logPre = $("#log"),
+    $menutools = $("#menutools");
 
-var writeLog = function(message) {
-    message = message + "<br>"
-    $logPre.append(message)
-    $logPre.scrollTop = $logPre.scrollHeight;
-};
+$pingBtn.click(function(evt) {
+    if ($pingBtn.data("type") == 'stop') {
+        ws.onsend({
+            'stop': true
+        });
 
-$pingBtn.click(function(evt){
-  NewWebScoket();
-  ws.onopen  = function(evt){
-    printDbg("WebSocket connected.")
-    ip = document.forms["ping-Addr"].ipAddr.value
-    printDbg("开始ping..."+ip);
-    $pingBtn.text("Stop")
-      .attr("data-type", "stop")
-      .addClass("btn-danger")
-      .removeClass("btn-primary");
-    $logPre.empty()
-
-    ws.onsend({
-      'ip': ip
-    });
-    setTimeout(function () {
-      ws.onsend({
-        'stop':true
-      });
-      printDbg("发送停止...")
-    }, 2000);
-  };
-
-  ws.onclose = function(evt){
-    printDbg("WebSocket connection closed.");
-    $pingBtn.text("Ping")
-      .attr("data-type", "run")
-      .addClass("btn btn-primary")
-      .removeClass("btn-danger");
-    ws = null;
-  };
-
-ws.onmessage = function(evt) {
-    printDbg("接收到消息...\n" + evt.data)
-    writeLog(evt.data)
-    $(window).scrollTop($(window).scrollTop() + 1);
-  };
-
-  ws.onerror = function(evt) {
-      printDbg("WebSocket error: " + evt.data)
-  };
-
-  return false;
+        writeLog("\n" + $mode.text() + " 已停止...");
+        return false;
+    }
+    NewWebScoket();
+    EventwebSocket();
+    return true;
 });
+
+// 事件处理
+function EventwebSocket() {
+    // 连接事件发送诊断类型和参数地址
+    ws.onopen = function(evt) {
+        groupBeg($mode.text());
+        printLogDbg("WebSocket connected.");
+
+        type = $mode.data("type");
+        args = $("#ipAddr")[0].value;
+
+        printLogDbg("开始 " + $mode.text() + " " + args);
+        $pingBtn.text("停止").data("type", "stop")
+            .addClass("btn-danger").removeClass("btn-primary");
+        $menutools.addClass("disabled");
+        $logPre.empty();
+
+        ws.onsend({
+            'type': type,
+            'args': args,
+        });
+    };
+
+    // 发送api
+    ws.onsend = function(data) {
+        var dataStr = JSON.stringify(data);
+        ws.send(dataStr);
+        printLogDbg("send -----> " + dataStr);
+    };
+
+    // 接收api
+    ws.onmessage = function(evt) {
+        printLogDbg("received -----> " + evt.data);
+        writeLog(evt.data);
+    };
+
+    // 关闭api
+    ws.onclose = function(evt) {
+        printLogDbg("WebSocket connection closed.");
+        $pingBtn.text("执行").data("type", "run")
+            .addClass("btn btn-primary").removeClass("btn-danger");
+        $menutools.removeClass("disabled");
+        ws = null;
+        groupEnd($mode.text());
+    };
+
+    ws.onerror = function(evt) {
+        printLogDbg("WebSocket error: " + evt.data);
+    };
+}
+
 
 // 浏览器关闭
 window.onbeforeunload = function() {
     ws.close();
-    printDbg("WebSocket connection closed.")
-    return
-}
+    printLogDbg("WebSocket connection closed.");
+    return;
+};

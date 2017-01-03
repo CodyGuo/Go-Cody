@@ -1,7 +1,7 @@
 package controllers
 
 import (
-	"fmt"
+	"log"
 
 	"github.com/astaxie/beego"
 	"github.com/astaxie/beego/session"
@@ -32,5 +32,5 @@ func (c *MainController) Get() {
 
 	c.Data["Host"] = r.Host
 	c.TplName = "index.tpl"
-	fmt.Println("------------", sess.SessionID(), "--------------")
+	log.Println("sessionID ----->", sess.SessionID())
 }
