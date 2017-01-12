@@ -37,18 +37,17 @@ func NewLogView(parent walk.Container) (*LogView, error) {
 		win.WS_EX_CLIENTEDGE); err != nil {
 		return nil, err
 	}
+
 	lv.setReadOnly(true)
 	lv.SendMessage(win.EM_SETLIMITTEXT, 4294967295, 0)
 
 	NotificationFilter.Dbcc_size = uint32(unsafe.Sizeof(*NotificationFilter))
 	NotificationFilter.Dbcc_devicetype = winC.DBT_DEVTYP_DEVICEINTERFACE
-	for index, guid := range winC.GUID_DEVINTERFACE_LIST {
-		NotificationFilter.Dbcc_classguid = guid
-		handle := winC.HANDLE(lv.Handle())
-		tmp := winC.RegisterDeviceNotificationW(handle, (uintptr)(unsafe.Pointer(NotificationFilter)), winC.DEVICE_NOTIFY_WINDOW_HANDLE)
-		fmt.Printf("%d reg: %v\n", index, tmp)
-
-	}
+	guid := winC.GUID_DEVINTERFACE_USB_DEVICE
+	NotificationFilter.Dbcc_classguid = guid
+	handle := winC.HANDLE(lv.Handle())
+	tmp := winC.RegisterDeviceNotificationW(handle, (uintptr)(unsafe.Pointer(NotificationFilter)), winC.DEVICE_NOTIFY_WINDOW_HANDLE)
+	fmt.Printf("register -> %v\n", tmp)
 
 	return lv, nil
 }
