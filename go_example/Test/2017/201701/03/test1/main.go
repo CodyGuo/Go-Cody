@@ -100,6 +100,7 @@ func main() {
 		}
 		return
 	}
+
 	// if len(*svcFlag) != 0 {
 	// 	err := service.Control(s, *svcFlag)
 	// 	if err != nil {
