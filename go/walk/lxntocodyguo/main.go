@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+// 并发打开文件数限制
 const numModeFiles = 50
 
 const (
@@ -79,7 +80,7 @@ func readWrteFiles(done <-chan struct{}, files <-chan string, errc chan<- error)
 }
 
 func rwFiles(file string) error {
-	f, err := os.OpenFile(file, os.O_RDWR, os.ModeType)
+	f, err := os.OpenFile(file, os.O_RDWR|os.O_SYNC, os.ModeType)
 	if err != nil {
 		return err
 	}
@@ -92,7 +93,7 @@ func rwFiles(file string) error {
 
 	// fmt.Printf("src -> %s\n\n old -> %s\n", src, []byte(old))
 	if bytes.Contains(src, []byte(old)) {
-		fmt.Printf("正在处理文件 -> %s\n\n", file)
+		fmt.Printf("正在处理文件 -> %s\n", file)
 		out := bytes.Replace(src, []byte(old), []byte(new), -1)
 		if _, err := f.Seek(0, 0); err != nil {
 			return err
