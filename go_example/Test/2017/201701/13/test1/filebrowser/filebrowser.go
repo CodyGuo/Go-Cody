@@ -12,8 +12,8 @@ import (
 )
 
 import (
-	"github.com/codyguo/walk"
-	. "github.com/codyguo/walk/declarative"
+	"github.com/lxn/walk"
+	. "github.com/lxn/walk/declarative"
 )
 
 type Directory struct {

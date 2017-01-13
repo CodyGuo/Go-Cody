@@ -17,7 +17,7 @@ import (
 )
 
 // 并发打开文件数限制
-const numModeFiles = 50
+const numModFiles = 50
 
 const (
 	old = "github.com/lxn"
@@ -45,8 +45,8 @@ func modFiles(root string) error {
 	files, errw := walkFiles(done, root)
 
 	var wg sync.WaitGroup
-	wg.Add(numModeFiles)
-	for i := 0; i < numModeFiles; i++ {
+	wg.Add(numModFiles)
+	for i := 0; i < numModFiles; i++ {
 		go func() {
 			readWrteFiles(done, files, errc)
 			wg.Done()
