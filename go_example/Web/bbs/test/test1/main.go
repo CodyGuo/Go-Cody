@@ -20,9 +20,16 @@ import (
 type MyWindow struct {
 	*walk.MainWindow
 	lv               *LogView
+	url              *walk.LineEdit
+	cookies          *walk.TextEdit
 	beginUID, endUID *walk.LineEdit
 	clearBtn         *walk.PushButton
 }
+
+var (
+	bbsURL     = "http://bbs.hupu.cn"
+	bbsCookies = ""
+)
 
 func main() {
 	title := "BBS 垃圾账号清理"
@@ -31,9 +38,19 @@ func main() {
 	if err := (MainWindow{
 		AssignTo: &mw.MainWindow,
 		Title:    title,
-		MinSize:  Size{500, 450},
+		MinSize:  Size{700, 600},
 		Layout:   VBox{MarginsZero: true},
 		Children: []Widget{
+			Composite{
+				Layout:  VBox{},
+				MaxSize: Size{0, 200},
+				Children: []Widget{
+					Label{Text: "BBS_URL："},
+					LineEdit{AssignTo: &mw.url, Text: bbsURL},
+					Label{Text: "Cookies："},
+					TextEdit{AssignTo: &mw.cookies},
+				},
+			},
 			Composite{
 				Layout: HBox{},
 				Children: []Widget{
@@ -43,11 +60,16 @@ func main() {
 					LineEdit{AssignTo: &mw.endUID},
 					PushButton{AssignTo: &mw.clearBtn, Text: "开始清理", OnClicked: func() {
 						mw.lv.Clean()
+						url := mw.url.Text()
+						cookies := mw.cookies.Text()
 						beg := mw.beginUID.Text()
 						end := mw.endUID.Text()
-						if len(beg) == 0 || len(end) == 0 {
-							walk.MsgBox(mw, title, "请输入开始UID和结束UID！", walk.MsgBoxIconError)
+						if len(beg) == 0 || len(end) == 0 ||
+							len(url) == 0 || len(cookies) == 0 {
+							walk.MsgBox(mw, title, "请输入BBS URL，登录cookies，开始UID和结束UID！", walk.MsgBoxIconError)
 						} else {
+							bbsURL = url
+							bbsCookies = cookies
 							go func() {
 								start := time.Now()
 								mw.clearBtn.SetEnabled(false)
@@ -113,11 +135,13 @@ func clearUsers(begStr string, endStr string) {
 }
 
 func creatRequest(uid int) (*http.Request, error) {
-	urlStr := "http://bbs.hupu.cn/admin.php?m=u&c=manage&a=doClear"
+	urlStr := bbsURL + "/admin.php?m=u&c=manage&a=doClear"
+	tokens := strings.Split(bbsCookies, ";")[0]
+	token := strings.Split(tokens, "=")[1]
 	data := url.Values{
 		"uid":        []string{fmt.Sprint(uid)},
 		"clear[]":    []string{"topic", "post", "message"},
-		"csrf_token": []string{"c545f16bf7b27eb0"},
+		"csrf_token": []string{token},
 	}
 
 	req, err := http.NewRequest("POST", urlStr, strings.NewReader(data.Encode()))
@@ -127,7 +151,7 @@ func creatRequest(uid int) (*http.Request, error) {
 
 	headers := map[string]string{
 		"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-		"Cookie":       "csrf_token=c545f16bf7b27eb0; bbs_AdminUser=eja%2BZuo%2FS1QAl%2FyOPw5%2F1THSHRTd6RTnaAmd916fdo0ZfbBCeK2%2Fxl0cmVrrwNGtU2TaHg%3D%3D",
+		"Cookie":       bbsCookies,
 		"User-Agent":   "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36",
 	}
 
