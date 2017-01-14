@@ -19,16 +19,17 @@ import (
 
 type MyWindow struct {
 	*walk.MainWindow
-	lv               *LogView
-	url              *walk.LineEdit
-	cookies          *walk.TextEdit
-	beginUID, endUID *walk.LineEdit
-	clearBtn         *walk.PushButton
+	lv                           *LogView
+	url                          *walk.LineEdit
+	cookies                      *walk.TextEdit
+	beginUID, endUID, clearNumbs *walk.LineEdit
+	clearBtn                     *walk.PushButton
 }
 
 var (
-	bbsURL     = "http://bbs.hupu.cn"
-	bbsCookies = ""
+	bbsURL     string
+	bbsCookies string
+	clearNums  = "20"
 )
 
 func main() {
@@ -58,6 +59,8 @@ func main() {
 					LineEdit{AssignTo: &mw.beginUID},
 					Label{Text: "结束UID："},
 					LineEdit{AssignTo: &mw.endUID},
+					Label{Text: "数量："},
+					LineEdit{AssignTo: &mw.clearNumbs, Text: clearNums},
 					PushButton{AssignTo: &mw.clearBtn, Text: "开始清理", OnClicked: func() {
 						mw.lv.Clean()
 						url := mw.url.Text()
@@ -77,7 +80,8 @@ func main() {
 								mw.clearBtn.SetEnabled(true)
 								log.Printf("清理垃圾用户结束！！！，用时 %v\n", time.Since(start))
 								begInt, _ := strconv.Atoi(beg)
-								mw.beginUID.SetText(fmt.Sprint(begInt - 20))
+								num, _ := strconv.Atoi(clearNums)
+								mw.beginUID.SetText(fmt.Sprint(begInt - num))
 							}()
 						}
 					}},
@@ -90,7 +94,18 @@ func main() {
 
 	mw.beginUID.TextChanged().Attach(func() {
 		beg, _ := strconv.Atoi(mw.beginUID.Text())
-		mw.endUID.SetText(fmt.Sprint(beg + 19))
+		num, _ := strconv.Atoi(clearNums)
+		mw.endUID.SetText(fmt.Sprint(beg + num - 1))
+	})
+
+	// mw.endUID.TextChanged().Attach(func() {
+	// 	end, _ := strconv.Atoi(mw.endUID.Text())
+	// 	num, _ := strconv.Atoi(clearNums)
+	// 	mw.beginUID.SetText(fmt.Sprint(end - num + 1))
+	// })
+
+	mw.clearNumbs.TextChanged().Attach(func() {
+		clearNums = mw.clearNumbs.Text()
 	})
 
 	var err error
