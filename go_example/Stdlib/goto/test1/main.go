@@ -14,6 +14,7 @@ func main() {
 			println("已超时")
 		}
 	}()
+
 	fmt.Println("等待超时中...")
 	time.Sleep(2 * time.Second)
 	fmt.Println("正常输出...")
