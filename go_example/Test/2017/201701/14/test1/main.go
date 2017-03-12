@@ -34,6 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	fmt.Printf("\n所有文件处理完成，用时 -> %s\n", time.Since(start))
 }
 

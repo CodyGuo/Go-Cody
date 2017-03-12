@@ -1,0 +1,6 @@
+baidu.com
+baidu.cn
+baidu.com.cn
+qq.com
+qq.cn
+qq.com.cn

@@ -12,3 +12,7 @@ windows、linux使用github时遇到的问题
 
 ### 1.3. BOOK
 * [BOOK](https://github.com/CodyGuo/Go-Cody/blob/master/github/README/Book/example.md "BOOK")
+
+### 1.4 回滚上一个版本
+    1> git reset --hard HEAD~1
+    2> git push -f origin master
