@@ -28,3 +28,9 @@
 
 ### 4.1. label
 * [常用的HTML标签](https://github.com/CodyGuo/Go-Cody/blob/master/html/label/README.md "常用的HTML标签")
+
+
+## 5. 其他
+
+### 5.1 andyDesk
+* [https://anydesk.com/remote-desktop](https://anydesk.com/remote-desktop "注册码：7K2CV32ER6T8F8I") 
