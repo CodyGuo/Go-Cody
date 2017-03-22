@@ -4,15 +4,34 @@ import (
 	"bytes"
 	"fmt"
 	"html"
+	"os"
+	"strings"
 
 	"github.com/CodyGuo/logs"
+	"github.com/PuerkitoBio/goquery"
 )
 
 func main() {
+	r, _ := os.Open("V3.5Ver_List.htm")
+	doc, _ := goquery.NewDocumentFromReader(r)
+	doc.Find(".MsoNormal").Each(func(i int, s *goquery.Selection) {
+		color, _ := s.Find("span").Attr("style")
+		if color == `font-family:"Verdana","sans-serif";color:blue` {
+			version := strings.TrimSpace(s.Text())
+			logs.Noticef("version --> %s", version)
+		}
+	})
+}
+
+func encode_examples() {
 	str := "1234567890. 你好 世界。 hello wrold. こんにちは、世界. 안녕 하세요 세계."
 	info := encode(str)
 	logs.Notice(info)
-	logs.Noticef("info --> %s", html.UnescapeString(info))
+	logs.Noticef("info --> %s", decode(info))
+}
+
+func decode(str string) string {
+	return html.UnescapeString(str)
 }
 
 func encode(str string) string {
