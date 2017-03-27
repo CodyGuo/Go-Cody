@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"strconv"
 	"strings"
@@ -93,6 +94,7 @@ func main() {
 					PushButton{
 						Text: "复制",
 						OnClicked: func() {
+							walk.Clipboard().Clear()
 							if err := walk.Clipboard().SetText(mw.msgOut.Text()); err != nil {
 								walk.MsgBox(mw, "错误提示", err.Error(), walk.MsgBoxIconError)
 							}
@@ -116,18 +118,26 @@ func main() {
 }
 
 func encodeMsg(send SendMsg) string {
-	flag := fmt.Sprintf("%04x", send.Flag)
-	seServe := fmt.Sprintf("%04x", send.SeServe)
-	lenMsg := fmt.Sprintf("%08x", send.Len)
+	flag := binaryMsg(send.Flag)
+	seServe := binaryMsg(send.SeServe)
+	lenMsg := binaryMsg(send.Len)
 	msg := fmt.Sprintf("%x", send.Msg)
 
 	var buf bytes.Buffer
-	buf.Write([]byte(flag[2:] + flag[0:2]))
-	buf.Write([]byte(seServe[2:] + seServe[0:2]))
-	buf.Write([]byte(lenMsg[6:] + lenMsg[4:6] + lenMsg[2:4] + lenMsg[0:2]))
+	buf.Write([]byte(flag))
+	buf.Write([]byte(seServe))
+	buf.Write([]byte(lenMsg))
 	buf.Write([]byte(msg))
 
 	return buf.String()
+}
+
+func binaryMsg(data interface{}) string {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.LittleEndian, data)
+	checkErr(err)
+
+	return fmt.Sprintf("%x", buf.Bytes())
 }
 
 func checkErr(err error) {
@@ -135,3 +145,14 @@ func checkErr(err error) {
 		logs.Fatal(err)
 	}
 }
+
+// flag := fmt.Sprintf("%04x", send.Flag)
+// seServe := fmt.Sprintf("%04x", send.SeServe)
+// lenMsg := fmt.Sprintf("%08x", send.Len)
+// msg := fmt.Sprintf("%x", send.Msg)
+
+// var buf bytes.Buffer
+// buf.Write([]byte(flag[2:] + flag[0:2]))
+// buf.Write([]byte(seServe[2:] + seServe[0:2]))
+// buf.Write([]byte(lenMsg[6:] + lenMsg[4:6] + lenMsg[2:4] + lenMsg[0:2]))
+// buf.Write([]byte(msg))
