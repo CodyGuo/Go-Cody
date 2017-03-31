@@ -1,5 +1,6 @@
 package main
 
+// 右移1位
 func binarySearch(items []int, item int) int {
 	low := 0
 	high := len(items) - 1
@@ -18,6 +19,8 @@ func binarySearch(items []int, item int) int {
 	}
 	return -1
 }
+
+// 除2
 func binarySearch2(items []int, item int) int {
 	low := 0
 	high := len(items) - 1
