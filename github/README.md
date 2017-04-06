@@ -16,3 +16,8 @@ windows、linux使用github时遇到的问题
 ### 1.4 回滚上一个版本
     1> git reset --hard HEAD~1
     2> git push -f origin master
+
+### 1.5 git用户名配置
+    git config --global user.name CodyGuo
+    git config --global user.email codyguo@aliyun.com
+    git config --list

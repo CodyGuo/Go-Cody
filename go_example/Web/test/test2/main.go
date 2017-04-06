@@ -15,11 +15,27 @@ func main() {
 	r, _ := os.Open("V3.5Ver_List.htm")
 	doc, _ := goquery.NewDocumentFromReader(r)
 	doc.Find(".MsoNormal").Each(func(i int, s *goquery.Selection) {
-		color, _ := s.Find("span").Attr("style")
-		if color == `font-family:"Verdana","sans-serif";color:blue` {
-			version := strings.TrimSpace(s.Text())
-			logs.Noticef("version --> %s", version)
+		style, _ := s.Find("span").Attr("style")
+		if style == `font-size:18.0pt;line-height:150%;font-family:NSimSun;color:navy` {
+			title := strings.TrimSpace(s.Text())
+			fmt.Printf("title --> %s\n", title)
 		}
+
+		if style == `font-family:"Verdana","sans-serif";color:blue` {
+			version := strings.TrimSpace(s.Text())
+			fmt.Printf("version --> %s\n", version)
+		}
+
+		if style == `font-family:SimSun` {
+			typeTitle := strings.TrimSpace(s.Text())
+			fmt.Println(typeTitle)
+		}
+
+		if style == `font-family:"Verdana","sans-serif"` {
+			data := strings.Replace(s.Text(), "\n", "", -1)
+			fmt.Println(data)
+		}
+
 	})
 }
 
