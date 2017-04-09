@@ -25,3 +25,21 @@ func BenchmarkBinarySearch2(b *testing.B) {
 		binarySearch2(items, 5)
 	}
 }
+
+func BenchmarkStd(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		binarySearchStd(items, 10)
+		binarySearchStd(items, 1000)
+		binarySearchStd(items, 100)
+		binarySearchStd(items, 5)
+	}
+}
+
+func BenchmarkBinarySearch3(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		binarySearch3(items, 10)
+		binarySearch3(items, 1000)
+		binarySearch3(items, 100)
+		binarySearch3(items, 5)
+	}
+}
