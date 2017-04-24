@@ -19,5 +19,5 @@ windows、linux使用github时遇到的问题
 
 ### 1.5 git用户名配置
     git config --global user.name CodyGuo
-    git config --global user.email codyguo@aliyun.com
+    git config --global user.email gocodyguo@aliyun.com
     git config --list
