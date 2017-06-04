@@ -13,7 +13,6 @@ func main() {
 	app.Version = "1.2"
 	app.Usage = "Using the onvif protocol for the camera information"
 	app.Author = "CodyGuo"
-	app.Email = "xiao.guo@hupu.net"
 
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -39,8 +38,7 @@ func main() {
 		argNum := len(c.Args())
 		flagsNum := c.NumFlags()
 		if argNum < 3 && flagsNum < 3 {
-			fmt.Println("NotAuthorized.")
-			// cli.ShowAppHelp(c)
+			cli.ShowAppHelp(c)
 		}
 		if argNum == 3 {
 			onvif.IP = c.Args()[0]
@@ -54,10 +52,10 @@ func main() {
 			onvif.Password = c.String("password")
 		}
 
-		result, _ := onvif.OnvifDevice()
-		// if err != nil {
-		// 	return err
-		// }
+		result, err := onvif.OnvifDevice()
+		if err != nil {
+			return err
+		}
 		fmt.Println(result)
 		return nil
 	}

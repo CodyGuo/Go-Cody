@@ -1,0 +1,208 @@
+{
+    "took": 596,
+    "timed_out": false,
+    "_shards": {
+        "total": 11,
+        "successful": 11,
+        "failed": 0
+    },
+    "hits": {
+        "total": 1121497,
+        "max_score": 0,
+        "hits": []
+    },
+    "aggregations": {
+        "day.raw": {
+            "doc_count_error_upper_bound": 0,
+            "sum_other_doc_count": 0,
+            "buckets": [
+                {
+                    "key": "20170418",
+                    "doc_count": 1121497,
+                    "channel.raw": {
+                        "doc_count_error_upper_bound": 0,
+                        "sum_other_doc_count": 0,
+                        "buckets": [
+                            {
+                                "key": "channel01",
+                                "doc_count": 901649,
+                                "acttype.raw": {
+                                    "doc_count_error_upper_bound": 0,
+                                    "sum_other_doc_count": 0,
+                                    "buckets": [
+                                        {
+                                            "key": "show",
+                                            "doc_count": 424711,
+                                            "ct": {
+                                                "value": 143760
+                                            }
+                                        },
+                                        {
+                                            "key": "click",
+                                            "doc_count": 253006,
+                                            "ct": {
+                                                "value": 114883
+                                            }
+                                        },
+                                        {
+                                            "key": "install",
+                                            "doc_count": 139527,
+                                            "ct": {
+                                                "value": 68115
+                                            }
+                                        },
+                                        {
+                                            "key": "installed",
+                                            "doc_count": 84405,
+                                            "ct": {
+                                                "value": 49037
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "key": "channel02",
+                                "doc_count": 107639,
+                                "acttype.raw": {
+                                    "doc_count_error_upper_bound": 0,
+                                    "sum_other_doc_count": 0,
+                                    "buckets": [
+                                        {
+                                            "key": "show",
+                                            "doc_count": 50364,
+                                            "ct": {
+                                                "value": 17019
+                                            }
+                                        },
+                                        {
+                                            "key": "click",
+                                            "doc_count": 32334,
+                                            "ct": {
+                                                "value": 14123
+                                            }
+                                        },
+                                        {
+                                            "key": "install",
+                                            "doc_count": 19891,
+                                            "ct": {
+                                                "value": 9259
+                                            }
+                                        },
+                                        {
+                                            "key": "installed",
+                                            "doc_count": 5050,
+                                            "ct": {
+                                                "value": 2922
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "key": "channel03",
+                                "doc_count": 69671,
+                                "acttype.raw": {
+                                    "doc_count_error_upper_bound": 0,
+                                    "sum_other_doc_count": 0,
+                                    "buckets": [
+                                        {
+                                            "key": "show",
+                                            "doc_count": 26617,
+                                            "ct": {
+                                                "value": 8229
+                                            }
+                                        },
+                                        {
+                                            "key": "click",
+                                            "doc_count": 22793,
+                                            "ct": {
+                                                "value": 7812
+                                            }
+                                        },
+                                        {
+                                            "key": "install",
+                                            "doc_count": 19919,
+                                            "ct": {
+                                                "value": 6165
+                                            }
+                                        },
+                                        {
+                                            "key": "installed",
+                                            "doc_count": 342,
+                                            "ct": {
+                                                "value": 290
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "key": "channel04",
+                                "doc_count": 42511,
+                                "acttype.raw": {
+                                    "doc_count_error_upper_bound": 0,
+                                    "sum_other_doc_count": 0,
+                                    "buckets": [
+                                        {
+                                            "key": "show",
+                                            "doc_count": 22565,
+                                            "ct": {
+                                                "value": 8044
+                                            }
+                                        },
+                                        {
+                                            "key": "click",
+                                            "doc_count": 11601,
+                                            "ct": {
+                                                "value": 5890
+                                            }
+                                        },
+                                        {
+                                            "key": "install",
+                                            "doc_count": 7208,
+                                            "ct": {
+                                                "value": 3802
+                                            }
+                                        },
+                                        {
+                                            "key": "installed",
+                                            "doc_count": 1137,
+                                            "ct": {
+                                                "value": 761
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "key": "channel05",
+                                "doc_count": 27,
+                                "acttype.raw": {
+                                    "doc_count_error_upper_bound": 0,
+                                    "sum_other_doc_count": 0,
+                                    "buckets": [
+                                        {
+                                            "key": "show",
+                                            "doc_count": 20,
+                                            "ct": {
+                                                "value": 7
+                                            }
+                                        },
+                                        {
+                                            "key": "click",
+                                            "doc_count": 7,
+                                            "ct": {
+                                                "value": 2
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

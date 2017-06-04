@@ -46,21 +46,16 @@ func pumpStdin(ws *websocket.Conn, w io.Writer) {
 	ws.SetReadDeadline(time.Now().Add(pongWait))
 	ws.SetPongHandler(func(string) error { ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 	for {
-		var ipInfo2 map[string]interface{}
-		if err := websocket.ReadJSON(ws, &ipInfo2); err != nil {
+		var tool map[string]interface{}
+		if err := websocket.ReadJSON(ws, &tool); err != nil {
 			return
 		}
 
-		if ipInfo2["stop"].(bool) {
-			log.Printf("received -----> stop {%v}\n", ipInfo2["stop"])
+		if tool["stop"].(bool) {
+			log.Printf("received --> stop {%v}\n", tool["stop"])
 			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 		}
 	}
-}
-
-func gbkDecode(f io.Reader) *mahonia.Reader {
-	decoder := mahonia.NewDecoder("gbk")
-	return decoder.NewReader(f)
 }
 
 func pumpStdout(ws *websocket.Conn, r io.Reader, done chan struct{}) {
@@ -76,7 +71,7 @@ func pumpStdout(ws *websocket.Conn, r io.Reader, done chan struct{}) {
 		}
 	}
 	if s.Err() != nil {
-		log.Println("scan ----->", s.Err())
+		log.Println("scan -->", s.Err())
 	}
 	close(done)
 
@@ -93,7 +88,7 @@ func wsPing(ws *websocket.Conn, done chan struct{}) {
 		select {
 		case <-ticker.C:
 			if err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(writeWait)); err != nil {
-				log.Println("wsPing ----->", err)
+				log.Println("wsPing -->", err)
 			}
 		case <-done:
 			return
@@ -116,21 +111,21 @@ func (wp *WsPing) Get() {
 	w, r := wp.Ctx.ResponseWriter, wp.Ctx.Request
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("upgrade ----->", err)
+		log.Println("upgrade -->", err)
 		return
 	}
 	defer ws.Close()
 
-	var ipInfo map[string]interface{}
-	if err := websocket.ReadJSON(ws, &ipInfo); err != nil {
+	var tool map[string]interface{}
+	if err := websocket.ReadJSON(ws, &tool); err != nil {
 		return
 	}
-	log.Println("received ----->", ipInfo)
+	log.Println("received -->", tool)
 
-	typeTool, _ := strconv.Atoi(fmt.Sprint(ipInfo["type"]))
-	args := fmt.Sprint(ipInfo["args"])
+	toolType, _ := strconv.Atoi(fmt.Sprint(tool["type"]))
+	args := fmt.Sprint(tool["args"])
 	cmds := strings.Split(args, " ")
-	cmd := exec.Command(types[typeTool], cmds...)
+	cmd := exec.Command(tools[toolType], cmds...)
 	inw, _ := cmd.StdinPipe()
 	outr, _ := cmd.StdoutPipe()
 	cmd.Start()
@@ -146,21 +141,20 @@ func (wp *WsPing) Get() {
 
 	cmd.Process.Kill()
 
-	// Other commands need a bonk on the head.
-	if err := cmd.Process.Signal(os.Interrupt); err != nil {
-		log.Println("inter error ----->", err)
-	}
-
 	select {
 	case <-stdoutDone:
-		log.Println("done ----->", types[typeTool])
+		log.Println("done -->", tools[toolType])
 	case <-time.After(time.Second):
 		if err := cmd.Process.Signal(os.Kill); err != nil {
-			log.Println("timeout ----->", err)
+			log.Println("timeout -->", err)
 		}
 		<-stdoutDone
 	}
 
 	cmd.Wait()
+}
 
+func gbkDecode(f io.Reader) *mahonia.Reader {
+	decoder := mahonia.NewDecoder("gbk")
+	return decoder.NewReader(f)
 }

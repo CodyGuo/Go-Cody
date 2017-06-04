@@ -4,13 +4,32 @@ import "sort"
 
 // 右移1位
 func binarySearch(items []int, item int) int {
-	result := -1
 	low, high := 0, len(items)-1
+	result := -1
 	for low <= high {
 		mid := (low + high) >> 1
 		if items[mid] < item {
 			low = mid + 1
 		} else if items[mid] > item {
+			high = mid - 1
+		} else {
+			result = mid
+			break
+		}
+	}
+	return result
+}
+
+// 右移1位
+func binarySearchGuess(items []int, item int) int {
+	result := -1
+	low, high := 0, len(items)-1
+	for low <= high {
+		mid := (low + high) >> 1
+		guess := items[mid]
+		if guess < item {
+			low = mid + 1
+		} else if guess > item {
 			high = mid - 1
 		} else {
 			result = mid

@@ -111,7 +111,6 @@ func (onv *Onvif) getRequest() ([]byte, error) {
 	}
 	req.Header.Add("User-Agent", "Hupu-iMan-Onvif")
 	req.Header.Add("Content-Type", "application/soap+xml;charset=utf-8")
-	// resp, err := client.Post("http://"+onv.IP+"/onvif/device_service", "application/soap+xml;charset=utf-8", onv.body)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -140,7 +139,6 @@ func (onv *Onvif) createSoapMessage() (msg *bytes.Buffer, err error) {
 	}
 	soapXML := buf.String()
 	// soapXML = strings.Replace(soapXML, "&lt;", "<", -1)
-	// UnescapeString 提升速度200%
 	soapXML = html.UnescapeString(soapXML)
 	msg = bytes.NewBuffer([]byte(soapXML))
 

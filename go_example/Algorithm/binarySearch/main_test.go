@@ -17,6 +17,15 @@ func BenchmarkBinarySearch1(b *testing.B) {
 	}
 }
 
+func BenchmarkBinarySearchGuess(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		binarySearchGuess(items, 10)
+		binarySearchGuess(items, 1000)
+		binarySearchGuess(items, 100)
+		binarySearchGuess(items, 5)
+	}
+}
+
 func BenchmarkBinarySearch2(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		binarySearch2(items, 10)

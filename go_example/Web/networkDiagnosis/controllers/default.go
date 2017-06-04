@@ -11,7 +11,7 @@ var globalSessions *session.Manager
 
 func init() {
 	cf := &session.ManagerConfig{
-		CookieName:      "ping",
+		CookieName:      "networktools",
 		CookieLifeTime:  3600,
 		Gclifetime:      3600,
 		EnableSetCookie: true,
@@ -32,5 +32,5 @@ func (c *MainController) Get() {
 
 	c.Data["Host"] = r.Host
 	c.TplName = "index.tpl"
-	log.Println("sessionID ----->", sess.SessionID())
+	log.Println("sessionID -->", sess.SessionID())
 }

@@ -2,6 +2,6 @@
 
 package controllers
 
-var types = []string{
+var tools = []string{
 	"ping", "tcpdump", "tracert", "nslookup",
 }
