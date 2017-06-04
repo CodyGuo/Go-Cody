@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
-	"github.com/codyguo/logs"
 	"github.com/lxn/walk"
 
 	. "github.com/lxn/walk/declarative"
@@ -111,7 +111,7 @@ func main() {
 			},
 		},
 	}).Create(); err != nil {
-		logs.Fatal(err)
+		log.Fatal(err)
 	}
 
 	mw.Run()
@@ -142,7 +142,7 @@ func binaryMsg(data interface{}) string {
 
 func checkErr(err error) {
 	if err != nil {
-		logs.Fatal(err)
+		log.Fatal(err)
 	}
 }
 
