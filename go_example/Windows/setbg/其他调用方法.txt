@@ -1,0 +1,16 @@
+pvParam := stringToPointer(bgFile)
+ok := SystemParametersInfo(SPI_SETDESKWALLPAPER, FALSE, pvParam, SPIF_UPDATEINIFILE|SPIF_SENDWININICHANGE)
+if !ok {
+	return errors.New("The OS is Vista or later, Desktop background Settings fail.")
+}
+
+// SPI_SETSCREENSAVESECURE --> Windows Server 2003 and Windows XP/2000:  This parameter is not supported.
+if checkVersion() {
+	var passwdSwitch uint32
+	if passwd {
+		passwdSwitch = TRUE
+	} else {
+		passwdSwitch = FALSE
+	}
+	setScreen(SPI_SETSCREENSAVESECURE, passwdSwitch)
+}

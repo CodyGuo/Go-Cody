@@ -1,0 +1,29 @@
+﻿支持XP以上操作系统
+setbg使用方法：
+参数说明：
+Usage of setbg.exe:
+  -a     设置关闭或开启屏幕保护，默认是true
+  -b     设置桌面背景图路径
+  -p     设置屏幕保护在恢复时显示登录屏幕
+  -s     设置屏幕保护文件路径
+  -style 设置桌面背景位置
+  -t     设置屏幕保护等待时间
+
+设置桌面背景和屏幕保护例子：
+(vista or later):
+setbg.exe -b %USERPROFILE%\Desktop\test.jpg -s C:\WINDOWS\system32\Bubbles.scr -t 10 -p true
+
+XP/2003：
+setbg.exe -b %USERPROFILE%\桌面\test.jpg -s C:\WINDOWS\system32\ssstars.scr -t 20 -p true
+
+关闭屏幕保护：
+setbg.exe -a=false
+
+
+桌面背景注册表 HKEY_CURRENT_USER\Control Panel\Desktop 修改字符串 Wallpaper
+名称：Wallpaper
+值  ：C:\windows\Web\Wallpaper\Lenovo\LenovoWallPaper.jpg
+
+屏幕保护注册表 HKEY_CURRENT_USER\Control Panel\Desktop 下新增字符串
+名称：SCRNSAVE.EXE 
+值  ：C:\WINDOWS\system32\Bubbles.scr 
